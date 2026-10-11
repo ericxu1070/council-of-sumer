@@ -156,11 +156,12 @@ const G = (() => {
     setBadge: (id, b) => CG()?.setBadge(id, b),
     setHub: h => CG()?.setHub(h),
     pulse: instant => { if (!instant) CG()?.pulseHub(); },
+    relations: (edges, instant) => { if (!instant) CG()?.flashRelations(edges); },
   };
 })();
-// The hub is the message bus: SLIM, except for the in-process transport used in tests/bench.
-const hubLabel = () => S.meta?.transport === "inproc" ? "LOCAL" : "SLIM";
-function setHubSub(sub = "message bus") { G.setHub({ label: hubLabel(), sub }); }
+// Keep transport details available under the hood; the main view is the city council.
+const hubLabel = () => S.hood ? (S.meta?.transport === "inproc" ? "LOCAL" : "SLIM") : "Council";
+function setHubSub(sub = "city square") { G.setHub({ label: hubLabel(), sub }); }
 const STANCE = {
   agree: ["agree", "✓", "Agrees with the leading plan"],
   disagree: ["disagree", "✕", "Does not back the leading plan"],
@@ -279,12 +280,30 @@ function traceText(obj, depth = 0) {
   }).join("\n");
 }
 
+function turnRelations(d) {
+  const accepted = new Set(d.accept || []);
+  if (d.runoff_vote && S.runoff) {
+    return [S.runoff.a, S.runoff.b].map(row => ({
+      from: d.advisor, to: planAuthor(row.id, row.author), agree: row.id === d.runoff_vote,
+    }));
+  }
+  const acceptedAuthors = new Set([...accepted].map(id => planAuthor(id)).filter(Boolean));
+  const knownAuthors = new Set(Object.values(S.plans));
+  // Only show red for an addressed advisor with a known plan. Addressing someone
+  // alone is not evidence of disagreement; absence from a cast approval vote is.
+  const targets = new Set([...acceptedAuthors, ...(d.addressed || []).filter(id => knownAuthors.has(id))]);
+  return [...targets].map(to => ({ from: d.advisor, to, agree: acceptedAuthors.has(to) }));
+}
+
 function renderTurn(d, instant) {
   const a = adv(d.advisor);
   const addressed = (d.addressed || []).filter(x => x !== d.advisor);
-  if (d.plan_id) S.plans[d.plan_id] = d.advisor;
+  // Backing someone else’s plan must retain its original author.
+  for (const row of d.support || []) if (row.id && row.author) S.plans[row.id] = row.author;
+  if (d.plan_id && !S.plans[d.plan_id]) S.plans[d.plan_id] = planAuthor(d.plan_id, d.advisor);
   const meta = d.phase === "runoff" ? "Runoff" : d.round != null ? `Round ${dispRound(d.year, d.round)}` : "";
   G.speak({ speaker: d.advisor, to: addressed, text: d.speech || "", meta }, instant);
+  G.relations(turnRelations(d), instant);
   const foot = [];
   if (d.phase === "runoff" || d.runoff_vote) {
     const side = S.runoff && d.runoff_vote === S.runoff.b.id ? "b" : "a";
@@ -324,6 +343,7 @@ function renderPoll(d, instant) {
     S.stance = {};
     for (const a of S.advisors) S.stance[a.id] = lead.accept?.includes(a.id) ? "agree" : "disagree";
     renderStances();
+    G.relations(S.advisors.map(a => ({ from: a.id, to: planAuthor(lead.id, lead.author), agree: lead.accept?.includes(a.id) })), instant);
     const n = lead.accept?.length || 0;
     S.leadHtml = `${voteDots(lead.accept)}<span><b>${n} of ${N()}</b> agree with ${esc(planName(lead.id, lead.author))}</span>`;
     setPhase($("#phase").textContent, S.leadHtml);
@@ -533,6 +553,7 @@ function points(st) {
 }
 function renderStats() {
   const last = S.hist.length - 1;
+  window.CityView?.render(S.hist[last] || null);
   $("#cityWhen").textContent = last <= 0 ? "at the start" : `after year ${last}`;
   for (const st of STATS) {
     const el = $(`#stat-${st.key}`);
@@ -760,7 +781,7 @@ function render(kind, d, instant) {
       append(`<span class="emoji">🏛️</span><div><b>The council convenes</b>${N()} advisors will run the city for ${S.years} years. Each has a different goal. They must agree, or ask you.</div>`, "note", { instant });
       break;
     case "year_start":
-      S.year = d.year; S.round = null; S.stance = {}; S.leadHtml = ""; renderStances(); hideRunoff();
+      S.year = d.year; S.round = null; S.stance = {}; S.plans = {}; S.leadHtml = ""; renderStances(); hideRunoff();
       if (d.state) recordState(d.year - 1, d.state);
       renderYear();
       setPhase(`Year ${d.year} begins`, `<span>The council is discussing</span>`);
@@ -1059,6 +1080,7 @@ async function start() {
 function setHood(on) {
   S.hood = on;
   document.body.classList.toggle("hood", on);
+  G.setHub({ label: hubLabel() });
   $("#hoodToggle").setAttribute("aria-pressed", String(on));
   $$(".msg").forEach(m => {
     const t = $(".thought", m), b = $(".think-btn", m);
@@ -1168,6 +1190,7 @@ function wire() {
 }
 
 (async function init() {
+  window.CityView?.mount();
   G.mount($("#graph"));
   wire();
   buildStats();
