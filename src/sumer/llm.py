@@ -61,10 +61,11 @@ def enabled() -> bool:
     return settings.llm_mode == "bayleaf" and bool(settings.llm_api_key and settings.llm_base_url)
 
 
-def _cache_path(messages: list[dict]) -> Path:
+def _cache_path(messages: list[dict], temperature: float = 0.4) -> Path:
     key = hashlib.sha256(
         json.dumps(
-            [settings.llm_model, settings.llm_reasoning, settings.llm_reasoning_effort,
+            [settings.llm_base_url.rstrip("/"), settings.llm_model, temperature,
+             settings.llm_reasoning, settings.llm_reasoning_effort,
              settings.llm_max_tokens, messages],
             sort_keys=True,
         ).encode()
@@ -93,7 +94,7 @@ async def chat(messages: list[dict], temperature: float = 0.4) -> Reply:
     """One chat completion, from the cache if possible. A live call is tried up
     to ATTEMPTS times, so a slow or dropped request does not silently turn into
     an uncached policy fallback that the next replay would not reproduce."""
-    path = _cache_path(messages)
+    path = _cache_path(messages, temperature)
     if settings.llm_cache and path.exists():
         return Reply(json.loads(path.read_text())["content"], settings.llm_model, True, 0.0, 0.0)
     if not enabled():

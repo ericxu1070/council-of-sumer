@@ -104,7 +104,7 @@ async def test_llm_call_is_retried_then_cached(monkeypatch, tmp_path):
     monkeypatch.setattr(llm, "enabled", lambda: True)
     monkeypatch.setattr(llm, "spent_usd", lambda: 0.0)
     monkeypatch.setattr(llm, "BACKOFF_S", (0.0, 0.0))
-    monkeypatch.setattr(llm, "_cache_path", lambda m: tmp_path / "reply.json")
+    monkeypatch.setattr(llm, "_cache_path", lambda m, temperature=0.4: tmp_path / "reply.json")
     r = await llm.chat([{"role": "user", "content": "hi"}])
     assert r.content == '{"ok": 1}' and len(calls) == 3
     again = await llm.chat([{"role": "user", "content": "hi"}])
