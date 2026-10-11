@@ -154,7 +154,7 @@ class SlimCouncil:
             ),
         )
 
-    async def ask(self, brief: Brief) -> Ballot | None:
+    async def ask(self, brief: Brief) -> Delivery:
         with span("transport.request", parent=brief.traceparent, run_id=brief.run_id, year=brief.year, phase=brief.phase, peer=brief.speaker):
             from agntcy_app_sdk.semantic.a2a.client.utils import message_translator
 
