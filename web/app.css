@@ -53,9 +53,13 @@ button { cursor: pointer; }
 .emoji { font-family: var(--emoji); font-style: normal; line-height: 1; }
 
 /* ---------- top bar ---------- */
-.top { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: 16px;
+.top { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px;
   padding: 10px 20px; background: var(--bg-2); border-bottom: 1px solid var(--line); min-height: 68px; position: relative; z-index: 2; }
 .brand { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.top-left { display: flex; align-items: center; gap: 18px; min-width: 0; }
+.top-left .brand { flex: none; }
+.top .phase { font-size: 1rem; }
+.top .convene { margin-left: 0; font-size: .95rem; padding: 8px 15px; }
 .brand-mark { width: 40px; height: 40px; flex: none; }
 .brand-text { min-width: 0; }
 .brand-name { margin: 0; font-weight: 800; font-size: 1.35rem; line-height: 1.15; letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -63,7 +67,7 @@ button { cursor: pointer; }
 .council-status { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
 .year-heading { display: flex; align-items: baseline; justify-content: center; gap: 8px; }
 .round-label { font-size: 1rem; font-weight: 600; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
-.year-label { font-weight: 800; font-size: 1.6rem; line-height: 1; letter-spacing: -.005em; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.year-label { font-weight: 800; font-size: 1.25rem; line-height: 1; letter-spacing: -.005em; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .year-steps { display: flex; gap: 6px; }
 .year-steps span { width: 48px; height: 6px; border-radius: 0; background: rgba(255, 255, 255, .1); transition: background .4s var(--ease), box-shadow .4s var(--ease); }
 .year-steps span.done { background: var(--accent); }
@@ -409,7 +413,7 @@ button.panel-head:hover { background: rgba(255, 255, 255, .025); }
   .top .chip { display: none; }
 }
 @media (max-width: 1150px) {
-  .top { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .top { grid-template-columns: minmax(0, 1fr); }
   .top-actions { grid-column: 1 / -1; grid-row: 2; }
   .toggle > span:first-child { display: none; }
   .toggle::before { content: "⚙"; font-size: 1rem; }
@@ -417,9 +421,10 @@ button.panel-head:hover { background: rgba(255, 255, 255, .025); }
 @media (max-width: 900px) {
   body { overflow: auto; }
   .app { height: auto; min-height: 100dvh; }
-  .top { grid-template-columns: minmax(0, 1fr) auto; padding: 8px 12px; gap: 8px; }
+  .top { grid-template-columns: minmax(0, 1fr); padding: 8px 12px; gap: 8px; }
+  .top-left { flex-wrap: wrap; gap: 8px 16px; }
   .brand-mark { width: 30px; height: 30px; }
-  .top-actions { grid-column: 2; grid-row: 1; }
+  .top-actions { grid-column: 1; grid-row: 2; }
   .council-status { grid-column: 1; grid-row: 2; }
   .yearbox { grid-column: 2; grid-row: 2; }
   .year-steps span { width: 20px; }
@@ -664,7 +669,8 @@ body:not(.hood) .cg-hub-label { font-size: 14px; letter-spacing: .03em; }
 }
 
 @media (max-width: 480px) {
-  .top { grid-template-columns: 30px minmax(0, 1fr); }
+  .top { grid-template-columns: minmax(0, 1fr); }
+  .top-left .brand { flex-basis: 100%; }
   .council-status { grid-column: 1 / -1; flex-direction: row; align-items: baseline; }
   .yearbox { grid-column: 1 / -1; grid-row: 3; flex-direction: row; justify-content: space-between; }
   .top-actions { flex-wrap: wrap; }
