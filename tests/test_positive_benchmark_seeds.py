@@ -12,7 +12,8 @@ async def test_bad_seed_count_preserves_results(monkeypatch, tmp_path, count):
     assert existing.read_text() == "preserve me"
 
 
-def test_cli_reports_bad_seed_count(monkeypatch, capsys):
+def test_cli_reports_bad_seed_count(monkeypatch, capsys, tmp_path):
+    monkeypatch.setattr(bench, "RESULTS_DIR", tmp_path)
     monkeypatch.setattr("sys.argv", ["sumer", "bench", "--seeds", "0"])
     with pytest.raises(SystemExit) as exc:
         cli.main()
