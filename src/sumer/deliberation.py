@@ -46,6 +46,7 @@ own judgment.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -61,13 +62,24 @@ from sumer.advisors import (
     short,
 )
 from sumer.game import Decision, State, legalize
-from sumer.protocol import Ballot, Brief, Plan, TabledProposal, proposal_id, verify
+from sumer.observability import context_headers, span
+from sumer.protocol import (
+    Ballot,
+    Brief,
+    Delivery,
+    Plan,
+    TabledProposal,
+    proposal_id,
+    state_hash,
+    uid,
+    validate_reply,
+)
 
 log = logging.getLogger(__name__)
 
 Emit = Callable[[str, dict], Awaitable[None]]
 # Sends a Brief to its one speaker and returns that advisor's Ballot (None if it never answered)
-Ask = Callable[[Brief], Awaitable[Ballot | None]]
+Ask = Callable[[Brief], Awaitable[Ballot | Delivery | None]]
 # Called on escalation with (options, reason); returns the chosen option id or None
 AskHuman = Callable[[list[dict], str], Awaitable[str | None]]
 
@@ -101,6 +113,8 @@ class YearResult:
     human_choice: str | None = None
     runoff: dict | None = None  # {"a", "b", "trigger", "votes", "count", "winner", "reason"}
     turns: int = 0
+    certificate: dict | None = None
+    human_resolution: dict | None = None
     summary: str = ""  # the narrator's plain-English line, set after the year is played
 
     def record(self) -> dict:
@@ -118,6 +132,14 @@ class YearResult:
             "runoff_trigger": (self.runoff or {}).get("trigger"),
             "news": [n["text"] for n in self.news],
         }
+
+
+class TechnicalFailure(Exception):
+    pass
+
+
+class Deadlock(Exception):
+    pass
 
 
 async def _noop_emit(kind: str, data: dict) -> None:
@@ -212,7 +234,38 @@ async def deliberate_year(
     injected_news: list[dict] | None = None,
     ask_human: AskHuman | None = None,
     emit: Emit = _noop_emit,
+    run_id: str | None = None,
 ) -> YearResult:
+    run_id = run_id or uid()
+    transport_ask = ask
+    accepted: dict[str, Ballot] = {}
+
+    async def ask(brief):
+        with span("council.turn", run_id=run_id, year=state.year, phase=brief.phase, peer=brief.speaker, cycle=brief.round):
+            request = brief.model_copy(update={"run_id": run_id})
+            errors = {}
+            for attempt in (1, 2):
+                request = request.model_copy(update={"message_id": uid(), "errors": errors,
+                                                     "traceparent": context_headers().get("traceparent", "")})
+                await emit("phase", {"year": state.year, "round": request.round,
+                                     "phase": request.phase, "attempt": attempt,
+                                     "request_id": request.message_id, "brief": request.model_dump()})
+                response = None
+                try:
+                    response = await asyncio.wait_for(transport_ask(request), timeout=120)
+                    ballot = validate_reply(response, request)
+                    await emit("receipt", {"year": state.year, "responses": [ballot.model_dump()]})
+                    accepted[request.speaker] = ballot
+                    return ballot
+                except Exception as exc:  # noqa: BLE001 - retry transport/model/validation failures
+                    reply = response.reply if isinstance(response, Delivery) else response
+                    errors = {request.speaker: f"{type(exc).__name__}: {exc}"}
+                    await emit("validation_error", {"year": state.year, "round": request.round,
+                        "phase": request.phase, "peer": request.speaker, "attempt": attempt,
+                        "request_id": request.message_id, "message": errors[request.speaker],
+                        "responses": [reply.model_dump()] if isinstance(reply, Ballot) else []})
+            raise TechnicalFailure(f"{request.speaker} failed after one retry: {errors}")
+
     beliefs = Beliefs()
     news: list[dict] = []
     table = Table(state)
@@ -232,8 +285,10 @@ async def deliberate_year(
         return bool(items)
 
     def finish(outcome, pid, rounds, dissent, reason, runoff=None) -> YearResult:
-        return _finish(state, beliefs, outcome, table.plans[pid], rounds, dissent, reason, news,
-                       opening, after_news, runoff, n_turns)
+        result = _finish(state, beliefs, outcome, table.plans[pid], rounds, dissent, reason, news,
+                         opening, after_news, runoff, n_turns)
+        result.certificate = {"candidate_id": pid, "ballots": [accepted[a].model_dump() for a in ADVISOR_IDS]}
+        return result
 
     rnd = 0
     for rnd in range(max_rounds):
@@ -258,12 +313,13 @@ async def deliberate_year(
             if not _valid(ballot, brief):
                 await emit("wire", {"year": state.year, "round": rnd, "advisor": who,
                                     "rejected": True,
-                                    "note": "ballot missing or failed its signature check"})
+                                    "note": "ballot missing or failed turn validation"})
                 continue
             allowed = set(table.plans)
             prev = table.current.get(who)
             pid, _ = table.place(who, ballot, state.year, rnd)
             table.vote(who, ballot, allowed)
+            await emit("candidates", {"year": state.year, "candidates": [t.model_dump() for t in table.plans.values()]})
             n_turns += 1
             t = table.plans[pid]
             turn = {
@@ -354,8 +410,12 @@ async def deliberate_year(
         reason = f"Deadlock: the best plan has only {len(best['accept'])} of {N_ADVISORS} accepts."
     else:
         reason = "Deadlock: no plan was tabled."
-    return await _escalate(state, beliefs, emit, ask_human, ranked, reason, rounds, news,
-                           opening, after_news, last_turn, n_turns)
+    result = await _escalate(state, beliefs, emit, ask_human, ranked, reason, rounds, news,
+                             opening, after_news, last_turn, n_turns, run_id=run_id)
+    result.human_resolution = {"id": uid(), "run_id": run_id, "year": state.year,
+                               "state_hash": state_hash(state), "candidate_id": result.adopted_id,
+                               "source": "human", "human_assisted": True, "reason": reason}
+    return result
 
 
 async def _runoff(seed, state, beliefs, ask, emit, table: Table, a_row, b_row, trigger,
@@ -434,33 +494,38 @@ async def _runoff(seed, state, beliefs, ask, emit, table: Table, a_row, b_row, t
 
 
 async def _escalate(state, beliefs, emit, ask_human, ranked, reason, rounds, news, opening,
-                    after_news, last_turn, n_turns) -> YearResult:
-    safe = safe_plan(state)
-    options = [
-        {"id": r["id"], "author": r["author"], "plan": r["plan"], "plain": r["plain"],
-         "accept": r["accept"], "veto": r["veto"]}
-        for r in ranked[:2]
-    ] + [{"id": "safe", "author": "fallback", "plan": safe.__dict__,
-          "plain": plain(safe, state), "accept": [], "veto": [],
-          "note": "Pre-committed safe fallback: feed everyone (selling up to 20% of land if "
-                  "needed), then sow the most we can."}]
-    positions = [
-        {"advisor": a, "proposal": t.get("proposal"), "plain": t.get("plain", ""),
-         "accept": t.get("accept", []), "veto": t.get("veto", []),
-         "speech": t.get("speech", ""), "thought": t.get("thought", "")}
-        for a, t in sorted(last_turn.items(), key=lambda kv: ADVISOR_IDS.index(kv[0]))
-    ]
-    await emit("escalate",
-               {"year": state.year, "reason": reason, "options": options, "positions": positions})
-    choice = await ask_human(options, reason) if ask_human else None
-    chosen = next((o for o in options if o["id"] == choice), options[-1])
-    author = chosen["author"] if choice else "fallback"
-    t = TabledProposal(id=chosen["id"], author=author, plan=Plan(**chosen["plan"]),
-                       plain=chosen["plain"])
-    res = _finish(state, beliefs, "escalated", t, rounds, [], reason, news, opening, after_news,
-                  None, n_turns)
-    res.human_choice = choice
-    return res
+                    after_news, last_turn, n_turns, run_id="") -> YearResult:
+    with span("council.human_resolution", run_id=run_id, year=state.year):
+        safe = safe_plan(state)
+        options = [
+            {"id": r["id"], "author": r["author"], "plan": r["plan"], "plain": r["plain"],
+             "accept": r["accept"], "veto": r["veto"]}
+            for r in ranked[:2]
+        ] + [{"id": "safe", "author": "fallback", "plan": safe.__dict__,
+              "plain": plain(safe, state), "accept": [], "veto": [],
+              "note": "Pre-committed safe fallback: feed everyone (selling up to 20% of land if "
+                      "needed), then sow the most we can."}]
+        positions = [
+            {"advisor": a, "proposal": t.get("proposal"), "plain": t.get("plain", ""),
+             "accept": t.get("accept", []), "veto": t.get("veto", []),
+             "speech": t.get("speech", ""), "thought": t.get("thought", "")}
+            for a, t in sorted(last_turn.items(), key=lambda kv: ADVISOR_IDS.index(kv[0]))
+        ]
+        await emit("escalate",
+                   {"year": state.year, "reason": reason, "options": options, "positions": positions})
+        choice = await ask_human(options, reason) if ask_human else None
+        if choice is None:
+            raise Deadlock(reason)
+        chosen = next((o for o in options if o["id"] == choice), None)
+        if chosen is None:
+            raise TechnicalFailure("Human choice is not a latest valid option.")
+        author = chosen["author"] if choice else "fallback"
+        t = TabledProposal(id=chosen["id"], author=author, plan=Plan(**chosen["plan"]),
+                           plain=chosen["plain"])
+        res = _finish(state, beliefs, "escalated", t, rounds, [], reason, news, opening, after_news,
+                      None, n_turns)
+        res.human_choice = choice
+        return res
 
 
 async def _tally(emit, year, rnd, table: Table, partial: bool = False) -> None:
@@ -479,7 +544,6 @@ def _valid(b: Ballot | None, brief: Brief) -> bool:
         and b.year == brief.year
         and b.round == brief.round
         and b.phase == brief.phase
-        and verify(b)
     )
     if not ok:
         log.warning("dropping missing or unverified ballot for %s", brief.speaker)

@@ -272,7 +272,7 @@ body:not(.hood) .hood-only { display: none !important; }
 .field span { display: flex; justify-content: space-between; }
 .field input[type=number], .field select { border: 1px solid var(--line-2); border-radius: 10px; padding: 9px 12px; background: #fff; }
 .field input[type=range] { accent-color: var(--lapis); }
-.drawer-actions { display: flex; gap: 10px; }
+.drawer-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 .drawer-actions .primary { flex: 1; }
 .drawer-note { font-size: .85rem; color: var(--muted); margin: 0; }
 

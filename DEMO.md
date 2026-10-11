@@ -96,3 +96,19 @@ Stop with `Ctrl+C`.
 | Turns arrive slowly (seconds each), spend rises | Cache missed: check Seed 3, Rounds 5, Scouts On, and that no scout button was clicked |
 | No narrator audio | Click anywhere once (browsers block audio until a click); check `.cache/voice/` was copied |
 | Anything else at the venue | `LLM_MODE=mock uv run sumer up`: same UI, no API needed |
+
+Turn validation checks preserve the seven-advisor speaking order, red lines, runoff, scouts, and
+narrator. Invalid responses receive one retry for that speaker. A second failure is recorded
+as technical failure. Deadlock without a human choice remains paused; selecting the safe plan
+is recorded as an explicit human resolution. The engine verifies the journal before each year
+advances.
+
+Use **Saved runs** in Setup to replay the recorded seven-advisor debate. Replay is read-only
+and silent. **Export run** downloads the event journal, annual decision table, summary, and
+report. **Show live run** returns to an active game. On restart, interrupted runs retain their
+evidence and are marked as technical failures.
+
+Under the hood, **Year traces** and each turn's **Open trace** show imported Observe spans.
+Allow a few seconds for the local collector to flush. Exports include traces, and a collection
+error leaves the authoritative game result intact. The launcher serves all seven advisors
+and starts the pinned local collector.

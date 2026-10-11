@@ -1,0 +1,30 @@
+{
+  "name": "Council of Sumer: High Priest of Enlil",
+  "description": "Keep the temple granaries full against famine. Plans for a bad harvest. Red line: Will never accept a plan that, in a bad year, leaves less than half a year of food in store. Proposes or backs tabled plans, records standing accept/veto votes, and participates in sequential discussion and runoff turns over A2A/SLIM in the seven-advisor council.",
+  "version": "1.0.0",
+  "schema_version": "1.0.0",
+  "authors": [
+    "Council of Sumer contributors"
+  ],
+  "created_at": "2026-10-11T00:00:00Z",
+  "domains": [],
+  "skills": [
+    {
+      "name": "agent_orchestration/agent_coordination",
+      "id": 1004
+    },
+    {
+      "name": "agent_orchestration/multi_agent_planning",
+      "id": 1003
+    }
+  ],
+  "modules": [],
+  "locators": [
+    {
+      "type": "source_code",
+      "urls": [
+        "https://github.com/ericxu1070/council-of-sumer/blob/main/src/sumer/agent.py"
+      ]
+    }
+  ]
+}

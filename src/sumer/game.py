@@ -2,8 +2,7 @@
 
 Every random roll for a whole game is drawn up front from the seed, so two
 policies played on the same seed face exactly the same harvests, rats, and
-plagues. That makes baseline comparisons fair, and it lets a scout report
-reveal true (not made up) information about the coming year.
+plagues. Future rolls are private to the engine.
 """
 
 from __future__ import annotations
@@ -18,7 +17,8 @@ ACRES_PER_BUSHEL = 2  # one bushel of seed plants two acres
 ACRES_PER_WORKER = 10  # one person can tend ten acres
 PLAGUE_CHANCE = 0.15
 IMPEACH_STARVED_FRACTION = 0.45
-YEARS = settings.reign_years  # REIGN_YEARS, default 5 (the 1968 original ran 10)
+YEARS = settings.reign_years
+RULE_VERSION = "hamurabi-integer-v2"
 
 
 @dataclass(frozen=True)
@@ -41,12 +41,21 @@ class State:
     land_price: int = 19
     starved_total: int = 0
     starved_pct_sum: float = 0.0
+    plague_total: int = 0
     impeached: bool = False
     last_report: dict = field(default_factory=dict)
 
     @property
     def over(self) -> bool:
-        return self.impeached or self.year > YEARS
+        return self.impeached or self.population <= 0 or self.year > YEARS
+
+    @property
+    def status(self) -> str:
+        if self.population <= 0:
+            return "depopulated"
+        if self.impeached:
+            return "overthrown"
+        return "completed" if self.year > YEARS else "running"
 
     def public(self) -> dict:
         d = asdict(self)
@@ -86,18 +95,33 @@ def new_game(seed: int) -> tuple[State, list[YearRolls]]:
     return State(land_price=rolls[0].land_price), rolls
 
 
+class InvalidBudget(ValueError):
+    """A public rule error; the author must revise the budget."""
+
+
 def legalize(state: State, d: Decision) -> Decision:
-    """Clamp a proposal into the legal action space instead of rejecting it."""
-    max_sell = state.acres
-    max_buy = state.grain // state.land_price
-    land_delta = max(-max_sell, min(max_buy, int(d.land_delta)))
-    grain = state.grain - land_delta * state.land_price
-    acres = state.acres + land_delta
-    feed = max(0, min(grain, int(d.feed)))
-    grain -= feed
-    max_plant = min(acres, state.population * ACRES_PER_WORKER, grain * ACRES_PER_BUSHEL)
-    plant = max(0, min(max_plant, int(d.plant)))
-    return Decision(land_delta, feed, plant)
+    """Validate without altering any action (retains the existing API name)."""
+    if state.over:
+        raise InvalidBudget("The reign has ended.")
+    if any(type(v) is not int for v in (d.land_delta, d.feed, d.plant)):
+        raise InvalidBudget("Land, feeding, and planting must be whole numbers.")
+    if d.feed < 0 or d.plant < 0:
+        raise InvalidBudget("Feeding and planting cannot be negative.")
+    acres = state.acres + d.land_delta
+    grain = state.grain - d.land_delta * state.land_price
+    if acres < 0:
+        raise InvalidBudget("Cannot sell more land than the city owns.")
+    if grain < 0:
+        raise InvalidBudget("Insufficient grain to buy that land.")
+    if d.feed > grain:
+        raise InvalidBudget("Insufficient grain after trading to feed that amount.")
+    if d.plant > acres:
+        raise InvalidBudget("Cannot plant more acres than the city owns after trading.")
+    if d.plant > state.population * ACRES_PER_WORKER:
+        raise InvalidBudget("Each resident can cultivate at most ten acres.")
+    if d.plant // ACRES_PER_BUSHEL > grain - d.feed:
+        raise InvalidBudget("Insufficient grain after feeding for seed.")
+    return d
 
 
 def step(state: State, d: Decision, rolls: YearRolls) -> State:
@@ -107,23 +131,24 @@ def step(state: State, d: Decision, rolls: YearRolls) -> State:
     acres = state.acres + d.land_delta
 
     harvest = d.plant * rolls.yield_per_acre
-    grain += harvest
     rats = grain // rolls.rat_divisor if rolls.rat_divisor % 2 == 0 else 0
-    grain -= rats
+    grain = grain - rats + harvest
+
+    # BASIC calculates arrivals against the starting population, before starvation.
+    pending_arrivals = (rolls.immigration_factor * (20 * acres + grain)) // (
+        state.population * 100
+    ) + 1
 
     fed = d.feed // FOOD_PER_PERSON
     starved = max(0, state.population - fed)
     population = state.population - starved
-    immigrants = (
-        int(rolls.immigration_factor * (20 * acres + grain) / max(population, 1) / 100 + 1)
-        if starved == 0
-        else 0
-    )
+    impeached = starved * 100 > 45 * state.population
+    # An overthrow ends before the next report applies arrivals and plague.
+    immigrants = 0 if impeached else pending_arrivals
     population += immigrants
-    plague_deaths = population // 2 if rolls.plague else 0
+    plague_deaths = population - population // 2 if rolls.plague and not impeached else 0
     population -= plague_deaths
 
-    impeached = starved > IMPEACH_STARVED_FRACTION * state.population
     return State(
         year=state.year + 1,
         population=population,
@@ -132,6 +157,7 @@ def step(state: State, d: Decision, rolls: YearRolls) -> State:
         land_price=state.land_price,  # advance() sets next year's price
         starved_total=state.starved_total + starved,
         starved_pct_sum=state.starved_pct_sum + 100 * starved / max(state.population, 1),
+        plague_total=state.plague_total + plague_deaths,
         impeached=impeached,
         last_report={
             "decision": d.as_dict(),
@@ -140,6 +166,7 @@ def step(state: State, d: Decision, rolls: YearRolls) -> State:
             "rats": rats,
             "starved": starved,
             "immigrants": immigrants,
+            "pending_arrivals": pending_arrivals,
             "plague_deaths": plague_deaths,
         },
     )
@@ -151,7 +178,9 @@ def rating(state: State) -> dict:
     avg_starved = state.starved_pct_sum / years
     acres_pp = state.acres / max(state.population, 1)
     # The original 1968 thresholds: average starvation and acres per person.
-    if state.impeached:
+    if state.population <= 0:
+        verdict, why = "unsuccessful", "the city is depopulated"
+    elif state.impeached:
         verdict, why = "Nero", "the people overthrew the council"
     elif avg_starved > 33 or acres_pp < 7:
         verdict, why = "Nero", _why(avg_starved, acres_pp, 33, 7)
@@ -177,6 +206,9 @@ def rating(state: State) -> dict:
         "grain": state.grain,
         "acres": state.acres,
         "starved_total": state.starved_total,
+        "plague_total": state.plague_total,
+        "status": state.status,
+        "completed_years": min(state.year - 1, YEARS),
         "impeached": state.impeached,
         "score": round(score, 1),
     }

@@ -19,7 +19,13 @@ def _up(args) -> None:
     """Start the SLIM node, one process per advisor (seven), and the web chamber."""
     py = [sys.executable, "-m", "sumer.cli"]
     env = {**os.environ, "SLIM_SHARED_SECRET": settings.slim_secret}
-    procs = [subprocess.Popen([*py, "node"], env=env)]
+    procs = []
+    if os.getenv("SUMER_OBSERVE", "true").lower() != "false":
+        from sumer.collector import command
+        from sumer.config import CACHE_DIR, ROOT
+        CACHE_DIR.mkdir(exist_ok=True)
+        procs.append(subprocess.Popen(command(), cwd=ROOT, env=env))
+    procs.append(subprocess.Popen([*py, "node"], env=env))
     time.sleep(2)
     procs += [subprocess.Popen([*py, "agent", a], env=env) for a in ADVISOR_IDS]
     time.sleep(3)
@@ -29,6 +35,11 @@ def _up(args) -> None:
     def stop(*_):
         for p in procs:
             p.terminate()
+        for p in procs:
+            try:
+                p.wait(timeout=8)
+            except subprocess.TimeoutExpired:
+                p.kill()
         sys.exit(0)
 
     signal.signal(signal.SIGINT, stop)
@@ -47,6 +58,8 @@ def main() -> None:
     a = sub.add_parser("agent", help="run one advisor agent")
     a.add_argument("advisor", choices=ADVISOR_IDS)
     sub.add_parser("web", help="run the web chamber")
+    c = sub.add_parser("collector", help="run the native local Observe collector")
+    c.add_argument("--install", action="store_true", help="download and verify the pinned binary")
     b = sub.add_parser("bench", help="council vs baselines over many seeds")
     b.add_argument("--seeds", type=int, default=30)
     b.add_argument("--transport", default="inproc", choices=["inproc", "slim"])
@@ -60,8 +73,10 @@ def main() -> None:
         asyncio.run(run_node())
     elif args.cmd == "agent":
         from sumer.transport.slim import serve_advisor
-
         asyncio.run(serve_advisor(args.advisor))
+    elif args.cmd == "collector":
+        from sumer import collector
+        collector.install() if args.install else collector.run()
     elif args.cmd == "web":
         import uvicorn
 

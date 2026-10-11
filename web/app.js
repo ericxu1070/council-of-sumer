@@ -21,6 +21,8 @@ const reduced = matchMedia("(prefers-reduced-motion: reduce)");
 /* ---------------- state ---------------- */
 const S = {
   meta: null,
+  runId: "",
+  saved: false,
   advisors: [],
   years: 5,
   year: 0,            // year being decided
@@ -249,6 +251,7 @@ function renderTurn(d, instant) {
       ${foot.length ? `<div class="msg-foot">${foot.join("")}</div>` : ""}
       ${d.thought ? `<div class="thought"${S.hood ? "" : " hidden"}>💭 ${esc(d.thought)}</div>` : ""}
       ${trace}
+      ${d.trace?.trace_id ? `<button class="btn hood-only" type="button" data-trace="${esc(d.trace.trace_id)}">Open trace</button>` : ""}
     </div>`, "msg", { instant, latest: true });
   const btn = $(".think-btn", el);
   if (btn) btn.onclick = () => { const t = $(".thought", el); t.hidden = !t.hidden; btn.setAttribute("aria-expanded", String(!t.hidden)); };
@@ -433,6 +436,7 @@ function showEscalation(d) {
   idleTyping();
 }
 async function choose(btn) {
+  if (S.saved) { toast("Recorded replay is read-only."); return; }
   const all = $$("#escOptions .esc-opt");
   all.forEach(b => b.disabled = true);
   btn.classList.add("chosen");
@@ -440,7 +444,7 @@ async function choose(btn) {
   // Show the ruling before the POST resolves: the server may stream the year result first.
   const note = append(`<span class="emoji">👑</span><div><b>You decided</b>${btn.dataset.choice === "safe" ? "You chose to play it safe." : `You chose ${esc(label)}.`}</div>`, "note you", {});
   try {
-    await api("/api/escalation", { choice: btn.dataset.choice });
+    await api("/api/escalation", { run_id: S.runId, choice: btn.dataset.choice });
   } catch (e) {
     note.remove();
     btn.classList.remove("chosen");
@@ -618,9 +622,13 @@ function sleepUntil(t) {
   if (ms <= 0) return Promise.resolve();
   return new Promise(r => { const id = setTimeout(r, ms); wake = () => { clearTimeout(id); r(); }; });
 }
+const seen = new Set();
 function onEvent(ev) {
   if (!ev || !ev.kind) return;
-  ev.instant = replay;
+  if (ev.run_id && ev.run_id !== S.runId) return;
+  if (ev.sequence != null && seen.has(ev.sequence)) return;
+  if (ev.sequence != null) seen.add(ev.sequence);
+  ev.instant = S.saved || replay;
   if (ev.kind === "game") { Q.length = 0; gen++; wake?.(); }
   Q.push(ev);
   pump();
@@ -708,7 +716,10 @@ function render(kind, d, instant) {
     case "escalate": showEscalation(d); break;
     case "escalation_timeout":
       closeEscalation();
-      append(`<span class="emoji">🛟</span><div><b>No answer in time</b>The council falls back to the safe plan.</div>`, "note you", { instant });
+      append(`<span class="emoji">🛟</span><div><b>Selection timed out</b>The council remains paused until a valid choice is made.</div>`, "note you", { instant });
+      break;
+    case "human_resolution":
+      if (instant) append(`<span class="emoji">👑</span><div><b>Recorded human choice</b>${esc(planName(d.candidate_id))}.</div>`, "note", { instant });
       break;
     case "year":
       closeEscalation();
@@ -722,11 +733,20 @@ function render(kind, d, instant) {
       hideRunoff();
       break;
     case "end":
-      S.running = false; S.completed = S.years; renderYear();
+      if (!S.saved) loadRuns().catch(e => toast(e.message));
+      S.running = false; S.completed = d.years?.length || 0; renderYear();
       closeEscalation(); spotlight(null);
+      if (d.status && !["completed", "overthrown", "depopulated"].includes(d.status)) {
+        setPhase(cap(d.status.replaceAll("_", " ")), "<span>The run retains its recorded city and decisions.</span>");
+        append(`<div class="card-kicker">${esc(d.status.replaceAll("_", " "))}</div>`, "card", { instant });
+        break;
+      }
       setPhase("Reign complete", `<span>${esc(d.rating?.verdict_reason ? cap(d.rating.verdict_reason) : "The council has finished its rule.")}</span>`);
       renderEnd(d, instant);
       break;
+    case "observability_error":
+    case "technical_failure":
+    case "stopped":
     case "error":
       append(`<span class="emoji">⚠️</span><div><b>Something went wrong</b>${esc(d.message)}</div>`, "note error", { instant });
       if (!instant) toast(d.message);
@@ -741,17 +761,47 @@ function armReplay() {
   clearTimeout(replayQuiet);
   replayQuiet = setTimeout(() => { replay = false; }, REPLAY_QUIET);
 }
-function connect() {
-  es = new EventSource("/api/events");
+function connect(id) {
+  if (!id) return;
+  es?.close();
+  if (S.runId !== id) seen.clear();
+  S.runId = id;
+  S.saved = false;
+  setExport(id);
+  es = new EventSource(`/api/events?run_id=${encodeURIComponent(id)}`);
   replay = true;
   armReplay();
   clearTimeout(replayCapT);
   replayCapT = setTimeout(() => { replay = false; }, REPLAY_CAP);
   es.onmessage = m => {
     if (replay) armReplay();
-    try { onEvent(JSON.parse(m.data)); } catch (e) { console.error("bad event", e); }
+    try { const ev = JSON.parse(m.data); onEvent(ev); if (ev.kind === "end") es.close(); } catch (e) { console.error("bad event", e); }
   };
-  es.onerror = () => { es.close(); setTimeout(connect, 1500); };
+  es.onerror = () => { es.close(); setTimeout(() => connect(id), 1500); };
+}
+
+async function loadRuns() {
+  const runs = await api("/api/runs");
+  $("#savedRuns").innerHTML = '<option value="">Select a recorded run</option>' + runs.map(r => `<option value="${esc(r.id)}">seed ${r.manifest.seed} · ${esc(r.status)} · ${esc(r.id.slice(0, 8))}</option>`).join("");
+  $("#savedRuns").value = S.runId;
+  return runs;
+}
+function setExport(id) {
+  $("#exportBtn").href = `/api/runs/${encodeURIComponent(id)}/export`;
+  $("#exportBtn").classList.toggle("hidden", !id);
+}
+async function replayRun(id) {
+  const events = await api(`/api/runs/${encodeURIComponent(id)}/events`);
+  es?.close(); stopNarration(); Q.length = 0; gen++; wake?.(); seen.clear();
+  S.runId = id; S.saved = true; setExport(id);
+  for (const event of events) onEvent(event);
+}
+
+async function showTraces(traceId = "") {
+  if (!S.runId) return;
+  const spans = await api(`/api/runs/${encodeURIComponent(S.runId)}/traces${traceId ? "" : "?year=" + S.year}`);
+  const selected = traceId ? spans.filter(s => s.traceId === traceId) : spans;
+  append(`<div class="card-kicker">Recorded traces</div>${selected.length ? selected.map(s => `<div><b>${esc(s.name)}</b> · trace ${esc(s.traceId)} · span ${esc(s.spanId)} · parent ${esc(s.parentSpanId || "root")}</div>`).join("") : "No imported spans yet. The collector may still be flushing."}`, "card", { instant: true });
 }
 
 /* ---------------- controls ---------------- */
@@ -769,7 +819,7 @@ async function start() {
   // Before /api/meta answers, let the server use its own default (it must match the rehearsal).
   const rounds = +$("#rounds").value;
   if (rounds && S.meta?.max_rounds) body.max_rounds = rounds;
-  try { await api("/api/game", body); } catch (e) { toast(`Could not start: ${e.message}`); }
+  try { const result = await api("/api/game", body); connect(result.run_id); await loadRuns(); } catch (e) { toast(`Could not start: ${e.message}`); }
 }
 function setHood(on) {
   S.hood = on;
@@ -830,7 +880,8 @@ function wire() {
   };
   $$("[data-news]").forEach(b => b.onclick = async () => {
     b.disabled = true;
-    try { await api("/api/news", { kind: b.dataset.news }); toast("Scout sent. The report reaches the council next round.", true); }
+    if (S.saved) { toast("Recorded replay is read-only."); return; }
+    try { await api("/api/news", { run_id: S.runId, kind: b.dataset.news }); toast("Scout sent. The report reaches the council next round.", true); }
     catch (e) { toast(`Scout could not leave: ${e.message}`); }
     finally { setTimeout(() => { b.disabled = false; }, 1500); }
   });
@@ -866,5 +917,18 @@ function wire() {
     if (![...sel.options].some(o => +o.value === +m.max_rounds)) sel.insertAdjacentHTML("beforeend", `<option>${m.max_rounds}</option>`);
     sel.value = String(m.max_rounds);
   }
-  connect();
+  $("#savedRuns").onchange = e => { if (e.target.value) replayRun(e.target.value).catch(e => toast(e.message)); };
+  $("#liveBtn").onclick = async () => {
+    const current = await api("/api/meta");
+    if (current.active_run) { stopNarration(); seen.clear(); connect(current.active_run); }
+    else toast("There is no active run.");
+  };
+  $("#tracesBtn").onclick = () => showTraces().catch(e => toast(e.message));
+  $("#app").addEventListener("click", e => {
+    const button = e.target.closest("[data-trace]");
+    if (button) showTraces(button.dataset.trace).catch(err => toast(err.message));
+  });
+  const saved = await loadRuns();
+  if (S.meta?.active_run) connect(S.meta.active_run);
+  else if (saved.length) await replayRun(saved[0].id);
 })();

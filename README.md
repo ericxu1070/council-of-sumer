@@ -25,6 +25,19 @@ These mandates really conflict: the General and the Builder want land that the E
 let them grab, the Physician's extra rations eat the Priest's reserve and the Builder's seed,
 and in a locust year the Priest's granary and the General's acres cannot both be saved.
 
+## Hamurabi game rules
+
+Actions are whole numbers. The engine rejects an invalid budget without changing its amounts.
+Trading happens first, followed by feeding (20 bushels/person) and planting (floor(acres/2)
+bushels of seed, at most ten acres/person). Rats consume remaining stores before the new
+harvest is added. Immigration uses the starting population, including years with some
+starvation. More than 45% starvation ends the reign before arrivals or plague; plague leaves
+floor(population/2) survivors. The final year's arrivals and plague apply before the final
+rating. A depopulated city also ends the reign. Average annual starvation includes zero years.
+
+These mechanics follow [Ahl's classic BASIC Hamurabi](https://github.com/coding-horror/basic-computer-games/blob/main/43_Hammurabi/hammurabi.bas).
+Seed costs retain its floor rounding, including one planted acre requiring zero bushels.
+
 ## Quick start
 
 ```bash
@@ -56,7 +69,7 @@ See [DEMO.md](DEMO.md) for the step-by-step live demo script.
                       +---------------------- AGNTCY SLIM node (:46357) ----------------------+
  Browser <--SSE--  Clerk (web.py) --A2A unicast, one Brief per turn-->  farmer priest general merchant
  (glass box,       relays + tallies     (only the speaker is asked)      builder healer diplomat
-  narrator)        never chooses   <-------- one signed Ballot ---------  7 separate A2A agent processes
+  narrator)        never chooses   <------------ one Ballot ------------  7 separate A2A agent processes
                                                                         (agent.py: policy or LLM mind)
 ```
 
@@ -66,13 +79,14 @@ See [DEMO.md](DEMO.md) for the step-by-step live demo script.
   advisor whose turn it is, over a SLIM point-to-point session to that advisor's own name (with a
   one-member group session as fallback), and collects its `Ballot`. It relays and applies a
   public rule. It never ranks plans by its own judgment, so there is no central decision-maker.
-- **Ballots are HMAC-signed** per advisor (`protocol.py`), every turn and every runoff vote. A
-  forged or altered ballot is dropped and flagged in the glass box.
+- **Ballots are validated** against the addressed advisor, run, state, and exact request
+  (`protocol.py`). Invalid or stale responses are rejected and flagged in the glass box.
+  This local demo relies on the SLIM transport identity; it does not provision signing keys.
 - **Reasoning**: with `LLM_MODE=bayleaf`, each advisor asks an LLM (default
   `deepseek-v4.1-flash` via UCSC Bayleaf, thinking off) for a private thought, a proposal, its
   votes, and a public speech. Red lines are enforced in code, so a model cannot argue its own
   advisor past one. With `LLM_MODE=mock`, the same advisors use a deterministic concession
-  strategy, which powers the benchmarks and is the automatic fallback.
+  strategy, which powers explicitly selected mock mode and the benchmarks. Live failures are retried once and then stop the run.
 - **The game** (`game.py`) pre-rolls every die from the seed, so every decider faces exactly the
   same harvests, rats, and plagues.
 - **The narrator** (`narrator.py`) closes each year with one or two plain-English sentences for a
@@ -149,7 +163,7 @@ The right-hand column traces the whole system as it thinks:
 - for every advisor, every turn: its **private thought** (LLM stated reasoning or the policy's
   explanation), the forecast it used, its self vs group weight, its acceptance threshold, and a
   per-plan table of score, threshold, red lines hit, and vote, plus LLM latency and cost
-- signature verification for every ballot, and alerts for rejected or missing ballots
+- turn validation for every ballot, and alerts for rejected or missing ballots
 - scout news and the exact belief update it caused
 
 Advisors only hear each other's public **speeches**. The private thoughts are for humans. Click
@@ -205,16 +219,32 @@ Honest caveats about the policy minds:
   crossed nobody's red line (typically the Priest's granary against the General's land in a
   locust year), so a vote could not settle it.
 
+## Verified turns and decision evidence
+
+Each response binds to its run, year, round, speaker, state, and exact request (including the
+frozen runoff finalists). Invalid or missing turns are retried once for the addressed speaker;
+a second failure records a technical failure. A deadlock requires an explicit human selection,
+including an explicit choice of the safe plan. Model failures never become policy votes.
+
+SQLite stores immutable proposals, turn receipts, requests, model usage, and annual
+commitments. Before advancing, the engine reconstructs the standing table and independently
+checks the seven-advisor consensus, majority, runoff, or human-resolution evidence. A unique
+run/year transaction prevents duplicate delivery from advancing twice. The journal defaults
+to `.cache/runs.sqlite3`. Private thoughts remain available to humans without entering peers' briefs.
+
+Checked-in benchmark results predate the corrected accounting and are historical until
+regenerated. Paused deadlocks and technical failures do not receive completed-reign scores.
+
 ## Cost and offline safety
 
 - Every LLM reply is cached in `.cache/llm/` by prompt hash. Rehearse a seed once and the demo
   replays it with no network.
 - `LLM_BUDGET_USD` (default $3.00) is a hard cap tracked from the cost Bayleaf reports per call.
-  Past it, advisors fall back to the offline policy.
-- A failed live call is retried up to 3 times with backoff before the advisor falls back to its
-  policy. A fallback is not cached, so it would not replay the same way: `scripts/rehearse.py`
-  reports fallbacks per year and marks such a seed UNUSABLE until a clean rehearsal.
-- A full 5-year LLM game costs about 4 to 6 cents (100 to 160 short calls, at most 42 per year).
+  Past it, advisors record a technical failure; mock mode must be selected explicitly.
+- A failed live call is retried up to 3 times with backoff before the advisor records a technical
+  failure. Such a turn is not cached, so it would not replay the same way: `scripts/rehearse.py`
+  reports these per year and marks the seed UNUSABLE until a clean rehearsal.
+- A full 5-year LLM game costs a few cents (up to 49 short LLM calls per year).
 
 ```bash
 uv run python scripts/rehearse.py 3 11 --batch 3   # live rehearsal: per-year outcome, trigger, rounds, turns, fallbacks
@@ -232,7 +262,7 @@ src/sumer/
   chamber.py       plays whole games
   baselines.py     lone ruler, averaging, dictators, lone LLM
   bench.py         evidence generation
-  protocol.py      Brief / Ballot wire format, HMAC signing
+  protocol.py      Brief / Ballot wire format, turn validation and request binding
   transport/       slim.py (AGNTCY) and inproc.py (tests)
   web.py           FastAPI + SSE chamber, human escalation
   voice.py         optional ElevenLabs voices (advisors and narrator)
@@ -240,3 +270,27 @@ web/               the chamber UI
 scripts/           rehearse.py (live rehearsal), find_runoff_seed.py (offline seed search)
 tests/             unit tests
 ```
+
+## Saved runs, replay, and exports
+
+The journal survives restart. Interrupted running or deadlocked negotiations are retained as
+technical failures. Select a saved run in Setup to inspect the seven-advisor turns, scouts,
+runoff, and year summaries without model or voice calls. Recorded replay is read-only;
+**Show live run** returns to an active negotiation. Live choices and scouts identify that run.
+
+**Export run** downloads `events.jsonl`, `decisions.csv`, `summary.json`, and `report.md`.
+The files include recorded turn evidence, dissent, human choices, yearly resources, recorded
+random inputs, and reported model usage. Past random inputs are recorded after commitment.
+
+## AGNTCY Observe and advisor records
+
+The launcher also starts a pinned native OpenTelemetry Collector, with a checksum-verified
+installation on first use. Observe SDK spans cover seven-advisor turns, runoff votes, model
+calls, transport, message verification, human resolution, and verified engine commitments.
+W3C trace context travels in headers and request-bound messages. Collection errors retain the game
+result and journal. Set `SUMER_OBSERVE=false` to disable the pipeline.
+
+The collector writes OTLP JSONL under `.cache`; complete records are imported incrementally
+into the immutable journal. **Year traces** and **Open trace** inspect imported spans under
+the hood. Exports additionally contain `traces.jsonl`. The seven local OASF records describe
+the existing advisor roles and sequential coordination; they are not directory publications.

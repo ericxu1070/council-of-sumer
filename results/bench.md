@@ -1,3 +1,5 @@
+> Historical results from the previous game and voting rules. These are not completion evidence for the revised implementation. Regenerate with the existing benchmark command.
+
 # Benchmark (30 seeds, transport inproc, reasoning mock)
 
 | policy | score | survived | starved | population | fairness |
