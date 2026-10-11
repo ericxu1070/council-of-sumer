@@ -1,6 +1,8 @@
 from dataclasses import replace
+
 import pytest
 import uvicorn
+
 from sumer import cli
 
 
