@@ -149,8 +149,8 @@ async def _call(messages: list[dict], temperature: float) -> Reply:
         raise LLMFailed(f"{type(e).__name__}: {e}") from e
     cost = float((data.get("usage") or {}).get("cost") or 0.0)
     _record_spend(cost)
-    if not content:
-        raise LLMFailed("empty reply", usage=Reply(
+    if not isinstance(content, str) or not content.strip():
+        raise LLMFailed("reply must contain nonempty text", usage=Reply(
             "", settings.llm_model, False, time.monotonic() - t0, cost).meta())
     return Reply(content, settings.llm_model, False, time.monotonic() - t0, cost)
 
