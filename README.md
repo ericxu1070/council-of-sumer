@@ -40,6 +40,8 @@ uv run sumer node | agent <id> | web   # run the pieces separately
 
 No Docker is needed. The SLIM data-plane node runs inside Python via `slim-bindings`.
 
+See [DEMO.md](DEMO.md) for the step-by-step live demo script.
+
 ## Architecture
 
 ```
