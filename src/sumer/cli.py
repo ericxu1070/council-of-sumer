@@ -49,6 +49,16 @@ def _up(args) -> None:
     stop()
 
 
+def _positive_int(value: str) -> int:
+    try:
+        result = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a positive integer") from exc
+    if result < 1:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return result
+
+
 def main() -> None:
     logging.basicConfig(level=os.getenv("LOG_LEVEL", "WARNING"))
     p = argparse.ArgumentParser(prog="sumer")
@@ -61,7 +71,7 @@ def main() -> None:
     c = sub.add_parser("collector", help="run the native local Observe collector")
     c.add_argument("--install", action="store_true", help="download and verify the pinned binary")
     b = sub.add_parser("bench", help="council vs baselines over many seeds")
-    b.add_argument("--seeds", type=int, default=30)
+    b.add_argument("--seeds", type=_positive_int, default=30)
     b.add_argument("--transport", default="inproc", choices=["inproc", "slim"])
     args = p.parse_args()
 

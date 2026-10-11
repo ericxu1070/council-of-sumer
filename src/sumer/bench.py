@@ -98,6 +98,8 @@ async def _counterfactual_info(seeds: list[int], ask) -> dict:
 
 
 async def run(n_seeds: int, transport: str = "inproc") -> dict:
+    if type(n_seeds) is not int or n_seeds < 1:
+        raise ValueError("Benchmark seeds must be a positive integer.")
     seeds = list(range(1, n_seeds + 1))
     if transport == "slim":
         from sumer.transport.slim import SlimCouncil
