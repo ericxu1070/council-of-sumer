@@ -82,9 +82,10 @@
 .cg-node.dim .cg-pop{opacity:.38}
 .cg-node.dim .cg-label{opacity:.45}
 .cg-label{position:absolute;left:0;top:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center;
-  font-size:17px;font-weight:700;letter-spacing:.01em;line-height:26px;padding:0 10px;border-radius:13px;
+  font-size:14px;font-weight:700;letter-spacing:.01em;line-height:17px;padding:0 10px;border-radius:13px;
   color:var(--cg-ink);background:rgba(32,37,31,.72);transition:transform .55s cubic-bezier(.2,.8,.2,1),color .3s,opacity .4s}
 .cg-label i{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--c);margin-right:7px;vertical-align:2px}
+.cg-label small{display:block;font-size:11px;font-weight:500;line-height:12px}
 .cg-node.speaking .cg-label{color:var(--cg-speak)}
 .cg-node.speaking .cg-label,.cg-node.listening .cg-label,.cg-node.listening-soft .cg-label{--drop-on:var(--drop)}
 .cg-node:is(.speaking,.listening,.listening-soft) .cg-badge{--by:var(--by-on)}
@@ -243,14 +244,15 @@
   }
 
   function fill(n, a) {
-    const key = `${a.id}|${a.color}|${a.emoji}|${a.short}`;
+    const key = `${a.id}|${a.color}|${a.emoji}|${a.short}|${a.title}`;
     n.a = a;
     n.el.style.setProperty("--c", a.color || "#8a96b8");
     n.el.title = a.title || a.short || a.id;
     if (n.key === key) return;
     n.key = key;
     n.face.innerHTML = portrait(a);
-    n.label.innerHTML = `<i></i>${esc(a.short || a.id)}`;
+    const role = a.title?.startsWith(`${a.short} the `) ? a.title.slice(a.short.length + 1) : "";
+    n.label.innerHTML = `<i></i>${esc(a.short || a.id)}${role ? `<small>${esc(role)}</small>` : ""}`;
   }
 
   function setAdvisors(list) {

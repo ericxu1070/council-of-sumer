@@ -40,12 +40,36 @@ const os = require('node:os');
     await page.route('**/api/clamor/**',route=>route.fulfill({status:404}));
     await page.goto(url);
     await page.waitForFunction(()=>document.querySelectorAll('.cg-node').length===5);
+    await page.evaluate(() => {
+      const check = (ok, message) => { if (!ok) throw new Error(message); };
+      const original = setup.seats;
+      const names = original.map(seat => seat.name);
+      check(new Set(names).size === names.length, 'Default councilors must have unique names');
+      setup.seats = Array.from({length:21}, (_, i) => newVoter(i));
+      setup.seats.forEach(seat => { seat.preset = 'priest'; });
+      const priests = configuredAdvisors();
+      check(new Set(priests.map(a => a.short)).size === 21, 'Repeated roles must draw unique names');
+      check(priests.every(a => a.title === `${a.short} the Priest`), 'Priests must display their name and role');
+      check(priests.every(a => !names.includes(a.short)), 'New seats cannot reuse a previous name');
+      check(JSON.stringify(configuredAdvisors()) === JSON.stringify(priests), 'Rendering cannot redraw names');
+      const first = setup.seats[0];
+      first.preset = 'farmer';
+      check(configuredAdvisors()[0].short === priests[0].short, 'Changing roles must preserve the name');
+      first.preset = 'custom'; first.custom.short = 'Canal Keeper'; first.custom.mandate = 'Protect canals.';
+      check(configuredAdvisors()[0].title === `${first.name} the Canal Keeper`, 'Custom roles must receive names');
+      const exhausted = Array.from({length:650}, () => drawCouncilName());
+      check(new Set(exhausted).size === exhausted.length, 'The extended pool cannot repeat names');
+      setup.seats = original;
+      renderVoters();
+    });
     await page.waitForTimeout(800);
     await page.screenshot({path:path.join(output,'ready-desktop.png')});
     await page.locator('#setupBtn').click();
     await page.waitForTimeout(350);
     await page.screenshot({path:path.join(output,'setup-desktop.png')});
     await page.locator('#drawerClose').click();
+    // The remaining event fixtures use role names as their speech/display labels.
+    await page.evaluate(() => setAdvisors(S.meta.advisors));
     const checkSeatsClearResources = async () => {
       const overlaps = await page.evaluate(() => {
         const areas = ['city-acres','city-population','city-grain'].map(id=>document.getElementById(id).getBoundingClientRect());

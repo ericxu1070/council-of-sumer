@@ -318,6 +318,7 @@ button.panel-head:hover { background: rgba(255, 255, 255, .025); }
 .voter-top { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: end; }
 .voter-top .btn, .voter-top input { height: 44px; }
 .voter-card { display: flex; flex-direction: column; gap: 6px; }
+.voter-name { margin-left: 50px; color: var(--ink); font-size: 13px; }
 .voter-row { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: center; }
 .voter-row .av { width: 40px; height: 40px; }
 .voter-card select, .voter-card input, .voter-card textarea { border: 1px solid var(--line-2); border-radius: 0; padding: 8px 11px; background: var(--bg); color: var(--ink); min-width: 0; width: 100%; font-weight: 500; }

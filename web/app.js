@@ -338,7 +338,7 @@ const shortMandate = a => PERSONA_MANDATES[a.persona] || String(a.mandate || "")
 function welcome() {
   feed().innerHTML = `<div class="welcome">
     <div class="welcome-kicker">Meet the council</div>
-    <div class="meet">${S.advisors.map(a => `<div class="meet-row">${avatar(a.id)}<div><b style="--c:${a.color}">${esc(a.short)}</b><span>${esc(shortMandate(a) || "Custom agent")}</span></div></div>`).join("")}</div>
+    <div class="meet">${S.advisors.map(a => `<div class="meet-row">${avatar(a.id)}<div><b style="--c:${a.color}">${esc(a.title || a.short)}</b><span>${esc(shortMandate(a) || "Custom agent")}</span></div></div>`).join("")}</div>
     <p class="welcome-foot">Every advisor is its own AI agent. They debate over SLIM and vote. When they deadlock, you decide.</p></div>`;
   syncSetupLock();
 }
@@ -1216,9 +1216,38 @@ function setPaused(paused) {
 }
 
 /* ---------------- controls ---------------- */
+// Fictional Sumerian-themed names, shared across every role. Draw without replacement.
+const COUNCIL_NAMES = [
+  "Enlil-bani", "Nin-aya", "Ur-Nammu", "En-hedu", "Lugal-ani", "Nin-lil", "Ur-Nanshe", "Ama-ningal",
+  "Enki-edu", "Nin-sun", "Ur-Shara", "Geme-Inanna", "Lugal-esh", "Nin-azu", "Ur-Bau", "Ama-gesh",
+  "En-men", "Nin-ili", "Ur-Dumuzi", "Geme-Nanshe", "Lugal-zi", "Nin-ezen", "Ur-Ningirsu", "Ama-kala",
+  "En-shara", "Nin-me", "Ur-Utu", "Geme-Bau", "Lugal-kala", "Nin-dara", "Ur-Enki", "Ama-sun",
+  "En-azu", "Nin-gesh", "Ur-Nanna", "Geme-Ningal", "Lugal-mesh", "Nin-bala", "Ur-Enlil", "Ama-zi",
+  "En-nam", "Nin-kala", "Ur-Girra", "Geme-Shara", "Lugal-edu", "Nin-tura", "Ur-Isimud", "Ama-lil",
+  "En-dara", "Nin-zida", "Ur-Ninurta", "Geme-Utu", "Lugal-bani", "Nin-saga", "Ur-Nisaba", "Ama-esh",
+  "En-tura", "Nin-nam", "Ur-Zababa", "Geme-Nisaba", "Lugal-zida", "Nin-edu", "Ur-Hendursag", "Ama-bala",
+];
+const usedCouncilNames = new Set();
+function drawCouncilName() {
+  const available = COUNCIL_NAMES.filter(name => !usedCouncilNames.has(name));
+  // Extend the pool after repeated council resets; never recycle a used name.
+  if (!available.length) {
+    for (const name of COUNCIL_NAMES) {
+      for (const place of ["Ur", "Uruk", "Eridu", "Lagash", "Nippur", "Kish", "Umma", "Girsu"]) {
+        const extended = `${name}-${place}`;
+        if (!usedCouncilNames.has(extended)) available.push(extended);
+      }
+    }
+  }
+  const name = available.length
+    ? available[Math.floor(Math.random() * available.length)]
+    : `Ur-ki-${usedCouncilNames.size + 1}`;
+  usedCouncilNames.add(name);
+  return name;
+}
 function newVoter(i) {
   const serial = ++setup.serial, voice = setup.voices[(serial - 1) % setup.voices.length]?.id;
-  return { preset: setup.templates[i % setup.templates.length]?.id || "provider", custom: { id: `custom-${serial}`, short: "", mandate: "", ...(voice ? { tts_voice: voice } : {}) } };
+  return { name: drawCouncilName(), preset: setup.templates[i % setup.templates.length]?.id || "provider", custom: { id: `custom-${serial}`, short: "", mandate: "", ...(voice ? { tts_voice: voice } : {}) } };
 }
 function votingThresholds(n) {
   const majority = Math.floor(n / 2) + 1;
@@ -1250,8 +1279,9 @@ function renderVoters() {
     const custom = seat.preset === "custom", a = setup.templates.find(a => a.id === seat.preset);
     return `<section class="voter-card" data-slot="${i}">
       <div class="voter-row">${avatar(roster[i].id)}<select data-voter="preset" aria-label="Voter ${i + 1}">${setup.templates.map(a => `<option value="${esc(a.id)}"${a.id === seat.preset ? " selected" : ""}>${esc(a.short)}</option>`).join("")}<option value="custom"${custom ? " selected" : ""}>Custom agent</option></select></div>
+      <div class="voter-name">${esc(roster[i].title || roster[i].short)}</div>
       <label class="voter-bias"><span>Bias · 0 flexible, 1 resists compromise</span><input type="number" data-voter="bias" min="0" max="1" step="0.05" value="${esc(seat.bias ?? a?.bias ?? 0)}" required aria-label="Voter ${i + 1} bias"></label>
-      ${custom ? `<input type="text" data-voter="short" value="${esc(seat.custom.short)}" maxlength="60" required placeholder="Name, e.g. Canal Keeper" aria-label="Voter ${i + 1} name">
+      ${custom ? `<input type="text" data-voter="short" value="${esc(seat.custom.short)}" maxlength="30" required placeholder="Role, e.g. Canal Keeper" aria-label="Voter ${i + 1} role">
       <textarea data-voter="mandate" rows="2" maxlength="2000" required placeholder="What does this agent want?" aria-label="Voter ${i + 1} mandate">${esc(seat.custom.mandate)}</textarea>
       ${setup.voices.length ? `<label class="voter-voice"><span>Voice</span><select data-voter="tts_voice" aria-label="Voter ${i + 1} voice">${setup.voices.map(v => `<option value="${esc(v.id)}"${v.id === seat.custom.tts_voice ? " selected" : ""}>${esc(v.label)}</option>`).join("")}</select></label>` : ""}` : ""}
     </section>`;
@@ -1259,18 +1289,17 @@ function renderVoters() {
   syncSetupLock();
 }
 function configuredAdvisors() {
-  const totals = {}, seenRoles = {};
-  for (const seat of setup.seats) {
-    if (seat.preset !== "custom") totals[seat.preset] = (totals[seat.preset] || 0) + 1;
-  }
+  const seenRoles = {};
   return setup.seats.map(seat => {
-    if (seat.preset === "custom") return { ...seat.custom, bias: seat.bias ?? 0, short: seat.custom.short.trim(), mandate: seat.custom.mandate.trim() };
+    seat.name ||= drawCouncilName();
+    if (seat.preset === "custom") {
+      const title = `${seat.name} the ${seat.custom.short.trim() || "Councilor"}`;
+      return { ...seat.custom, bias: seat.bias ?? 0, short: seat.name, title, mandate: seat.custom.mandate.trim() };
+    }
     const template = setup.templates.find(a => a.id === seat.preset);
     const bias = seat.bias ?? template.bias ?? 0;
     const number = seenRoles[template.id] = (seenRoles[template.id] || 0) + 1;
-    const name = totals[template.id] > 1
-      ? { short: `${template.short}${number}`, title: `${template.title} ${number}` }
-      : { short: template.short, title: template.title };
+    const name = { short: seat.name, title: `${seat.name} the ${template.title || template.short}` };
     if (number === 1) return { id: template.id, ...name, bias };
     // Additional copies are independent voters with the selected persona's mandate.
     return { id: seat.custom.id, ...name, bias, mandate: template.mandate, voice: template.voice, color: template.color, emoji: template.emoji, tts_voice: template.tts_voice };
@@ -1308,7 +1337,7 @@ function validateVoters() {
       return false;
     }
     if (seat.preset === "custom" && (!seat.custom.short.trim() || !seat.custom.mandate.trim())) {
-      setupError(`Voter ${i + 1}: enter a name and instructions for your custom agent.`);
+      setupError(`Voter ${i + 1}: enter a role and instructions for your custom agent.`);
       openDrawer(true);
       $(`[data-slot="${i}"] [data-voter="${seat.custom.short.trim() ? "mandate" : "short"}"]`).focus();
       return false;
