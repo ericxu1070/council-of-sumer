@@ -8,7 +8,7 @@ const MIN_GAP = 800;         // ms between visible messages (matches the server 
 const READ_MIN = 2000, READ_MAX = 4200, READ_PER_CHAR = 14; // ms a speech holds the graph
 const CATCH_UP = 6;          // queued turns beyond this shorten the hold to READ_MIN
 const MIN_TYPING = 500;      // ms the "is typing" indicator shows before a speech
-const HOLD_AFTER_YEAR = 6000; // ms to let the year summary sit before the next year starts
+const HOLD_AFTER_YEAR = 6000; // ms to let the year's result sit before the next year starts
 const FLASH_YEAR = 1900;     // ms the big "Year N" interstitial holds the stage
 const AUTO_CONTINUE = 12;    // s before an untouched scout prompt lets the vote stand
 const REPLAY_QUIET = 150;    // ms of silence that ends a backlog replay burst
@@ -49,7 +49,7 @@ const S = {
 const FALLBACK_COLORS = ["#5f8f3a", "#7a4fa3", "#a33a32", "#b5862a", "#b2622f", "#2f8a7c", "#2f5ea8", "#6b5a45"];
 const FALLBACK_EMOJI = { provider: "🍞", farmer: "🌾", merchant: "⚖️", priest: "🏺", villager: "🧑" };
 // Setup belongs to the next council; the live council keeps its own roster.
-const setup = { templates: [], seats: [], serial: 0, starting: false, stopping: false, ready: false, max: 21, liveRunId: "" };
+const setup = { templates: [], voices: [], seats: [], serial: 0, starting: false, stopping: false, ready: false, max: 21, liveRunId: "" };
 const PERSONA_MANDATES = { provider: "Maximize final score with a preference for feeding everyone.", farmer: "Maximize final score with a preference for planting more grain.", merchant: "Maximize final score with a preference for total final acres.", priest: "Maximize final score with a preference for final bushels and emergency stores.", villager: "Maximize final score by balancing survivors, grain, acres, starvation, and overthrow." };
 const safeColor = (color, i) => /^#[\da-f]{6}$/i.test(String(color || "")) ? color : FALLBACK_COLORS[i % FALLBACK_COLORS.length];
 
@@ -253,7 +253,9 @@ function typingFor(id) { typing(`${avatar(id, "mini")}<span><b>${esc(adv(id).sho
 function idleTyping() {
   if (S.paused) typing(`<span>The council is paused</span>`);
   else if (S.scoutRequest || S.waitingHuman) typing("");
-  else if (narrating) typing(`<span>🔊 The narrator is speaking</span>`);
+  else if (narrating) typing(speakingWho && speakingWho !== "narrator"
+    ? `${avatar(speakingWho, "mini")}<span>🔊 <b>${esc(adv(speakingWho).short)}</b> is speaking</span>`
+    : `<span>🔊 The narrator is speaking</span>`);
   else if (S.running) typing(`<span>The council is thinking</span>${bounce}`);
   else typing("");
 }
@@ -419,11 +421,13 @@ function renderYear_(d, instant) {
   const author = d.adopted === "safe" ? null : planAuthor(d.adopted);
   const plain = stripSafe(d.plain || planText(d.plan));
   const pname = d.adopted === "safe" ? "The safe plan" : author ? `${adv(author).short}'s plan` : "The plan";
-  const summary = stripYear(d.summary) || `The council adopted ${pname.toLowerCase().replace(/^the /, "the ")}.`;
+  const sp = d.speech;
+  const summary = sp?.headline || stripYear(d.summary) || `The council adopted ${pname.toLowerCase().replace(/^the /, "the ")}.`;
   const sat = d.satisfaction && Object.keys(d.satisfaction).length
     ? `<div class="hood-only trace">How satisfied each advisor is (0 to 1):\n${Object.entries(d.satisfaction).map(([k, v]) => `  ${esc(adv(k).short)}: ${typeof v === "number" ? v.toFixed(2) : esc(v)}`).join("\n")}\nRounds this year: ${esc(d.rounds ?? "-")}</div>` : "";
   append(`<div class="card-kicker"><span>Year ${esc(d.year)} decision</span>${outcomeBadge(d)}</div>
     <div class="card-summary">${esc(summary)}</div>
+    ${sp?.text ? `<div class="card-quote">${sp.speaker !== "narrator" ? `${avatar(sp.speaker, "mini")}<span>“${esc(sp.text)}”</span>` : `<span>${esc(sp.text)}</span>`}</div>` : ""}
     ${plain || author ? `<div class="card-plan"><span class="plan-chip">${author ? avatar(author, "mini") : `<span class="emoji">🛟</span>`}<span><b>${esc(pname)}:</b> ${esc(plain)}</span></span></div>` : ""}
     ${sat}`, `card k-${esc(d.outcome)}`, { instant });
 }
@@ -460,7 +464,8 @@ function showYearSpot(d) {
   const starved = r.starved ?? starvedOf(cur);
   spotlight("year", `<div class="spot-kicker">Year ${esc(d.year)} of ${esc(S.years)}</div>
     <div class="spot-title"><span class="emoji">${ic}</span>${esc(label)}</div>
-    ${d.summary ? `<p class="spot-sub">${esc(stripYear(d.summary))}</p>` : ""}
+    ${d.speech ? `<p class="spot-sub">${esc(d.speech.speaker !== "narrator" ? `“${d.speech.text}”` : d.speech.text)}<br><b>${esc(d.speech.headline)}</b></p>`
+      : d.summary ? `<p class="spot-sub">${esc(stripYear(d.summary))}</p>` : ""}
     <div class="spot-plan">${author ? avatar(author) : `<span class="av safe-av">🛟</span>`}<span><b>${esc(pname)}</b><span>${esc(plain)}</span></span></div>
     ${spotNums([
       ["People", cur.population, deltaOf(cur.population, prev.population, 1)],
@@ -740,7 +745,7 @@ function recordState(x, state) {
 /* ---------------- narration ---------------- */
 const narrator = $("#narrator");
 const N_Q = [];
-let narrating = false, muted = false, unlocked = false;
+let narrating = false, muted = false, unlocked = false, speakingWho = "";
 try { muted = localStorage.getItem("sumer-muted") === "1"; } catch { /* storage blocked */ }
 const SILENT = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
 function unlockAudio() {
@@ -749,12 +754,13 @@ function unlockAudio() {
   narrator.src = SILENT;
   narrator.play().then(() => narrator.pause()).catch(() => { unlocked = false; });
 }
-function narrate(url) { if (!url || muted) return; N_Q.push(url); playNext(); }
+// Clips play in order: the year's winner states the plan, then the narrator reads the headline.
+function narrate(url, who = "narrator") { if (!url || muted) return; N_Q.push({ url, who }); playNext(); }
 function playNext() {
   if (narrating || muted) return;
-  const url = N_Q.shift();
+  const { url, who } = N_Q.shift() || {};
   if (!url) return;
-  narrating = true;
+  narrating = true; speakingWho = who;
   idleTyping();
   narrator.src = url;
   watchNarration();
@@ -775,7 +781,7 @@ function renderMute() {
   const b = $("#muteBtn");
   b.textContent = muted ? "🔇" : "🔊";
   b.setAttribute("aria-pressed", String(muted));
-  b.title = b.ariaLabel = muted ? "Unmute the narrator" : "Mute the narrator";
+  b.title = b.ariaLabel = muted ? "Unmute voices" : "Mute voices";
 }
 
 /* ---------------- event queue ---------------- */
@@ -957,7 +963,8 @@ function render(kind, d, instant) {
         if (report.plague_deaths > 0) effects.push("plague");
         if (report.rats > 0) effects.push("rats");
         window.CityEffects?.effect(effects);
-        showYearSpot(d); narrate(d.narration_url);
+        showYearSpot(d);
+        narrate(d.speech_url, d.speech?.speaker); narrate(d.headline_url); narrate(d.narration_url);
       }
       hideRunoff();
       break;
@@ -1169,7 +1176,8 @@ function setPaused(paused) {
 
 /* ---------------- controls ---------------- */
 function newVoter(i) {
-  return { preset: setup.templates[i % setup.templates.length]?.id || "provider", custom: { id: `custom-${++setup.serial}`, short: "", mandate: "" } };
+  const serial = ++setup.serial, voice = setup.voices[(serial - 1) % setup.voices.length]?.id;
+  return { preset: setup.templates[i % setup.templates.length]?.id || "provider", custom: { id: `custom-${serial}`, short: "", mandate: "", ...(voice ? { tts_voice: voice } : {}) } };
 }
 function votingThresholds(n) {
   const majority = Math.floor(n / 2) + 1;
@@ -1203,7 +1211,8 @@ function renderVoters() {
       <div class="voter-row">${avatar(roster[i].id)}<select data-voter="preset" aria-label="Voter ${i + 1}">${setup.templates.map(a => `<option value="${esc(a.id)}"${a.id === seat.preset ? " selected" : ""}>${esc(a.short)}</option>`).join("")}<option value="custom"${custom ? " selected" : ""}>Custom agent</option></select></div>
       <label class="voter-bias"><span>Bias · 0 flexible, 1 resists compromise</span><input type="number" data-voter="bias" min="0" max="1" step="0.05" value="${esc(seat.bias ?? a?.bias ?? 0)}" required aria-label="Voter ${i + 1} bias"></label>
       ${custom ? `<input type="text" data-voter="short" value="${esc(seat.custom.short)}" maxlength="60" required placeholder="Name, e.g. Canal Keeper" aria-label="Voter ${i + 1} name">
-      <textarea data-voter="mandate" rows="2" maxlength="2000" required placeholder="What does this agent want?" aria-label="Voter ${i + 1} mandate">${esc(seat.custom.mandate)}</textarea>` : ""}
+      <textarea data-voter="mandate" rows="2" maxlength="2000" required placeholder="What does this agent want?" aria-label="Voter ${i + 1} mandate">${esc(seat.custom.mandate)}</textarea>
+      ${setup.voices.length ? `<label class="voter-voice"><span>Voice</span><select data-voter="tts_voice" aria-label="Voter ${i + 1} voice">${setup.voices.map(v => `<option value="${esc(v.id)}"${v.id === seat.custom.tts_voice ? " selected" : ""}>${esc(v.label)}</option>`).join("")}</select></label>` : ""}` : ""}
     </section>`;
   }).join("");
   syncSetupLock();
@@ -1223,7 +1232,7 @@ function configuredAdvisors() {
       : { short: template.short, title: template.title };
     if (number === 1) return { id: template.id, ...name, bias };
     // Additional copies are independent voters with the selected persona's mandate.
-    return { id: seat.custom.id, ...name, bias, mandate: template.mandate, voice: template.voice, color: template.color, emoji: template.emoji };
+    return { id: seat.custom.id, ...name, bias, mandate: template.mandate, voice: template.voice, color: template.color, emoji: template.emoji, tts_voice: template.tts_voice };
   });
 }
 function previewCouncil() {
@@ -1459,6 +1468,7 @@ addEventListener("resize", fitZoom);
   setup.templates = (m.advisors?.length ? m.advisors : Object.keys(FALLBACK_EMOJI).map(id => ({ id, mandate: PERSONA_MANDATES[id] }))).map(normAdvisor);
   setup.max = Number.isInteger(m.max_advisors) ? Math.min(21, Math.max(1, m.max_advisors)) : 21;
   $("#agentCount").max = setup.max;
+  setup.voices = Array.isArray(m.voices) ? m.voices.filter(v => v?.id && v?.label) : [];
   setup.seats = setup.templates.slice(0, setup.max).map((_, i) => newVoter(i));
   setup.ready = true;
   setup.liveRunId = m.active_run || "";

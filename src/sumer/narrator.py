@@ -1,13 +1,15 @@
-"""The narrator: two short plain-English sentences about each year.
+"""The narrator: plain-English lines about each year.
 
 Built from templates, so it is deterministic and needs no LLM. Written for a
-non-technical audience: what the council decided, why in one phrase, and what
-happened to the city.
+non-technical audience. `summarize` is the written record of the year: what the
+council decided, why in one phrase, and what happened to the city. `year_speech`
+is what is heard at the end of the year: the winning advisor states the plan in
+their own voice, then the narrator reads one headline number.
 """
 
 from __future__ import annotations
 
-from sumer.advisors import ADVISORS, short
+from sumer.advisors import ADVISORS, plain_words, short
 from sumer.deliberation import YearResult, voting_rules
 from sumer.game import FOOD_PER_PERSON, State
 
@@ -84,3 +86,65 @@ def _happened(before: State, after: State) -> str:
 def summarize(yr: YearResult, before: State, after: State, advisors=None) -> str:
     """Year N. <who won and what it does>. <what happened>. About 20 words."""
     return f"Year {yr.year}. {_decision(yr, before, advisors)}. {_happened(before, after)}"
+
+
+# ---- the year-end speech: the winner states the plan, the narrator gives one number ----
+
+_WON = {
+    "consensus": "The whole council stands with me.",
+    "majority": "The council has backed my plan.",
+    "runoff": "My plan won the runoff.",
+    "escalated": "You chose my plan.",
+}
+
+
+def _count(n: int, one: str, many: str) -> str:
+    return f"{n:,} {one if n == 1 else many}"
+
+
+def headline(before: State, after: State) -> str:
+    """The single most dramatic change of the year, as one short sentence."""
+    r = after.last_report
+    starved, plague = r.get("starved", 0), r.get("plague_deaths", 0)
+    if after.impeached:
+        return f"{_count(starved, 'soul', 'souls')} starved, and the people overthrew the council."
+    if after.population <= 0:
+        return "No one is left in the city."
+    if starved or plague:  # deaths outrank every other change
+        if starved >= plague:
+            return f"{_count(starved, 'soul', 'souls')} starved."
+        return f"Plague took {_count(plague, 'soul', 'souls')}."
+    pop = after.population - before.population
+    grain = after.grain - before.grain
+    land = after.acres - before.acres
+    rats = r.get("rats", 0)
+    options = [
+        (abs(pop) / max(before.population, 1),
+         f"Population {'rose' if pop > 0 else 'fell'} to {after.population:,}."),
+        (abs(grain) / max(before.grain, 1),
+         f"The granary {'grew' if grain > 0 else 'shrank'} by {_count(abs(grain), 'bushel', 'bushels')}."),
+        (abs(land) / max(before.acres, 1),
+         f"We {'bought' if land > 0 else 'sold'} {_count(abs(land), 'acre', 'acres')} of land."),
+        # Rats are vivid: rank them a little above an equal change in the granary.
+        (1.2 * rats / max(before.grain, 1), f"Rats ate {_count(rats, 'bushel', 'bushels')}."),
+    ]
+    score, text = max(options, key=lambda o: o[0])
+    return text if score > 0 else f"The city held steady at {_count(after.population, 'soul', 'souls')}."
+
+
+def year_speech(yr: YearResult, before: State, after: State, advisors=None) -> dict:
+    """Who speaks at the end of the year, what they say, and the headline that follows.
+
+    The winning advisor states the adopted plan in the first person, in their own
+    voice; when no advisor won (the safe fallback), the narrator states it instead."""
+    roster = ADVISORS if advisors is None else advisors
+    words = plain_words(yr.plan, before)
+    winner = roster.get(yr.adopted_author) if yr.adopted_id != "safe" else None
+    if winner is None:
+        speaker, voice = "narrator", "narrator"
+        text = f"The council could not agree, so the safe plan holds. The city will {words}."
+    else:
+        speaker, voice = winner.id, winner.tts_voice or winner.id
+        lead = _WON.get(yr.outcome, "My plan carried the council.")
+        text = f"{lead} We will {words}."
+    return {"speaker": speaker, "voice": voice, "text": text, "headline": headline(before, after)}

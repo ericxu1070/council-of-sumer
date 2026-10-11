@@ -32,16 +32,17 @@ from sumer.deliberation import (
 )
 from sumer.engine import commit
 from sumer.game import RULE_VERSION, YEARS, advance, new_game, rating
-from sumer.narrator import summarize
+from sumer.narrator import summarize, year_speech
 from sumer.observability import context_headers, flush, span
 from sumer.protocol import uid
 from sumer.scouts import apply_scout
 from sumer.storage import Store
 
-# Turns the narrator's line for a year into audio; returns its URL or None.
 DEFAULT_DB = os.getenv("SUMER_DB_PATH", str(CACHE_DIR / "runs.sqlite3"))
 
-Narrate = Callable[[int, str], Awaitable[str | None]]
+# Voices a year's end speech (narrator.year_speech); returns audio URLs by part
+# ("speech", "headline"), leaving out any part with no audio.
+Narrate = Callable[[int, dict], Awaitable[dict[str, str]]]
 Scout = Callable[[int, int, str, list[dict]], Awaitable[str]]
 
 
@@ -142,15 +143,17 @@ async def play_council(
                 )
                 preview = advance(state, yr.plan, rolls)
                 yr.summary = summarize(yr, before, preview, advisors=advisors)
+                yr.speech = year_speech(yr, before, preview, advisors=advisors)
                 state, event = commit(store, run_id, state, yr, rolls)
                 results.append(yr)
                 history.append({**event["data"], "result": state.last_report})
-                url = await narrate(yr.year, yr.summary) if narrate else None
+                urls = await narrate(yr.year, yr.speech) if narrate else {}
                 if yr.human_resolution:
                     for resolution in store.events(run_id, after=event["sequence"] - 2):
                         if resolution["kind"] == "human_resolution":
                             await publish("human_resolution", {**resolution["data"], "_sequence": resolution["sequence"], "_run_id": run_id})
-                await publish("year", {**event["data"], "narration_url": url,
+                await publish("year", {**event["data"], "speech_url": urls.get("speech"),
+                                    "headline_url": urls.get("headline"),
                                     "satisfaction": yr.satisfaction, "runoff": yr.runoff,
                                     "human_choice": yr.human_choice,
                                     "opening": {k: v.model_dump() for k, v in yr.opening.items()},

@@ -109,8 +109,9 @@ For a council of `n`: majority is `floor(n/2) + 1`, strong majority is the large
   (`protocol.py`). SQLite stores proposals, receipts, skips, and commitments; the engine
   re-checks the evidence for each decision before advancing.
 - **The game** (`game.py`) pre-rolls every die from the seed, so every decider faces the same luck.
-- **The narrator** (`narrator.py`) closes each year in one or two plain sentences, read aloud
-  by ElevenLabs when a key is set.
+- **The narrator** (`narrator.py`) closes each year: the winning advisor states the plan in
+  their own voice (every seat has a distinct voice; custom agents pick one of six), then the
+  narrator reads one headline number. Spoken by ElevenLabs when a key is set; text otherwise.
 - **Observability**: `sumer up` also starts a pinned OpenTelemetry Collector for AGNTCY Observe
   spans (turns, model calls, transport, verification). `SUMER_OBSERVE=false` disables it.
 
