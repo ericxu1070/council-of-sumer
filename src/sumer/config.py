@@ -51,6 +51,7 @@ class Settings:
     # Seconds between council messages in the live chamber (POST /api/pace changes it)
     pace_s: float = float(os.getenv("PACE_S", "0.8"))
 
+    web_host: str = os.getenv("WEB_HOST", "0.0.0.0")
     web_port: int = int(os.getenv("WEB_PORT", "8000"))
 
     @property

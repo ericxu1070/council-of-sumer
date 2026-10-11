@@ -62,6 +62,10 @@ Settings live in `.env` (see `.env.example`): `REIGN_YEARS` (default 5), `MAX_RO
 
 No Docker is needed. The SLIM data-plane node runs inside Python via `slim-bindings`.
 
+To bind the standalone chamber to a specific interface and port, run
+`uv run sumer web --host 127.0.0.1 --port 8080`. For `sumer up`, set
+`WEB_HOST` and `WEB_PORT` in `.env`. Defaults remain `0.0.0.0` and `8000`.
+
 See [DEMO.md](DEMO.md) for the step-by-step live demo script.
 
 All agents receive a shared numeric game reference with each decision: land prices range

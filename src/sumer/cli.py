@@ -15,6 +15,22 @@ from sumer.advisors import ADVISOR_IDS
 from sumer.config import settings
 
 
+def _browser_host(host: str) -> str:
+    if host in ("0.0.0.0", "::"):
+        return "localhost"
+    return f"[{host}]" if ":" in host else host
+
+
+def _port(value: str) -> int:
+    try:
+        port = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("port must be an integer from 1 to 65535") from exc
+    if not 1 <= port <= 65535:
+        raise argparse.ArgumentTypeError("port must be an integer from 1 to 65535")
+    return port
+
+
 def _up(args) -> None:
     """Start the SLIM node, one process per default advisor, and the web chamber."""
     py = [sys.executable, "-m", "sumer.cli"]
@@ -30,7 +46,7 @@ def _up(args) -> None:
     procs += [subprocess.Popen([*py, "agent", a], env=env) for a in ADVISOR_IDS]
     time.sleep(3)
     procs.append(subprocess.Popen([*py, "web"], env=env))
-    print(f"\nCouncil of Sumer: open http://localhost:{settings.web_port}\n", flush=True)
+    print(f"\nCouncil of Sumer: open http://{_browser_host(settings.web_host)}:{settings.web_port}\n", flush=True)
 
     def stop(*_):
         for p in procs:
@@ -57,7 +73,9 @@ def main() -> None:
     sub.add_parser("node", help="run the SLIM node")
     a = sub.add_parser("agent", help="run one advisor agent")
     a.add_argument("advisor", choices=ADVISOR_IDS)
-    sub.add_parser("web", help="run the web chamber")
+    w = sub.add_parser("web", help="run the web chamber")
+    w.add_argument("--host", default=settings.web_host, help="interface to bind (default: WEB_HOST)")
+    w.add_argument("--port", type=_port, default=settings.web_port, help="port to bind (default: WEB_PORT)")
     c = sub.add_parser("collector", help="run the native local Observe collector")
     c.add_argument("--install", action="store_true", help="download and verify the pinned binary")
     b = sub.add_parser("bench", help="council vs baselines over many seeds")
@@ -80,7 +98,7 @@ def main() -> None:
     elif args.cmd == "web":
         import uvicorn
 
-        uvicorn.run("sumer.web:app", host="0.0.0.0", port=settings.web_port, log_level="warning")
+        uvicorn.run("sumer.web:app", host=args.host, port=args.port, log_level="warning")
     elif args.cmd == "bench":
         from sumer.bench import run
 
