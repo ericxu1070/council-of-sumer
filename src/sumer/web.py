@@ -445,7 +445,8 @@ async def events(request: Request, run_id: str):
         finally:
             hub.subscribers.discard(subscription)
 
-    return StreamingResponse(stream(), media_type="text/event-stream")
+    return StreamingResponse(stream(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @app.get("/api/bench")
