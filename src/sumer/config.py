@@ -51,7 +51,8 @@ class Settings:
     # Seconds between council messages in the live chamber (POST /api/pace changes it)
     pace_s: float = float(os.getenv("PACE_S", "0.8"))
 
-    web_port: int = int(os.getenv("WEB_PORT", "8000"))
+    # Render supplies PORT; WEB_PORT remains an explicit local override.
+    web_port: int = int(os.getenv("WEB_PORT", os.getenv("PORT", "8000")))
 
     @property
     def slim_endpoint(self) -> str:

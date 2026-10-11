@@ -49,6 +49,10 @@ uv run sumer up           # SLIM node + 5 advisor agents + web chamber
 No Docker needed: the SLIM data-plane node runs inside Python via `slim-bindings`.
 See [DEMO.md](DEMO.md) for the live demo script.
 
+For a shareable hosted demo, see [Render deployment](DEPLOY.md). The included
+`render.yaml` creates a free Docker web service and prompts for your Bayleaf
+and ElevenLabs keys in Render's settings.
+
 ```bash
 uv run pytest                                      # unit tests
 uv run python scripts/fake_chamber.py              # scripted UI preview, no LLM (:8010)

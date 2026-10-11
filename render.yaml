@@ -1,0 +1,37 @@
+# Deploy one shared chamber; the SLIM node and advisors run in this container.
+services:
+  - type: web
+    name: council-of-sumer
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/meta
+    autoDeployTrigger: "off"
+    envVars:
+      - key: BAYLEAF_API_KEY
+        sync: false
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: BAYLEAF_BASE_URL
+        value: https://api.bayleaf.dev/v1
+      - key: BAYLEAF_MODEL
+        value: openrouter:deepseek/deepseek-v4.1-flash
+      - key: LLM_TIMEOUT_S
+        value: "90"
+      - key: LLM_REASONING
+        value: "true"
+      - key: LLM_REASONING_EFFORT
+        value: low
+      - key: LLM_MAX_TOKENS
+        value: "1536"
+      - key: LLM_BUDGET_USD
+        value: "3.00"
+      - key: TRANSPORT
+        value: slim
+      - key: SLIM_HOST
+        value: 127.0.0.1
+      - key: SLIM_SHARED_SECRET
+        generateValue: true
+      - key: SUMER_OBSERVE
+        value: "false"
