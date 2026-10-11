@@ -31,6 +31,7 @@ Controls:
 | Space | Pause / Resume | Holds the council and the narrator |
 | M | 🔊 | Mutes all voices |
 | H | Under the hood | Shows private reasoning, model traces, and SLIM messages |
+| | Clamoring | Advisors shout short demands from their current plan while the council debates (quiet, off by default) |
 | F | | Toggles full screen |
 | Esc | | Closes cards and panels |
 | | ☰ → Stop | Ends the current run |

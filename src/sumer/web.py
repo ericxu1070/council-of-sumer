@@ -31,6 +31,7 @@ from sumer.advisors import (
     resolve_council,
 )
 from sumer.chamber import DEFAULT_DB, play_council
+from sumer.clamor import router as clamor_router
 from sumer.config import CACHE_DIR, RESULTS_DIR, ROOT, settings
 from sumer.game import YEARS
 from sumer.protocol import Ballot, Brief, Delivery, uid
@@ -59,6 +60,7 @@ async def lifespan(app):
 
 app = FastAPI(title="Council of Sumer", lifespan=lifespan)
 WEB = ROOT / "web"
+app.include_router(clamor_router)
 
 
 class Hub:

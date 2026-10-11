@@ -1,0 +1,4 @@
+/* Clamoring toggle: on narrow headers every .toggle collapses to an icon; give this one its own. */
+@media (max-width: 1150px) {
+  #clamorToggle::before { content: "📣"; }
+}
