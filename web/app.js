@@ -844,12 +844,13 @@ function profileHelp(id) {
 }
 function renderVoters() {
   const n = setup.seats.length, rules = votingThresholds(n);
+  const roster = configuredAdvisors();
   $("#agentCount").value = n;
   $("#votingRules").textContent = `${n} votes · majority: ${rules.majority} · strong majority: ${rules.strong} · runoff eligibility: ${rules.runoff}`;
   $("#voterList").innerHTML = setup.seats.map((seat, i) => {
     const custom = seat.preset === "custom", a = setup.templates.find(a => a.id === seat.preset);
     return `<section class="voter-card" data-slot="${i}" aria-labelledby="voter-${i}">
-      <h3 id="voter-${i}">Voter ${i + 1}</h3>
+      <h3 id="voter-${i}">Voter ${i + 1} · ${esc(roster[i].short || (custom ? "Custom agent" : a?.short))}</h3>
       <label class="field"><span>Agent</span><select data-voter="preset">${setup.templates.map(a => `<option value="${esc(a.id)}"${a.id === seat.preset ? " selected" : ""}>${esc(a.short)}</option>`).join("")}<option value="custom"${custom ? " selected" : ""}>Custom agent</option></select></label>
       ${custom ? `<label class="field"><span>Name</span><input type="text" data-voter="short" value="${esc(seat.custom.short)}" maxlength="60" required placeholder="e.g. Canal Keeper"></label>
       <label class="field"><span>Instructions / mandate</span><textarea data-voter="mandate" rows="3" maxlength="2000" required placeholder="What should this agent advocate for?">${esc(seat.custom.mandate)}</textarea></label>
@@ -862,13 +863,20 @@ function renderVoters() {
   previewCouncil();
 }
 function configuredAdvisors() {
-  const used = new Set();
+  const totals = {}, seenRoles = {};
+  for (const seat of setup.seats) {
+    if (seat.preset !== "custom") totals[seat.preset] = (totals[seat.preset] || 0) + 1;
+  }
   return setup.seats.map(seat => {
     if (seat.preset === "custom") return { ...seat.custom, short: seat.custom.short.trim(), mandate: seat.custom.mandate.trim() };
     const template = setup.templates.find(a => a.id === seat.preset);
-    if (!used.has(template.id)) { used.add(template.id); return { id: template.id }; }
+    const number = seenRoles[template.id] = (seenRoles[template.id] || 0) + 1;
+    const name = totals[template.id] > 1
+      ? { short: `${template.short}${number}`, title: `${template.title} ${number}` }
+      : { short: template.short, title: template.title };
+    if (number === 1) return totals[template.id] > 1 ? { id: template.id, ...name } : { id: template.id };
     // Additional copies are independent voters that inherit the selected profile.
-    return { id: seat.custom.id, profile: template.id, short: template.short, mandate: template.mandate, title: template.title, voice: template.voice, color: template.color, emoji: template.emoji };
+    return { id: seat.custom.id, profile: template.id, ...name, mandate: template.mandate, voice: template.voice, color: template.color, emoji: template.emoji };
   });
 }
 function previewCouncil() {

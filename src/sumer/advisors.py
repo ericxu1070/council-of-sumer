@@ -10,6 +10,7 @@ well fed, and the Merchant wants wealth at market prices.
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field, replace
 from typing import Literal
 
@@ -302,6 +303,19 @@ def resolve_council(seats: list[dict | CouncilSeat] | None = None) -> dict[str, 
             emoji=seat.emoji or base.emoji,
             aliases=base.aliases if seat.id == base.id else (),
         )
+    counts = Counter(a.short.casefold() for a in roster.values())
+    occurrences: Counter[str] = Counter()
+    for advisor_id, advisor in roster.items():
+        name = advisor.short.casefold()
+        if counts[name] > 1:
+            occurrences[name] += 1
+            suffix = str(occurrences[name])
+            roster[advisor_id] = replace(
+                advisor,
+                short=f"{advisor.short[:60 - len(suffix)]}{suffix}",
+                title=f"{advisor.title[:80 - len(suffix)]}{suffix}",
+                aliases=(),
+            )
     return roster
 
 
@@ -333,7 +347,7 @@ def _word_in(name: str, text: str) -> bool:
     i = text.find(name)
     while i >= 0:
         before, after = text[i - 1], text[i + len(name)] if i + len(name) < len(text) else " "
-        if not before.isalpha() and not (after.isalpha() and after != "s"):
+        if not before.isalnum() and not (after.isalnum() and after != "s"):
             return True
         i = text.find(name, i + 1)
     return False

@@ -72,7 +72,8 @@ populate each seat with a preset such as Farmer or Builder, or choose **Custom**
 a name and mandate. A custom agent also chooses a priority profile from the seven roles:
 that profile supplies its numerical preferences and enforced red line, while its mandate
 guides its language model instructions. In mock mode, decisions follow the selected profile.
-Repeated preset roles occupy distinct seats with independent votes.
+Repeated preset roles occupy distinct seats with independent votes and numbered names
+such as Priest1, Priest2, and Builder1, Builder2. A role with only one voter keeps its name.
 
 Every run saves its complete roster, so replay and exports retain custom names, mandates,
 and voting rules. The default remains the original seven advisors. For a council of `n`
