@@ -13,10 +13,10 @@
   <header class="top">
     <div class="brand">
       <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#1f4e8c"/><path d="M6 24h20M9 24V14h14v10M8 14l8-6 8 6" stroke="#e3b04b" stroke-width="2.4" fill="none" stroke-linejoin="round"/></svg>
-      <div class="brand-text"><div class="brand-name">Council of Sumer</div><div class="brand-sub" id="councilCount">Choose your AI advisors. No king.</div></div>
+      <div class="brand-text"><div class="brand-name">Council of Sumer</div></div>
     </div>
     <div class="yearbox" aria-live="polite">
-      <div class="year-label" id="yearLabel">Ready</div>
+      <div class="year-heading"><div class="year-label" id="yearLabel">Ready</div><span class="round-label hidden" id="roundLabel"></span></div>
       <div class="year-steps" id="yearSteps" aria-hidden="true"></div>
     </div>
     <div class="top-actions">
@@ -66,7 +66,7 @@
   <fieldset class="council-setup" id="councilSetup" disabled>
     <legend>Your voters</legend>
     <label class="field"><span>Number of agents</span><input id="agentCount" type="number" min="1" max="21" step="1" value="5" required aria-describedby="voterHelp votingRules"></label>
-    <p class="drawer-note" id="voterHelp">Choose 1–21 voters. Use a default advisor or create your own. Each agent gets one vote.</p>
+    <p class="drawer-note" id="voterHelp">Choose 1–21 voters. Use a default advisor or create your own. Agents can support multiple plans.</p>
     <button class="btn" id="defaultVoters" type="button">Populate with default advisors</button>
     <p class="drawer-note" id="votingRules" aria-live="polite"></p>
     <div class="voter-list" id="voterList"></div>
@@ -80,7 +80,6 @@
     <button class="btn primary big" id="startBtn" type="button">Convene</button>
     <button class="btn big" id="stopBtn" type="button" disabled>Stop</button>
   </div>
-  <p class="drawer-note">After each voting round, choose a scout event to change conditions and request a re-vote, or skip to continue. Pause holds the current council until you resume. Stop ends the current run.</p>
 </aside>
 
 <div class="modal-back hidden" id="escalation" role="dialog" aria-modal="true" aria-labelledby="escTitle">

@@ -43,16 +43,43 @@ async def test_selected_council_consensus_has_only_selected_evidence(count):
             assert event["data"]["yes_voters"] == list(roster)
 
 
-async def record_year(roster, ask=unanimous):
+async def record_year(roster, ask=unanimous, max_rounds=1):
     state, rolls = new_game(1)
     journal = Store(":memory:")
-    journal.create_run("proof", {"initial_state": state.public(), "max_rounds": 1,
+    journal.create_run("proof", {"initial_state": state.public(), "max_rounds": max_rounds,
         "advisors": [a.public() for a in roster.values()], "rules": voting_rules(len(roster))})
     async def emit(kind, data):
         journal.append("proof", kind, data)
     result = await deliberate_year(seed=1, run_id="proof", state=state, ask=ask,
-        history=[], max_rounds=1, scheduled_news=None, advisors=roster, emit=emit)
+        history=[], max_rounds=max_rounds, scheduled_news=None, advisors=roster, emit=emit)
     return state, rolls, journal, result
+
+
+async def test_multiple_plan_votes_pass_consensus_and_commit_without_double_counting():
+    roster = roster_for_count(4)
+
+    async def ask(brief):
+        plan = Plan(land_delta=0, feed=2000,
+                    plant=1000 if brief.round == 0 and brief.speaker in {
+                        "provider", "profiteer",
+                    } else 900)
+        matching = next((t.id for t in brief.table if t.plan == plan), None)
+        accept = [t.id for t in brief.table] if brief.round else []
+        return bind(Ballot(
+            advisor=brief.speaker, year=brief.year, round=brief.round,
+            proposal=plan, back=matching, accept=accept + accept,
+            speech="I support both acceptable budgets.",
+        ), brief)
+
+    state, rolls, journal, result = await record_year(roster, ask, max_rounds=2)
+    assert result.outcome == "consensus" and result.turns == 8
+    assert result.plan.plant == 1000  # still approved after its author backs the other plan
+    rows = [e["data"]["rows"] for e in journal.events("proof") if e["kind"] == "tally"][-1]
+    assert [len(row["accept"]) for row in rows] == [4, 4]
+    assert next(row for row in rows if row["id"] == result.adopted_id)["backers"] == []
+    advanced, event = commit(journal, "proof", state, result, rolls)
+    assert advanced.year == 2 and event["data"]["yes_voters"] == list(roster)
+    journal.db.close()
 
 
 @pytest.mark.parametrize("count", [3, 4, 7])

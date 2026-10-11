@@ -142,6 +142,8 @@ class Table:
 
     def begin_round(self) -> None:
         self.accepts.clear()
+        self.plans = {pid: plan for pid, plan in self.plans.items()
+                      if pid in self.current.values()}
 
     def support(self, pid: str) -> list[str]:
         acc = {a for a in self.advisor_ids if pid in self.accepts.get(a, ())}
@@ -184,19 +186,18 @@ class Table:
                     id=pid, author=who, plan=p, speech=b.speech, plain=plain(d, self.state)
                 )
         self.current[who] = pid
-        if prev and prev != pid and prev not in self.current.values():
-            del self.plans[prev]  # nobody backs it any more: withdrawn
+        if (prev and prev != pid and prev not in self.current.values()
+                and prev not in b.accept and not self.support(prev)):
+            del self.plans[prev]  # nobody proposes, backs, or approves it any more
         return pid, pid != prev
 
     def vote(self, who: str, b: Ballot, allowed: set[str]) -> None:
         self._check_voter(who)
         key = (b.year, b.round, who)
         if key in self.cast:
-            raise ValueError("Each agent may vote only once per round.")
-        if len(b.accept) > 1 or b.accept and b.accept != [b.back]:
-            raise ValueError("Choose one plan: your proposal or the plan you back.")
+            raise ValueError("Each agent may submit only one ballot per round.")
         self.cast.add(key)
-        self.accepts[who] = {self.current[who]}
+        self.accepts[who] = (set(b.accept) & allowed) | {self.current[who]}
 
 
     def _check_voter(self, who: str) -> None:

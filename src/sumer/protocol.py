@@ -165,10 +165,6 @@ def validate_reply(delivery: Delivery | Ballot | None, brief: Brief) -> Ballot:
             raise ValueError("Votes refer to an unknown proposal.")
         if ballot.back and (ballot.back not in table or table[ballot.back].plan != ballot.proposal):
             raise ValueError("Backing must identify the unchanged tabled plan.")
-        if brief.phase == "discuss" and (
-            len(ballot.accept) > 1 or ballot.accept and ballot.accept != [ballot.back]
-        ):
-            raise ValueError("Cast one vote: propose your own plan or back one tabled plan.")
         if brief.phase == "runoff":
             pair = {t.id: t for t in brief.runoff}
             if ballot.runoff_vote not in pair or pair[ballot.runoff_vote].plan != ballot.proposal:

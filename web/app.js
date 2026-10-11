@@ -55,14 +55,12 @@ function normAdvisor(a, i) {
     short: a.short || (FALLBACK_EMOJI[id] ? cap(id) : title.split(" ").slice(-1)[0]),
     emoji: a.emoji || FALLBACK_EMOJI[id] || "👤",
     color: safeColor(a.color, i),
-    goal: a.goal || String(a.mandate || "").split(/(?<=\.)\s/)[0] || "",
   };
 }
 function setAdvisors(list) {
   if (!Array.isArray(list) || !list.length) return;
   S.advisors = list.map(normAdvisor);
   buildSeats();
-  $("#councilCount").textContent = `${N()} AI advisor${N() === 1 ? "" : "s"}. No king.`;
 }
 const adv = id => S.advisors.find(a => a.id === id) || normAdvisor({ id: id || "someone" }, 5);
 const N = () => S.advisors.length || 5;
@@ -124,8 +122,7 @@ function buildSeats() {
   el.innerHTML = S.advisors.map(a => `<div class="seat" id="seat-${esc(a.id)}" style="--c:${a.color}" title="${esc(a.title)}">
     <span class="to-tag">spoken to</span>
     <span class="av">${esc(a.emoji)}<span class="badge hidden"></span></span>
-    <span class="seat-name">${esc(a.short)}</span>
-    <span class="seat-goal">${esc(a.goal)}</span></div>`).join("");
+    <span class="seat-name">${esc(a.short)}</span></div>`).join("");
   renderStances();
 }
 function spotlight(speaker, addressed = []) {
@@ -162,6 +159,8 @@ function renderYear() {
   }
   $("#yearSteps").innerHTML = steps.join("");
   $("#yearLabel").textContent = !S.year ? "Ready" : S.completed >= S.years ? `All ${S.years} years done` : `Year ${S.year} of ${S.years}`;
+  $("#roundLabel").classList.toggle("hidden", !S.round);
+  $("#roundLabel").textContent = S.round ? `Round ${S.round.number}${S.round.limit && S.round.number <= S.round.limit ? ` of ${S.round.limit}` : ""}` : "";
 }
 function setPhase(title, sub = "") {
   $("#phase").textContent = title;
@@ -680,7 +679,7 @@ function resetGame(d) {
   closeEscalation();
   S.scoutRequest = null; S.compareVote = null;
   hideRunoff();
-  Object.assign(S, { leadHtml: "", year: 0, completed: 0, hist: [], roundBase: {}, plans: {}, stance: {}, running: true, waitingHuman: false });
+  Object.assign(S, { leadHtml: "", year: 0, round: null, completed: 0, hist: [], roundBase: {}, plans: {}, stance: {}, running: true, waitingHuman: false });
   S.years = d.years || S.meta?.years || 5;
   if (d.advisors) setAdvisors(d.advisors);
   else renderStances();
@@ -700,7 +699,7 @@ function render(kind, d, instant) {
       append(`<span class="emoji">🏛️</span><div><b>The council convenes</b>${N()} advisors will run the city for ${S.years} years. Each has a different goal. They must agree, or ask you.</div>`, "note", { instant });
       break;
     case "year_start":
-      S.year = d.year; S.stance = {}; S.leadHtml = ""; renderStances(); hideRunoff();
+      S.year = d.year; S.round = null; S.stance = {}; S.leadHtml = ""; renderStances(); hideRunoff();
       if (d.state) recordState(d.year - 1, d.state);
       renderYear();
       setPhase(`Year ${d.year} begins`, `<span>The council is discussing</span>`);
@@ -708,7 +707,11 @@ function render(kind, d, instant) {
         append(`Year ${esc(d.year)}<small>${fmt(s.population)} people · ${fmt(s.grain)} bushels · ${fmt(s.acres)} acres</small>`, "divider year", { instant }); }
       break;
     case "round": {
-      if (d.year && d.year !== S.year) { S.year = d.year; renderYear(); }
+      if (d.year) S.year = d.year;
+      const r = dispRound(d.year, d.round);
+      const max = d.max_rounds || S.meta?.max_rounds;
+      S.round = { number: r, limit: max };
+      renderYear();
       if (d.phase === "runoff") {
         if (d.revote && S.runoff) {
           S.runoff.votes = {}; S.runoff.decided = false;
@@ -721,9 +724,7 @@ function render(kind, d, instant) {
           S.stance = {}; renderStances();
         }
         setPhase(d.revote ? "Runoff re-vote" : "Runoff vote", `<span>The top two plans go head to head</span>`); break; }
-      const r = dispRound(d.year, d.round);
-      const max = d.max_rounds || S.meta?.max_rounds;
-      setPhase(d.revote ? `Re-vote after scout · round ${r}` : `Discussing - round ${r}`, S.leadHtml || `<span>The council is discussing${max ? ` · up to ${max} rounds to agree` : ""}</span>`);
+      setPhase(d.revote ? "Re-vote after scout" : "Discussing", S.leadHtml || "<span>The council is discussing</span>");
       append(d.revote ? `Re-vote after scout · round ${r}` : `Round ${r}${max ? ` of ${max}` : ""}`, "divider", { instant });
       break;
     }
@@ -772,7 +773,7 @@ function render(kind, d, instant) {
         .forEach(el => $(".scout-status", el).textContent = "Run ended");
       S.scoutRequest = null; setPaused(false);
       $$("[data-scout-request] button").forEach(button => button.disabled = true);
-      S.running = false; S.completed = d.years?.length || 0; renderYear(); syncSetupLock();
+      S.running = false; S.round = null; S.completed = d.years?.length || 0; renderYear(); syncSetupLock();
       closeEscalation(); spotlight(null);
       if (d.status && !["completed", "overthrown", "depopulated"].includes(d.status)) {
         setPhase(cap(d.status.replaceAll("_", " ")), "<span>The run retains its recorded city and decisions.</span>");
@@ -829,10 +830,12 @@ function voteSummary(rows) {
 function compareVotes(rows, instant) {
   if (!S.compareVote) return;
   const before = S.compareVote;
-  const votes = values => Object.fromEntries(values.flatMap(row => (row.accept || []).map(who => [who, row.id])));
+  const votes = values => Object.fromEntries(S.advisors.map(a => [
+    a.id, values.filter(row => row.accept?.includes(a.id)).map(row => row.id).sort(),
+  ]));
   const oldVotes = votes(before), newVotes = votes(rows);
-  const changed = S.advisors.filter(a => oldVotes[a.id] !== newVotes[a.id]).map(a => a.short);
-  append(`<div class="card-kicker">Re-vote comparison</div><p>${changed.length ? `${esc(changed.join(", "))} changed their vote.` : "Every agent kept the same vote."}</p>
+  const changed = S.advisors.filter(a => JSON.stringify(oldVotes[a.id]) !== JSON.stringify(newVotes[a.id])).map(a => a.short);
+  append(`<div class="card-kicker">Re-vote comparison</div><p>${changed.length ? `${esc(changed.join(", "))} changed their votes.` : "Every agent kept the same votes."}</p>
     <div class="vote-comparison"><div><b>Before the scout</b>${voteSummary(before)}</div><div><b>After the scout</b>${voteSummary(rows)}</div></div>`, "card", { instant });
   S.compareVote = null;
 }
@@ -892,15 +895,14 @@ function renderVoters() {
   const n = setup.seats.length, rules = votingThresholds(n);
   const roster = configuredAdvisors();
   $("#agentCount").value = n;
-  $("#votingRules").textContent = `${n} votes · majority: ${rules.majority} · strong majority: ${rules.strong} · runoff eligibility: ${rules.runoff}`;
+  $("#votingRules").textContent = `${n} voters · majority: ${rules.majority} · strong majority: ${rules.strong} · runoff eligibility: ${rules.runoff}`;
   $("#voterList").innerHTML = setup.seats.map((seat, i) => {
     const custom = seat.preset === "custom", a = setup.templates.find(a => a.id === seat.preset);
     return `<section class="voter-card" data-slot="${i}" aria-labelledby="voter-${i}">
       <h3 id="voter-${i}">Voter ${i + 1} · ${esc(roster[i].short || (custom ? "Custom agent" : a?.short))}</h3>
       <label class="field"><span>Agent</span><select data-voter="preset">${setup.templates.map(a => `<option value="${esc(a.id)}"${a.id === seat.preset ? " selected" : ""}>${esc(a.short)}</option>`).join("")}<option value="custom"${custom ? " selected" : ""}>Custom agent</option></select></label>
       ${custom ? `<label class="field"><span>Name</span><input type="text" data-voter="short" value="${esc(seat.custom.short)}" maxlength="60" required placeholder="e.g. Canal Keeper"></label>
-      <label class="field"><span>Instructions / mandate</span><textarea data-voter="mandate" rows="3" maxlength="2000" required placeholder="What should this agent advocate for?">${esc(seat.custom.mandate)}</textarea></label>
-      <p class="drawer-note">Your instructions guide this agent's arguments and votes.</p>` : `<p class="voter-mandate">${esc(a?.mandate || "")}</p>`}
+      <label class="field"><span>Instructions / mandate</span><textarea data-voter="mandate" rows="3" maxlength="2000" required placeholder="What should this agent advocate for?">${esc(seat.custom.mandate)}</textarea></label>` : ""}
     </section>`;
   }).join("");
   syncSetupLock();
@@ -1106,7 +1108,7 @@ function wire() {
   setup.templates = (m.advisors?.length ? m.advisors : Object.keys(FALLBACK_EMOJI).map(id => ({ id, mandate: PERSONA_MANDATES[id] }))).map(normAdvisor);
   setup.max = Number.isInteger(m.max_advisors) ? Math.min(21, Math.max(1, m.max_advisors)) : 21;
   $("#agentCount").max = setup.max;
-  $("#voterHelp").textContent = `Choose 1–${setup.max} voters. Use a default advisor or create your own. Each agent gets one vote.`;
+  $("#voterHelp").textContent = `Choose 1–${setup.max} voters. Use a default advisor or create your own. Agents can support multiple plans.`;
   setup.seats = setup.templates.slice(0, setup.max).map((_, i) => newVoter(i));
   setup.ready = true;
   setup.liveRunId = m.active_run || "";

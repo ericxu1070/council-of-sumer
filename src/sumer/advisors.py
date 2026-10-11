@@ -23,6 +23,15 @@ from sumer.game import (
     legalize,
 )
 
+COMPROMISE_GUIDANCE = (
+    "Compromise on plans that are close to your goals and support those plans so the council "
+    "can pass a plan. Accept reasonable tradeoffs instead of insisting on your ideal budget."
+)
+
+
+def compromise_mandate(mandate: str) -> str:
+    return mandate if mandate.endswith(COMPROMISE_GUIDANCE) else f"{mandate} {COMPROMISE_GUIDANCE}"
+
 
 @dataclass(frozen=True)
 class Beliefs:
@@ -128,7 +137,7 @@ class Advisor:
 
 
 ADVISORS: dict[str, Advisor] = {
-    a.id: a
+    a.id: replace(a, mandate=compromise_mandate(a.mandate))
     for a in [
         Advisor(
             id='provider',
@@ -228,7 +237,10 @@ class CouncilSeat(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, str_strip_whitespace=True)
     id: str = Field(min_length=1, max_length=48, pattern=r"^[a-z][a-z0-9_-]*$")
     short: str | None = Field(default=None, min_length=1, max_length=60)
-    mandate: str | None = Field(default=None, min_length=1, max_length=2000)
+    # Stored/public mandates also carry the guidance appended to the user's instructions.
+    mandate: str | None = Field(
+        default=None, min_length=1, max_length=2000 + len(COMPROMISE_GUIDANCE) + 1,
+    )
     title: str | None = Field(default=None, min_length=1, max_length=80)
     voice: str | None = Field(default=None, min_length=1, max_length=200)
     color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
@@ -236,6 +248,8 @@ class CouncilSeat(BaseModel):
 
     @model_validator(mode="after")
     def custom_identity(self):
+        if self.mandate and len(self.mandate.removesuffix(f" {COMPROMISE_GUIDANCE}")) > 2000:
+            raise ValueError("Agent instructions must be at most 2000 characters.")
         if self.id not in ADVISORS and (self.short is None or self.mandate is None):
             raise ValueError("Custom agents require a name and mandate.")
         return self
@@ -258,7 +272,7 @@ def resolve_council(seats: list[dict | CouncilSeat] | None = None) -> dict[str, 
                 base,
                 short=seat.short or base.short,
                 title=seat.title or seat.short or base.title,
-                mandate=seat.mandate or base.mandate,
+                mandate=compromise_mandate(seat.mandate or base.mandate),
                 voice=seat.voice or base.voice,
                 color=seat.color or base.color,
                 emoji=seat.emoji or base.emoji,
@@ -268,7 +282,7 @@ def resolve_council(seats: list[dict | CouncilSeat] | None = None) -> dict[str, 
                 id=seat.id,
                 short=seat.short,
                 title=seat.title or seat.short,
-                mandate=seat.mandate,
+                mandate=compromise_mandate(seat.mandate),
                 voice=seat.voice or "clear, thoughtful, speaks from the public mandate",
                 color=seat.color or "#607d8b",
                 emoji=seat.emoji or "🗣️",

@@ -25,12 +25,14 @@ async def test_agent_preserves_the_models_legal_proposal(llm_reply):
 async def test_model_alone_selects_accepts_and_backed_plan(llm_reply):
     proposal = Plan(land_delta=0, feed=0, plant=500)
     tabled = TabledProposal(id="profiteer-plan", author="profiteer", plan=proposal)
-    brief = brief_for(table=[tabled])
-    llm_reply.update(back=tabled.id, accept=[tabled.id])
+    alternative = TabledProposal(id="provider-plan", author="provider",
+                                plan=Plan(land_delta=0, feed=2000, plant=500))
+    brief = brief_for(table=[tabled, alternative])
+    llm_reply.update(back=tabled.id, accept=[tabled.id, alternative.id, tabled.id])
     ballot = await agent.decide("farmer", brief)
     assert validate_reply(ballot, brief) is ballot
     assert ballot.back == tabled.id and ballot.proposal == proposal
-    assert ballot.accept == [tabled.id]
+    assert ballot.accept == [tabled.id, alternative.id]
     llm_reply.update(back=None, accept=[])
     ballot = await agent.decide("farmer", brief)
     assert ballot.accept == []

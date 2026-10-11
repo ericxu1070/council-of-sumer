@@ -146,9 +146,11 @@ five-agent council; configured councils use the thresholds above:
 1. **Turns, not polls.** The five advisors speak one at a time in a fixed order, and the first
    seat moves one place every round. On its turn an advisor sees the table (every plan with its
    current support), everything said earlier this round, and the round before. It tables a
-   proposal or backs a plan already on the table, casting exactly one vote for that plan, and answers the others by name in at most 25 words ("Farmer, your planting plan
+   proposal or backs a plan already on the table, and can vote for several acceptable plans.
+   Each advisor counts once toward each plan's support and answers the others by name in at
+   most 25 words ("Farmer, your planting plan
    starves the east quarter..."). A new proposal is tabled at once, so later speakers in the same
-   round can vote for it. A plan nobody backs any more is withdrawn.
+   round can vote for it. A plan with no backer or current-round approval is withdrawn.
 2. **User scouts follow a vote.** After every complete voting round (including runoff),
    the council waits. Choose plague, rats, a good/bad harvest, a low/high land price, or Skip.
    An event changes the actual conditions and triggers a fresh vote from every advisor.
@@ -156,7 +158,8 @@ five-agent council; configured councils use the thresholds above:
    Harvest, rats, and plague affect this year; land prices apply next year (17 low, 26 high).
    Skip keeps the vote and lets negotiation or the year's decision continue.
    Automatic scouts and freely timed scout buttons are absent.
-3. **Negotiation.** The LLM decides when to compromise and which tradeoffs to accept.
+3. **Negotiation.** Every default and custom mandate asks the advisor to compromise on plans
+   that are close to its goals so a plan can pass. The LLM chooses which tradeoffs to accept.
    Recent outcomes and dissent are supplied as context; there is no coded concession schedule
    or automatic extra weight for an advisor.
 4. **Adoption rules**, checked after a complete live voting round and Skip

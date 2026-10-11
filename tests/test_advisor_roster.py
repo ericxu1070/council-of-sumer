@@ -6,6 +6,8 @@ import pytest
 
 from sumer import agent, llm
 from sumer.advisors import (
+    ADVISORS,
+    COMPROMISE_GUIDANCE,
     Beliefs,
     mentions,
     resolve_council,
@@ -79,6 +81,8 @@ async def test_custom_mandate_reaches_model_and_model_selects_budget(monkeypatch
     ballot = await agent.decide("custom-river", brief)
     system = prompts[0]["content"]
     assert CUSTOM["mandate"] in system
+    assert COMPROMISE_GUIDANCE in system
+    assert all(COMPROMISE_GUIDANCE in a.mandate for a in ADVISORS.values())
     assert "River Keeper" in system
     assert validate_reply(ballot, brief) is ballot
     assert not ballot.error and ballot.proposal.feed == feed

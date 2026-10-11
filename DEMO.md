@@ -3,7 +3,8 @@
 1. Start the council with `uv run sumer up` and open http://localhost:8000.
 2. Open Setup, choose the number of agents and their mandates, then choose seed, rounds,
    and pace. Click **Convene**.
-3. Each agent proposes its own plan or backs one existing plan, casting one vote per round.
+3. Each agent proposes its own plan or backs an existing plan, and can support several plans
+   that are close to its goals so the council can pass a compromise.
 4. After the full round, the votes appear beside **Send a scout, or keep this vote?**
 5. Choose an event: plague, rats, good harvest, bad harvest, low land price, or high land price.
    The event changes the actual game conditions. Harvest, plague, and rats affect this year;

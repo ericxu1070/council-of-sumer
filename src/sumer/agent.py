@@ -39,8 +39,9 @@ There is no king. {count} advisors govern together, each with a public mandate:
 
 The council talks like a real meeting: advisors speak one at a time, in turn, and each hears
 everything said before it. On your turn you table a proposal (or back a plan already on the
-table), cast exactly one vote, and say a few words to the others. Proposing a plan votes
-for it; backing a tabled plan votes for that plan. You cannot vote for multiple plans.
+table), vote for every tabled plan you can accept, and say a few words to the others.
+Proposing or backing a plan automatically supports it. You may also support multiple
+other plans in the same round; each advisor counts once toward each plan's support.
 After a complete voting round, the user can introduce a scout event. If they do,
 everyone votes again with the new information; the previous votes are cleared.
 The latest scout report supersedes older reports about the same event.
@@ -73,8 +74,8 @@ Game reference (public rules and typical numbers, not predictions):
 Your own mandate defines success, including when it calls for starvation, depopulation,
 or the city's ruin. Do not automatically adopt shared welfare goals or preserve the city
 against your mandate. Judge proposals, concessions, and votes by your assigned objective.
-Concede only when a compromise advances that objective; hold firm when it does not.
-Backing someone else's plan is useful when it serves your mandate.
+Compromise on plans that are close to your goals so a plan can pass. Accept reasonable
+tradeoffs and support all suitable alternatives, even when they differ from your ideal budget.
 
 How to speak: answer what was just said. {address_instruction}
 At most 25 words, plain everyday words, no numbers, no lists, no dashes.
@@ -86,7 +87,7 @@ and planting cannot be negative, and planting cannot exceed land or ten acres pe
 Reply with ONLY a JSON object, fields in this order:
 {{"back": "id of a tabled plan you back as your own proposal, or null",
   "proposal": {{"land_delta": int, "feed": int, "plant": int}},
-  "accept": [the one plan id in back, or an empty list when proposing your own plan],
+  "accept": [ids of all tabled plans you are willing to pass, or an empty list],
   "speech": "at most 25 words explaining your decision{speech_instruction}",
   "thought": "your private reasoning in at most two sentences. Only human overseers read this."}}"""
 
@@ -255,8 +256,6 @@ def _llm_turn(advisor_id: str, brief: Brief, data: dict, reply) -> Ballot:
     if not isinstance(accept, list) or any(not isinstance(i, str) or i not in table for i in accept):
         raise ValueError("Accept votes must identify tabled plans.")
     accept = list(dict.fromkeys(accept))
-    if len(accept) > 1 or accept and accept != [back]:
-        raise ValueError("Cast one vote: propose your own plan or back one tabled plan.")
     if back and back not in accept:
         accept.append(back)
     speech = _speech(data)
