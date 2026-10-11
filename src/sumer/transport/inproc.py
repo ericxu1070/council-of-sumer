@@ -7,5 +7,5 @@ from sumer.protocol import Ballot, Brief
 
 
 async def ask(brief: Brief) -> Ballot | None:
-    """Deliver a Brief to its one speaker and return that advisor's signed Ballot."""
+    """Deliver a Brief to its one speaker and return that advisor's Ballot."""
     return await decide(brief.speaker, brief)

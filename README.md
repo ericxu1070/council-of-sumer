@@ -69,7 +69,7 @@ See [DEMO.md](DEMO.md) for the step-by-step live demo script.
                       +---------------------- AGNTCY SLIM node (:46357) ----------------------+
  Browser <--SSE--  Clerk (web.py) --A2A unicast, one Brief per turn-->  farmer priest general merchant
  (glass box,       relays + tallies     (only the speaker is asked)      builder healer diplomat
-  narrator)        never chooses   <-------- one signed Ballot ---------  7 separate A2A agent processes
+  narrator)        never chooses   <------------ one Ballot ------------  7 separate A2A agent processes
                                                                         (agent.py: policy or LLM mind)
 ```
 
@@ -79,8 +79,9 @@ See [DEMO.md](DEMO.md) for the step-by-step live demo script.
   advisor whose turn it is, over a SLIM point-to-point session to that advisor's own name (with a
   one-member group session as fallback), and collects its `Ballot`. It relays and applies a
   public rule. It never ranks plans by its own judgment, so there is no central decision-maker.
-- **Ballots are Ed25519-signed** with distinct local credentials per advisor (`protocol.py`), every turn and every runoff vote. A
-  forged or altered ballot is dropped and flagged in the glass box.
+- **Ballots are validated** against the addressed advisor, run, state, and exact request
+  (`protocol.py`). Invalid or stale responses are rejected and flagged in the glass box.
+  This local demo relies on the SLIM transport identity; it does not provision signing keys.
 - **Reasoning**: with `LLM_MODE=bayleaf`, each advisor asks an LLM (default
   `deepseek-v4.1-flash` via UCSC Bayleaf, thinking off) for a private thought, a proposal, its
   votes, and a public speech. Red lines are enforced in code, so a model cannot argue its own
@@ -154,7 +155,7 @@ The right-hand column traces the whole system as it thinks:
 - for every advisor, every turn: its **private thought** (LLM stated reasoning or the policy's
   explanation), the forecast it used, its self vs group weight, its acceptance threshold, and a
   per-plan table of score, threshold, red lines hit, and vote, plus LLM latency and cost
-- signature verification for every ballot, and alerts for rejected or missing ballots
+- turn validation for every ballot, and alerts for rejected or missing ballots
 - scout news and the exact belief update it caused
 
 Advisors only hear each other's public **speeches**. The private thoughts are for humans. Click
@@ -215,12 +216,11 @@ frozen runoff finalists). Invalid or missing turns are retried once for the addr
 a second failure records a technical failure. A deadlock requires an explicit human selection,
 including an explicit choice of the safe plan. Model failures never become policy votes.
 
-SQLite stores immutable proposals, signed turn receipts, requests, model usage, and annual
+SQLite stores immutable proposals, turn receipts, requests, model usage, and annual
 commitments. Before advancing, the engine reconstructs the standing table and independently
 checks the seven-advisor consensus, majority, runoff, or human-resolution evidence. A unique
-run/year transaction prevents duplicate delivery from advancing twice. Credentials live in
-`.cache/identities`, separately from the shared transport secret; the journal defaults to
-`.cache/runs.sqlite3`. Private thoughts remain available to humans without entering peers' briefs.
+run/year transaction prevents duplicate delivery from advancing twice. The journal defaults
+to `.cache/runs.sqlite3`. Private thoughts remain available to humans without entering peers' briefs.
 
 Checked-in benchmark results predate the corrected accounting and are historical until
 regenerated. Paused deadlocks and technical failures do not receive completed-reign scores.
@@ -245,7 +245,7 @@ src/sumer/
   chamber.py       plays whole games
   baselines.py     lone ruler, averaging, dictators, lone LLM
   bench.py         evidence generation
-  protocol.py      Brief / Ballot wire format, peer signing and request binding
+  protocol.py      Brief / Ballot wire format, turn validation and request binding
   transport/       slim.py (AGNTCY) and inproc.py (tests)
   web.py           FastAPI + SSE chamber, human escalation
   voice.py         optional ElevenLabs voices (advisors and narrator)

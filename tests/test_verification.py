@@ -18,8 +18,6 @@ from sumer.protocol import (
     Plan,
     bind,
     endpoint,
-    provision_identities,
-    sign,
     validate_reply,
 )
 from sumer.storage import Store
@@ -27,7 +25,7 @@ from tests.support import unanimous
 
 
 @pytest.mark.parametrize("amount", [2000.5, True])
-def test_signed_budgets_require_whole_numbers(amount):
+def test_budgets_require_whole_numbers(amount):
     with pytest.raises(ValidationError):
         Plan(land_delta=0, feed=amount, plant=500)
 
@@ -37,7 +35,7 @@ async def test_turn_retries_only_its_speaker_with_a_fresh_request():
     async def ask(brief):
         seen.append(brief)
         ballot = await unanimous(brief)
-        return ballot.model_copy(update={"speech": "Tampered"}) if len(seen) == 1 else ballot
+        return ballot.model_copy(update={"request_hash": "stale-request"}) if len(seen) == 1 else ballot
     state = State()
     result = await deliberate_year(seed=1, state=state, ask=ask, history=[], max_rounds=3,
                                    scheduled_news=None)
@@ -49,13 +47,13 @@ async def test_turn_retries_only_its_speaker_with_a_fresh_request():
     with pytest.raises(ValueError, match="transport endpoint"):
         validate_reply(Delivery(seen[-1].speaker, endpoint("unknown"), reply), seen[-1])
     with pytest.raises(ValueError, match="request"):
-        validate_reply(sign(bind(reply, seen[0])), seen[-1])
+        validate_reply(bind(reply, seen[0]), seen[-1])
 
 
 async def test_engine_rechecks_evidence_and_advances_only_once():
     state, rolls = new_game(1)
     store = Store(":memory:")
-    manifest = {"initial_state": state.public(), "peer_keys": provision_identities(), "max_rounds": 3}
+    manifest = {"initial_state": state.public(), "max_rounds": 3}
     store.create_run("proof", manifest)
     async def emit(kind, data):
         store.append("proof", kind, data)
@@ -149,7 +147,7 @@ async def test_runoff_certificate_preserves_the_seven_advisor_rule():
         return _three_way(brief)
     state, rolls = new_game(1)
     store = Store(":memory:")
-    store.create_run("runoff", {"initial_state": state.public(), "peer_keys": provision_identities(), "max_rounds": 6})
+    store.create_run("runoff", {"initial_state": state.public(), "max_rounds": 6})
     async def emit(kind, data):
         store.append("runoff", kind, data)
     result = await deliberate_year(seed=1, run_id="runoff", state=state, ask=scripted(script),

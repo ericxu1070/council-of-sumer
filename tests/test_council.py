@@ -11,7 +11,7 @@ from sumer.chamber import play_council, play_simple
 from sumer.deliberation import Deadlock, TechnicalFailure, deliberate_year, speaking_order
 from sumer.game import YEARS, Decision, advance, new_game, rating
 from sumer.narrator import summarize
-from sumer.protocol import Ballot, Brief, Plan, bind, sign, verify
+from sumer.protocol import Ballot, Brief, Plan, bind, validate_reply
 from sumer.transport import inproc
 
 A, B, C = (0, 2000, 1000), (0, 2000, 900), (0, 2000, 800)
@@ -29,13 +29,13 @@ def _ballot(brief, plan=A, back=None, accept=(), veto=(), vote=None, speech="Far
 
 
 def scripted(fn):
-    """An ask() whose advisors follow a script; ballots are signed like real ones."""
+    """An ask() whose advisors follow a script; ballots are bound to requests like real ones."""
     briefs = []
 
     async def ask(brief):
         briefs.append(brief)
         b = fn(brief)
-        return sign(bind(b, brief)) if b else None
+        return bind(b, brief) if b else None
 
     ask.briefs = briefs
     return ask
@@ -104,11 +104,19 @@ def test_mentions_finds_names():
 
 # ---- the wire ----
 
-def test_ballot_signature_detects_tampering():
-    b = sign(Ballot(advisor="priest", year=1, round=0, proposal=Plan(land_delta=0, feed=1, plant=1)))
-    assert verify(b)
-    b.accept = ["farmer-y1-r0"]
-    assert not verify(b)
+@pytest.mark.parametrize("changed", [
+    {"advisor": "merchant"}, {"run_id": "another-run"}, {"state_hash": "stale-state"},
+    {"year": 2}, {"round": 1}, {"phase": "runoff"}, {"reply_to": "old-request"},
+    {"request_hash": "changed-request"},
+])
+def test_ballot_must_match_its_speaker_and_request(changed):
+    state, _ = new_game(1)
+    brief = Brief(seed=1, year=1, round=0, max_rounds=6, state=state.public(),
+                  beliefs={}, speaker="priest")
+    ballot = bind(_ballot(brief), brief)
+    assert validate_reply(ballot, brief) is ballot
+    with pytest.raises(ValueError, match="request"):
+        validate_reply(ballot.model_copy(update=changed), brief)
 
 
 async def test_trace_is_private_and_present():
@@ -226,7 +234,7 @@ async def test_deadlock_without_a_human_remains_paused():
         await _year(scripted(script))
 
 
-async def test_forged_ballot_stops_after_one_retry():
+async def test_stale_ballot_stops_after_one_retry():
     def script(b):
         return _ballot(b, A, accept=_ids_for(b, A))
 
@@ -235,7 +243,7 @@ async def test_forged_ballot_stops_after_one_retry():
     async def ask(brief):
         b = await inner(brief)
         if brief.speaker == "merchant":
-            b.accept = []  # altered after signing
+            b.reply_to = "previous-request"
         return b
 
     with pytest.raises(TechnicalFailure, match="merchant failed after one retry"):

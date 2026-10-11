@@ -49,7 +49,7 @@ Stop with `Ctrl+C`.
 | Years are slow (~2 min each) | Cache missed: check the seed, Rounds 6, Scouts Report |
 | Anything else at the venue | `LLM_MODE=mock uv run sumer up`: same UI, no API needed |
 
-Signed turn checks preserve the seven-advisor speaking order, red lines, runoff, scouts, and
+Turn validation checks preserve the seven-advisor speaking order, red lines, runoff, scouts, and
 narrator. Invalid responses receive one retry for that speaker. A second failure is recorded
 as technical failure. Deadlock without a human choice remains paused; selecting the safe plan
 is recorded as an explicit human resolution. The engine verifies the journal before each year

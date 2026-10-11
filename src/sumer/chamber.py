@@ -31,7 +31,7 @@ from sumer.deliberation import (
 from sumer.engine import commit
 from sumer.game import RULE_VERSION, YEARS, advance, new_game, rating
 from sumer.narrator import summarize
-from sumer.protocol import provision_identities, uid
+from sumer.protocol import uid
 from sumer.storage import Store
 
 # Turns the narrator's line for a year into audio; returns its URL or None.
@@ -84,14 +84,13 @@ async def play_council(
     own_store = store is None
     store = store or Store(DEFAULT_DB)
     run_id = run_id or uid()
-    keys = provision_identities()
     state, rolls = new_game(seed)
     store.create_run(run_id, {"rule_version": RULE_VERSION, "seed": seed, "initial_state": state.public(),
-        "application_version": version("council-of-sumer"), "peer_keys": keys,
+        "application_version": version("council-of-sumer"),
         "advisors": [a.public() for a in ADVISORS.values()], "reign_years": YEARS,
         "max_rounds": max_rounds or settings.max_rounds, "transport": settings.transport,
         "llm_mode": settings.llm_mode, "model": settings.llm_model,
-        "dependencies": {name: version(name) for name in ("agntcy-app-sdk", "cryptography", "pydantic")}})
+        "dependencies": {name: version(name) for name in ("agntcy-app-sdk", "pydantic")}})
     publish = emit
     async def emit(kind, data):
         if kind == "escalate":
@@ -120,7 +119,7 @@ async def play_council(
                 injected_news=injected_news,
                 ask_human=ask_human,
                 emit=emit,
-                run_id=run_id, peer_keys=keys,
+                run_id=run_id,
             )
             preview = advance(state, yr.plan, rolls)
             yr.summary = summarize(yr, before, preview)
