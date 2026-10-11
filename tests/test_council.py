@@ -1,30 +1,30 @@
 import os
 
-os.environ["LLM_MODE"] = "mock"
+os.environ["LLM_MODE"] = "bayleaf"
 os.environ["TRANSPORT"] = "inproc"
 
 import pytest
 
-from sumer.advisors import ADVISOR_IDS, Beliefs, Scorer, mentions, plain, safe_plan
+from sumer.advisors import ADVISOR_IDS, Beliefs, mentions, plain, safe_plan
 from sumer.agent import clean, decide
-from sumer.chamber import play_council, play_simple
+from sumer.chamber import play_council
 from sumer.deliberation import Deadlock, TechnicalFailure, deliberate_year, speaking_order
 from sumer.game import YEARS, Decision, advance, new_game, rating
 from sumer.narrator import summarize
 from sumer.protocol import Ballot, Brief, Plan, bind, validate_reply
-from sumer.transport import inproc
+from tests.support import unanimous
 
 A, B, C = (0, 2000, 1000), (0, 2000, 900), (0, 2000, 800)
 
 
-def _ballot(brief, plan=A, back=None, accept=(), veto=(), vote=None, speech="Farmer, I agree."):
+def _ballot(brief, plan=A, back=None, accept=(), vote=None, speech="Farmer, I agree."):
     if brief.phase == "runoff" and vote:
         plan = next(t.plan for t in brief.runoff if t.id == vote)
         plan = (plan.land_delta, plan.feed, plan.plant)
     return Ballot(
         advisor=brief.speaker, year=brief.year, round=brief.round, phase=brief.phase,
         proposal=Plan(land_delta=plan[0], feed=plan[1], plant=plan[2]), back=back,
-        accept=list(accept), veto=list(veto), runoff_vote=vote, speech=speech,
+        accept=list(accept), runoff_vote=vote, speech=speech,
     )
 
 
@@ -78,18 +78,6 @@ def test_safe_plan_feeds_everyone():
     assert d.feed > 500
 
 
-def test_red_lines_veto():
-    state, _ = new_game(1)
-    sc = Scorer(state, Beliefs())
-    assert sc.vetoes("farmer", Decision(0, 0, 500))  # everyone starves
-    assert sc.vetoes("general", Decision(-300, 2000, 500))  # sells 30% of land
-    assert not sc.vetoes("merchant", Decision(-300, 0, 0))  # no red line
-    assert sc.vetoes("builder", Decision(0, 2000, 100))  # leaves most sowable land fallow
-    assert sc.vetoes("healer", Decision(0, 1700, 1000))  # feeds 85% of what people need
-    assert sc.vetoes("diplomat", Decision(110, 0, 0))  # buys 11% more land
-    assert not sc.vetoes("diplomat", Decision(90, 0, 0))
-
-
 def test_plain_descriptions():
     state, _ = new_game(1)
     assert plain(Decision(50, 2000, 900), state) == "Buy 50 acres, feed everyone, plant 900 acres"
@@ -119,13 +107,13 @@ def test_ballot_must_match_its_speaker_and_request(changed):
         validate_reply(ballot.model_copy(update=changed), brief)
 
 
-async def test_trace_is_private_and_present():
+async def test_trace_is_private_and_present(llm_reply):
     state, _ = new_game(1)
     brief = Brief(seed=1, year=1, round=0, max_rounds=6, state=state.public(),
                   beliefs=Beliefs().__dict__, speaker="priest")
     b = await decide("priest", brief)
     assert b.trace["thought"] and "chosen" in b.trace
-    assert b.trace["beliefs"]["pessimistic"]  # the Priest plans for a bad year
+    assert b.trace["thought"] == llm_reply["thought"]
     assert len(b.speech.split()) <= 28
 
 
@@ -136,7 +124,7 @@ async def test_turns_are_sequential_and_see_earlier_speakers():
 
     async def ask(brief):
         seen.append(brief)
-        return await inproc.ask(brief)
+        return bind(_ballot(brief, A, accept=_ids_for(brief, A)), brief)
 
     yr, events = await _year(ask)
     turns = [d for k, d in events if k == "turn"]
@@ -201,30 +189,6 @@ async def test_runoff_when_best_plan_has_three_of_seven():
     assert len(runoff_turns) == 7 and all(t["runoff_vote"] for t in runoff_turns)
 
 
-async def test_runoff_winner_with_a_red_line_veto_escalates():
-    asked = {}
-
-    async def human(options, reason):
-        asked["reason"], asked["options"] = reason, options
-        return "safe"
-
-    def script(b):
-        if b.phase == "runoff":
-            a, bb = b.runoff
-            if b.speaker == "healer":  # A crosses the Physician's red line
-                return _ballot(b, A, vote=bb.id, veto=[a.id])
-            pick = a.id if b.speaker in ("farmer", "priest", "general", "merchant") else bb.id
-            return _ballot(b, A, vote=pick)
-        return _three_way(b)
-
-    yr, events = await _year(scripted(script), ask_human=human)
-    assert yr.outcome == "escalated"
-    assert yr.human_choice == "safe"
-    assert "red line" in asked["reason"]
-    assert all("plain" in o for o in asked["options"])
-    assert any(k == "escalate" for k, _ in events)
-
-
 async def test_deadlock_without_a_human_remains_paused():
     def script(b):
         i = ADVISOR_IDS.index(b.speaker)
@@ -252,21 +216,19 @@ async def test_stale_ballot_stops_after_one_retry():
 
 # ---- whole games ----
 
-async def test_council_survives_and_beats_averaging():
+async def test_council_records_a_complete_game():
     events = []
 
     async def emit(kind, data):
         events.append((kind, data))
 
-    council = await play_council(1, inproc.ask, emit=emit)
-    average = await play_simple(1, "average")
+    council = await play_council(1, unanimous, emit=emit)
     assert not council.rating["impeached"]
-    assert council.rating["score"] > average.rating["score"]
     assert set(council.satisfaction) == set(ADVISOR_IDS)
     assert len(council.years) == YEARS
     game = next(d for k, d in events if k == "game")
     assert game["years"] == YEARS and len(game["advisors"]) == 7
-    assert {"id", "title", "short", "mandate", "red_line", "color", "emoji"} <= set(
+    assert {"id", "title", "short", "mandate", "color", "emoji"} <= set(
         game["advisors"][0]
     )
     years = [d for k, d in events if k == "year"]

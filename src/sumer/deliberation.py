@@ -1,40 +1,10 @@
-"""How the council decides one year, with no king.
+"""Sequential discussion with consensus, majority, runoff, or human resolution.
 
-Protocol (public, so every advisor can check the clerk's tally):
-  The seven advisors speak one at a time, in a fixed order that rotates by one
-  seat every round. On its turn an advisor sees the table (every plan with its
-  current support), what the earlier speakers said this round, and the rounds
-  before. It then tables a proposal (or backs a plan already on the table),
-  votes accept / veto on the tabled plans, and says a few words to the others.
-  A new proposal is tabled at once, so later speakers in the same round can
-  accept it. An advisor's latest votes stand until its next turn, and a plan
-  nobody backs any more is withdrawn.
-
-  News scheduled for the year arrives at the start of round 2, so the opening
-  proposals and the reaction to the news are both visible. News a human sends
-  arrives before the next turn.
-
-  Stop rules, checked after every turn:
-    CONSENSUS       a tabled plan is accepted by all seven.           -> adopt it
-    STRONG MAJORITY once round 2 is complete, a plan with 5+ of 7
-                    accepts and no red-line veto.                     -> adopt it,
-                                                                         record dissent
-    stalemate       a whole round with no proposal change and no news -> final rule
-  Final rule (stalemate, or the last round ends):
-    MAJORITY        the best plan has 4+ of 7 accepts, no veto, and no
-                    tie.                                              -> adopt it,
-                                                                         record dissent
-    RUNOFF          the best plan has exactly 3 of 7, the top two tie,
-                    or the leader carries a red-line veto: the top two
-                    plans go head to head. Each advisor, in turn, votes
-                    A or B (it must vote against a plan that breaks its
-                    red line). 4+ of 7 votes for a plan nobody vetoed -> adopt it
-    ESCALATE        deadlock (under 3 accepts), both finalists cross a
-                    red line, or the runoff winner crosses one.       -> ask a human.
-                    If nobody answers in time, use the pre-committed safe plan.
-
-The clerk relays messages and applies this rule. It never ranks plans by its
-own judgment.
+Advisors choose proposals and accept votes. Latest votes stand until their
+next turn. Seven accepts pass immediately; five pass after round two;
+a unique leader with four passes at the end. Three accepts or a tie earns
+a runoff between the leading two plans. Otherwise a human resolves deadlock.
+There are no vetoes. The clerk counts votes without judging proposals.
 """
 
 from __future__ import annotations
@@ -146,33 +116,30 @@ class Table:
         self.plans: dict[str, TabledProposal] = {}
         self.current: dict[str, str] = {}  # advisor -> id of the plan it proposes or backs
         self.accepts: dict[str, set[str]] = {}
-        self.vetoes: dict[str, set[str]] = {}
 
-    def support(self, pid: str) -> tuple[list[str], list[str]]:
-        veto = [a for a in ADVISOR_IDS if pid in self.vetoes.get(a, ())]
+    def support(self, pid: str) -> list[str]:
         acc = {a for a in ADVISOR_IDS if pid in self.accepts.get(a, ())}
         acc |= {a for a, p in self.current.items() if p == pid}
-        acc -= set(veto)
-        return sorted(acc, key=ADVISOR_IDS.index), veto
+        return sorted(acc, key=ADVISOR_IDS.index)
 
     def snapshot(self) -> list[TabledProposal]:
         out = []
         for t in self.plans.values():
-            acc, veto = self.support(t.id)
+            acc = self.support(t.id)
             backers = [a for a in ADVISOR_IDS if self.current.get(a) == t.id]
-            out.append(t.model_copy(update={"accept": acc, "veto": veto, "backers": backers}))
+            out.append(t.model_copy(update={"accept": acc, "backers": backers}))
         return out
 
     def rows(self) -> list[dict]:
         return [
             {"id": t.id, "author": t.author, "plain": t.plain, "plan": t.plan.model_dump(),
-             "accept": t.accept, "veto": t.veto, "backers": t.backers}
+             "accept": t.accept, "backers": t.backers}
             for t in self.snapshot()
         ]
 
     def ranked(self) -> list[dict]:
         order = list(self.plans)
-        return sorted(self.rows(), key=lambda r: (-len(r["accept"]), len(r["veto"]),
+        return sorted(self.rows(), key=lambda r: (-len(r["accept"]),
                                                   order.index(r["id"])))
 
     def place(self, who: str, b: Ballot, year: int, rnd: int) -> tuple[str, bool]:
@@ -196,8 +163,7 @@ class Table:
         return pid, pid != prev
 
     def vote(self, who: str, b: Ballot, allowed: set[str]) -> None:
-        self.vetoes[who] = {i for i in b.veto if i in allowed}
-        self.accepts[who] = {i for i in b.accept if i in allowed} - self.vetoes[who]
+        self.accepts[who] = {i for i in b.accept if i in allowed}
 
 
 async def deliberate_year(
@@ -304,7 +270,7 @@ async def deliberate_year(
                 "advisor": who, "round": rnd, "turn": i, "speech": ballot.speech,
                 "plan_id": pid, "proposal": t.plan.model_dump(), "plain": t.plain,
                 "backed": t.author != who, "new_plan": pid != prev and t.author == who,
-                "accept": sorted(table.accepts[who]), "veto": sorted(table.vetoes[who]),
+                "accept": sorted(table.accepts[who]),
                 "addressed": ballot.addressed,
             }
             this_round.append(turn)
@@ -326,7 +292,7 @@ async def deliberate_year(
                 rnd == STRONG_MAJORITY_FROM_ROUND and i == len(order) - 1
             ):
                 strong = [r for r in table.ranked()
-                          if len(r["accept"]) >= STRONG_MAJORITY and not r["veto"]]
+                          if len(r["accept"]) >= STRONG_MAJORITY]
                 if strong:
                     best = strong[0]
                     await _tally(emit, state.year, rnd, table, partial=i < len(order) - 1)
@@ -334,7 +300,7 @@ async def deliberate_year(
                     return finish(
                         "majority", best["id"], rnd + 1, dissent,
                         f"Strong majority: {len(best['accept'])} of {N_ADVISORS} accepted "
-                        f"and nobody vetoed. Dissent recorded: {_names(dissent)}.",
+                        f"with dissent recorded: {_names(dissent)}.",
                     )
 
         await _tally(emit, state.year, rnd, table)
@@ -353,37 +319,29 @@ async def deliberate_year(
     best = ranked[0] if ranked else None
     second = ranked[1] if len(ranked) > 1 else None
     tie = bool(best and second and len(second["accept"]) == len(best["accept"]))
-    if best and len(best["accept"]) >= MAJORITY and not best["veto"] and not tie:
+    if best and len(best["accept"]) >= MAJORITY and not tie:
         dissent = [a for a in ADVISOR_IDS if a not in best["accept"]]
         return finish(
             "majority", best["id"], rounds, dissent,
-            f"{len(best['accept'])} of {N_ADVISORS} accepted and nobody vetoed. "
+            f"{len(best['accept'])} of {N_ADVISORS} accepted. "
             f"Dissent recorded: {_names(dissent)}.",
         )
 
     if best and second and len(best["accept"]) >= RUNOFF_FLOOR:
-        if best["veto"] and second["veto"]:
-            reason = (f"Both leading plans cross a red line (for {_names(best['veto'])}; "
-                      f"for {_names(second['veto'])}). A vote must not override one.")
-        else:
-            trigger = ("three" if len(best["accept"]) == RUNOFF_FLOOR
-                       else "tie" if tie else "veto")
-            res = await _runoff(seed, state, beliefs, ask, emit, table, best, second, trigger,
-                                rounds, max_rounds, news, history, last_turn)
-            n_turns += len(res["votes"])
-            if res["winner"]:
-                losers = [a for a, v in res["votes"].items() if v != res["winner"]]
-                return finish(
-                    "runoff", res["winner"], rounds, losers,
-                    f"Runoff: {res['count'][res['winner']]} of {N_ADVISORS} voted for "
-                    f"{short(table.plans[res['winner']].author)}'s plan. "
-                    f"Dissent recorded: {_names(losers)}.",
-                    runoff=res,
-                )
-            reason = res["reason"]
-    elif best and best["veto"]:
-        reason = (f"The leading plan crosses a red line for {_names(best['veto'])} and there is "
-                  "no second plan to vote on.")
+        trigger = "three" if len(best["accept"]) == RUNOFF_FLOOR else "tie"
+        res = await _runoff(seed, state, beliefs, ask, emit, table, best, second, trigger,
+                            rounds, max_rounds, news, history, last_turn)
+        n_turns += len(res["votes"])
+        if res["winner"]:
+            losers = [a for a, v in res["votes"].items() if v != res["winner"]]
+            return finish(
+                "runoff", res["winner"], rounds, losers,
+                f"Runoff: {res['count'][res['winner']]} of {N_ADVISORS} voted for "
+                f"{short(table.plans[res['winner']].author)}'s plan. "
+                f"Dissent recorded: {_names(losers)}.",
+                runoff=res,
+            )
+        reason = res["reason"]
     elif best:
         reason = f"Deadlock: the best plan has only {len(best['accept'])} of {N_ADVISORS} accepts."
     else:
@@ -404,14 +362,13 @@ async def _runoff(seed, state, beliefs, ask, emit, table: Table, a_row, b_row, t
         "tie": "The top two plans are tied",
         "three": f"The best plan has only {RUNOFF_FLOOR} of {N_ADVISORS} accepts"
                  + (" and the top two are tied" if len(b_row["accept"]) == RUNOFF_FLOOR else ""),
-        "veto": "The leading plan crosses a red line",
     }[trigger]
-    pair = [a.model_copy(update={"accept": a_row["accept"], "veto": a_row["veto"]}),
-            b.model_copy(update={"accept": b_row["accept"], "veto": b_row["veto"]})]
+    pair = [a.model_copy(update={"accept": a_row["accept"]}),
+            b.model_copy(update={"accept": b_row["accept"]})]
 
     def side(t: TabledProposal, row: dict) -> dict:
         return {"id": t.id, "author": t.author, "plain": t.plain, "plan": t.plan.model_dump(),
-                "accept": row["accept"], "veto": row["veto"]}
+                "accept": row["accept"]}
 
     await emit("runoff", {
         "year": state.year, "trigger": trigger, "a": side(a, a_row), "b": side(b, b_row),
@@ -421,7 +378,6 @@ async def _runoff(seed, state, beliefs, ask, emit, table: Table, a_row, b_row, t
     await emit("round", {"year": state.year, "round": rounds, "phase": "runoff",
                          "max_rounds": max_rounds, "order": order})
     votes: dict[str, str] = {}
-    vetoes: dict[str, list[str]] = {}
     said: list[dict] = []
     for i, who in enumerate(order):
         brief = Brief(
@@ -436,10 +392,9 @@ async def _runoff(seed, state, beliefs, ask, emit, table: Table, a_row, b_row, t
                                 "rejected": True, "note": "runoff ballot missing or invalid"})
             continue
         votes[who] = ballot.runoff_vote
-        vetoes[who] = [v for v in ballot.veto if v in (a.id, b.id)]
         t = table.plans[ballot.runoff_vote]
         turn = {"advisor": who, "round": rounds, "turn": i, "speech": ballot.speech,
-                "runoff_vote": ballot.runoff_vote, "plain": t.plain, "veto": vetoes[who],
+                "runoff_vote": ballot.runoff_vote, "plain": t.plain,
                 "addressed": ballot.addressed}
         said.append(turn)
         last_turn[who] = {**last_turn.get(who, {}), "speech": ballot.speech,
@@ -454,17 +409,13 @@ async def _runoff(seed, state, beliefs, ask, emit, table: Table, a_row, b_row, t
     for v in votes.values():
         count[v] += 1
     lead = max(count, key=lambda k: (count[k], k == a.id))
-    vetoed_by = [w for w, vs in vetoes.items() if lead in vs]
     winner, reason = None, ""
-    if count[lead] >= MAJORITY and not vetoed_by:
+    if count[lead] >= MAJORITY:
         winner = lead
-    elif vetoed_by:
-        reason = (f"The runoff favored {short(table.plans[lead].author)}'s plan, but it crosses "
-                  f"a red line for {_names(vetoed_by)}. A vote must not override it.")
     else:
         reason = f"The runoff produced no plan with {MAJORITY} of {N_ADVISORS} votes."
     res = {"a": a.id, "b": b.id, "trigger": trigger, "votes": votes, "count": count,
-           "winner": winner, "reason": reason, "vetoes": vetoes,
+           "winner": winner, "reason": reason,
            "accepts_before": {a.id: len(a_row["accept"]), b.id: len(b_row["accept"])}}
     await emit("runoff_result", {"year": state.year, "votes": votes, "winner": winner,
                                  "count": count, "reason": reason, "trigger": trigger})
@@ -477,15 +428,15 @@ async def _escalate(state, beliefs, emit, ask_human, ranked, reason, rounds, new
         safe = safe_plan(state)
         options = [
             {"id": r["id"], "author": r["author"], "plan": r["plan"], "plain": r["plain"],
-             "accept": r["accept"], "veto": r["veto"]}
+             "accept": r["accept"]}
             for r in ranked[:2]
         ] + [{"id": "safe", "author": "fallback", "plan": safe.__dict__,
-              "plain": plain(safe, state), "accept": [], "veto": [],
+              "plain": plain(safe, state), "accept": [],
               "note": "Pre-committed safe fallback: feed everyone (selling up to 20% of land if "
                       "needed), then sow the most we can."}]
         positions = [
             {"advisor": a, "proposal": t.get("proposal"), "plain": t.get("plain", ""),
-             "accept": t.get("accept", []), "veto": t.get("veto", []),
+             "accept": t.get("accept", []),
              "speech": t.get("speech", ""), "thought": t.get("thought", "")}
             for a, t in sorted(last_turn.items(), key=lambda kv: ADVISOR_IDS.index(kv[0]))
         ]

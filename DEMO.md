@@ -10,13 +10,13 @@
 2. Open **http://localhost:8000** in a full-screen browser.
 3. Check the header chips: **via AGNTCY SLIM** and **deepseek-v4.1-flash**.
 4. In the left sidebar set **Seed TBD** (chosen after rehearsal), **Rounds 6**, **Scouts Report**,
-   **Pace 1.0**. Seed, Rounds, and Scouts must match the rehearsal or the replay misses the cache.
+   **Pace 1.0**. Use Saved runs for a recorded rehearsal without new model calls.
 
 ## During the pitch (~3 min)
 
 1. Click **Convene**. The seven advisors speak one at a time, about 1 s apart, and answer each
    other by name. A five-year reign takes a few minutes at pace 1.0.
-2. Click any advisor's thinking to show its private reasoning and scores.
+2. Click any advisor's thinking to show its stated reasoning and chosen plan.
 3. Flip **Glass box**: every thought expands and the SLIM wire messages appear (one unicast
    message per turn).
 4. When the scout report arrives (start of round 2), point at how the next speakers change course.
@@ -45,11 +45,11 @@ Stop with `Ctrl+C`.
 | Problem | Fix |
 |---|---|
 | `Address already in use` on start | `pkill -f "python -m sumer.cli"`, then start again |
-| Header says "offline policy" | `.env` has `LLM_MODE=mock`; set it to `bayleaf` and restart |
+| Header says "LLM unavailable" | Set `LLM_MODE=bayleaf`, check credentials, and restart |
 | Years are slow (~2 min each) | Cache missed: check the seed, Rounds 6, Scouts Report |
-| Anything else at the venue | `LLM_MODE=mock uv run sumer up`: same UI, no API needed |
+| No API connection at the venue | Replay a recorded debate from **Saved runs** |
 
-Turn validation checks preserve the seven-advisor speaking order, red lines, runoff, scouts, and
+Turn validation checks preserve the seven-advisor speaking order, legal budgets, runoff, scouts, and
 narrator. Invalid responses receive one retry for that speaker. A second failure is recorded
 as technical failure. Deadlock without a human choice remains paused; selecting the safe plan
 is recorded as an explicit human resolution. The engine verifies the journal before each year

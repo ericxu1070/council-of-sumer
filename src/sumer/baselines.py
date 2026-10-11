@@ -13,8 +13,7 @@ from sumer.game import Decision, State, legalize
 def lone_ruler(state: State, beliefs: Beliefs) -> Decision:
     """One decider that weighs all seven mandates equally, in one shot, no debate."""
     sc = Scorer(state, beliefs)
-    ok = [d for d in sc.pool if not any(sc.vetoes(a, d) for a in ADVISOR_IDS)] or sc.pool
-    return max(ok, key=lambda d: sum(sc.norm(a, d) for a in ADVISOR_IDS))
+    return max(sc.pool, key=lambda d: sum(sc.norm(a, d) for a in ADVISOR_IDS))
 
 
 def average_of_openings(state: State, beliefs: Beliefs) -> Decision:

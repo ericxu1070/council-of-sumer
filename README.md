@@ -8,21 +8,20 @@ Built for the UCSC AI Hackathon @ SF Tech Week (Oct 10 to 11, 2026), Cisco Outsh
 We took *Hamurabi* (1968), the original city-management game: each year you decide how much
 land to trade, how much grain to feed your people, and how much to plant, while harvests,
 rats, and plague strike at random. Instead of one ruler, a council of seven autonomous agents
-decides over a five-year reign. Each one has a public mandate and a red line, and they argue
+decides over a five-year reign. Each one has a public mandate, and they argue
 with each other, one speaker at a time, over **AGNTCY SLIM**.
 
-| Advisor | Mandate | Red line |
-|---|---|---|
-| Voice of the Farmers | Grow the population. Nobody starves. | Never starve more than 10% of people |
-| High Priest of Enlil | Keep the granaries full. Plans for a bad harvest. | Never leave under half a year of food (in a bad year) |
-| General of the Walls | Hold and expand land. | Never sell more than 10% of land in a year |
-| Chief Merchant | Maximize wealth at market prices. | None. Everything has a price. |
-| Canal Builder | Plant as many acres as we can, every year, and gain land and hands to sow more. | Never leave more than half of the land we could sow fallow |
-| Royal Physician | Generous rations, food in store, no crowding to breed plague. | Never feed people less than 90% of what they need |
-| Envoy to Lagash | Peace with the neighbors: no land grabs, steady borders, modest trade. | Never buy more than 10% more land in a year |
+| Advisor | Mandate |
+|---|---|
+| Voice of the Farmers | Grow the population. Nobody starves. |
+| High Priest of Enlil | Keep the granaries full. Plans for a bad harvest. |
+| General of the Walls | Hold and expand land. |
+| Chief Merchant | Maximize wealth at market prices. |
+| Canal Builder | Plant as many acres as we can, every year, and gain land and hands to sow more. |
+| Royal Physician | Generous rations, food in store, no crowding to breed plague. |
+| Envoy to Lagash | Peace with the neighbors: no land grabs, steady borders, modest trade. |
 
-These mandates really conflict: the General and the Builder want land that the Envoy will not
-let them grab, the Physician's extra rations eat the Priest's reserve and the Builder's seed,
+These mandates really conflict: the General and the Builder want land while the Envoy wants stable borders, the Physician's extra rations eat the Priest's reserve and the Builder's seed,
 and in a locust year the Priest's granary and the General's acres cannot both be saved.
 
 ## Hamurabi game rules
@@ -70,7 +69,7 @@ See [DEMO.md](DEMO.md) for the step-by-step live demo script.
  Browser <--SSE--  Clerk (web.py) --A2A unicast, one Brief per turn-->  farmer priest general merchant
  (glass box,       relays + tallies     (only the speaker is asked)      builder healer diplomat
   narrator)        never chooses   <------------ one Ballot ------------  7 separate A2A agent processes
-                                                                        (agent.py: policy or LLM mind)
+                                                                        (agent.py: LLM choices)
 ```
 
 - **Advisors** (`agent.py`) are seven separate processes, each serving an A2A agent card over
@@ -82,11 +81,11 @@ See [DEMO.md](DEMO.md) for the step-by-step live demo script.
 - **Ballots are validated** against the addressed advisor, run, state, and exact request
   (`protocol.py`). Invalid or stale responses are rejected and flagged in the glass box.
   This local demo relies on the SLIM transport identity; it does not provision signing keys.
-- **Reasoning**: with `LLM_MODE=bayleaf`, each advisor asks an LLM (default
-  `deepseek-v4.1-flash` via UCSC Bayleaf, thinking off) for a private thought, a proposal, its
-  votes, and a public speech. Red lines are enforced in code, so a model cannot argue its own
-  advisor past one. With `LLM_MODE=mock`, the same advisors use a deterministic concession
-  strategy, which powers explicitly selected mock mode and the benchmarks. Live failures are retried once and then stop the run.
+- **Reasoning**: each advisor asks the LLM (`LLM_MODE=bayleaf`) to choose its proposal,
+  accept votes, runoff vote, explanation, and speech from its mandate, city state, beliefs,
+  and conversation. No deterministic policy, suggested plan, numeric score, threshold,
+  or red-line veto guides or overrides those choices. Budgets and request bindings are
+  validated. Model failures are retried once and then stop the run; mock policy mode was removed.
 - **The game** (`game.py`) pre-rolls every die from the seed, so every decider faces exactly the
   same harvests, rats, and plagues.
 - **The narrator** (`narrator.py`) closes each year with one or two plain-English sentences for a
@@ -100,48 +99,45 @@ Each year is a real meeting, up to 6 rounds of turns:
 1. **Turns, not polls.** The seven advisors speak one at a time in a fixed order, and the first
    seat moves one place every round. On its turn an advisor sees the table (every plan with its
    current support), everything said earlier this round, and the round before. It tables a
-   proposal or backs a plan already on the table, votes accept or veto (red line only) on the
+   proposal or backs a plan already on the table, chooses which plans to accept on the
    tabled plans, and answers the others by name in at most 25 words ("Builder, your canal plan
    starves the east quarter..."). A new proposal is tabled at once, so later speakers in the same
    round can accept it. A plan nobody backs any more is withdrawn.
 2. **News arrives mid-debate.** Scout reports land at the start of round 2, so the opening
    positions and the reaction to the news are both on record.
-3. **Concession.** Advisors start selfish and concede over time: they weigh the others' mandates
-   more and accept lower scores for themselves as the meeting runs. Last year's outvoted advisors
-   get double weight this year, so recorded dissent carries forward.
+3. **Negotiation.** The LLM decides when to compromise and which tradeoffs to accept.
+   Recent outcomes and dissent are supplied as context; there is no coded concession schedule
+   or automatic extra weight for an advisor.
 4. **Stop rules**, checked after every turn
    - **Consensus**: all seven accept one plan. Adopt it.
-   - **Strong majority**: once round 2 is complete, a plan with 5 of 7 accepts and no red-line
-     veto is adopted, and the dissent is recorded.
+   - **Strong majority**: once round 2 is complete, a plan with 5 of 7 accepts is adopted, and the dissent is recorded.
    - **Stalemate**: a whole round with no proposal change and no news. Go to the final rule.
 5. **Final rule** (stalemate, or the last round ends)
-   - **Majority**: the best plan has 4 of 7 accepts, no veto, and no tie. Adopt it and record
+   - **Majority**: the best plan has 4 of 7 accepts and no tie. Adopt it and record
      the dissent.
-   - **Runoff**: the best plan has only 3 of 7, the top two tie, or the leader carries a red-line
-     veto. The top two plans go head to head, and every advisor, again one at a time with a
-     one-line speech, votes A or B. An advisor whose red line a plan crosses must vote for the
-     other. A plan with 4 of 7 runoff votes that crosses nobody's red line is adopted.
-   - **Escalate**: under 3 accepts (deadlock), both finalists cross a red line, or the runoff
-     winner crosses one. The reign pauses and the human sees each advisor's position and private
-     reasoning, then picks one of the top plans or the pre-committed safe plan.
+   - **Runoff**: the best plan has only 3 of 7 accepts, or the top two tie. The top two
+     plans go head to head, and every advisor chooses A or B with a one-line speech.
+     A plan with 4 of 7 runoff votes is adopted.
+   - **Escalate**: under 3 accepts (deadlock), or a runoff without a majority. The reign
+     pauses and the human sees each advisor's position and stated reasoning, then picks
+     one of the top plans or the pre-committed safe plan.
+
 
 ### When consensus is not the right outcome
 
 - **Stop and adopt** when everyone accepts.
-- **Keep the disagreement** when a clear majority agrees and nobody's red line is crossed.
+- **Keep the disagreement** when a clear majority agrees.
   Forcing unanimity among seven would water the plan down. We adopt it, but the dissent stays on
-  record and gains weight next year.
+  record and is available as context next year.
 - **Vote it out** when the council splits close to the middle: a runoff between the top two plans
   forces a choice without a king.
-- **Ask a human** when a red line is at stake or no majority exists. A majority must never override
-  a red line, because red lines encode harms (starvation, a bare granary, losing the land, an
-  unsown city, a war with Lagash) that the others' scores would trade away.
+- **Ask a human** when the council cannot form a majority.
 
 ## Level 3 criteria, and where to see each one
 
 | Criterion | Where it shows |
 |---|---|
-| Genuine disagreement | Opening proposals differ by hundreds of acres and bushels; advisors answer each other by name; vetoes in the glass box |
+| Genuine disagreement | Opening proposals differ by hundreds of acres and bushels; advisors answer each other by name; different accept votes in the glass box |
 | Deliberation mechanism | Sequential turns over SLIM (propose or back, vote, reply), with the stop rules and runoff above |
 | Effect of new information | Scouts report true news mid-debate (locusts, rats, plague, prices). See the "before and after the news" table, the **Send a scout** buttons, and the counterfactual benchmark. |
 | Comparison to a baseline | Evidence tab and `results/bench.md`: lone ruler, averaging, single-mandate dictators |
@@ -152,9 +148,8 @@ Each year is a real meeting, up to 6 rounds of turns:
 The right-hand column traces the whole system as it thinks:
 
 - every clerk message: SLIM topic, recipient, bytes, round-trip time
-- for every advisor, every turn: its **private thought** (LLM stated reasoning or the policy's
-  explanation), the forecast it used, its self vs group weight, its acceptance threshold, and a
-  per-plan table of score, threshold, red lines hit, and vote, plus LLM latency and cost
+- for every advisor, every turn: the LLM's **stated reasoning**, chosen proposal,
+  accept or runoff votes, supplied beliefs and news, plus model latency and cost
 - turn validation for every ballot, and alerts for rejected or missing ballots
 - scout news and the exact belief update it caused
 
@@ -163,51 +158,10 @@ an advisor card to filter the trace to that agent.
 
 ## Results
 
-30 seeds, five-year reigns, same dice for every decider. Full table:
-[`results/bench.md`](results/bench.md) (regenerate with `uv run sumer bench`). The Evidence tab in
-the UI shows the same data.
-
-| Decider | Mean score | Survived | Mean starved | Mean people | Fairness |
-|---|---|---|---|---|---|
-| Farmer alone | 1225.1 | 30/30 | 0 | 102.8 | 0.360 |
-| **Council (7 agents, negotiated)** | 1216.6 | 30/30 | 0.4 | 102.5 | **0.386** |
-| General alone | 1215.6 | 30/30 | 0.5 | 102.4 | 0.275 |
-| Physician alone | 1158.0 | 30/30 | 0 | 100.1 | 0.257 |
-| Lone ruler (equal weights, no debate) | 1157.6 | 30/30 | 2.5 | 99.8 | 0.375 |
-| Builder alone | 829.8 | 30/30 | 15.0 | 84.5 | 0.296 |
-| Average of selfish openings | -238.5 | 30/30 | 50.3 | 31.2 | 0.0 |
-| Envoy alone | -1737.9 | 19/30 | 85.1 | 5.1 | 0.0 |
-| Merchant alone | -1742.5 | 19/30 | 85.2 | 5.0 | 0.0 |
-| Priest alone | -1800.1 | 19/30 | 85.1 | 5.1 | 0.0 |
-
-Fairness is the average satisfaction of the worst-served advisor (0 to 1). These numbers come from
-the offline policy minds (`LLM_MODE=mock`), so they are deterministic and reproducible.
-
-- **The council beats the lone ruler on both counts.** It scores 1216.6 vs 1157.6 for one
-  equal-weight ruler, starves fewer people (0.4 vs 2.5 per reign), and has the best fairness of
-  any decider (0.386).
-- **It does not beat the best single mandate on raw score.** The Farmer alone scores 1225.1,
-  because the score rewards population, but it serves the other six advisors worse (fairness
-  0.360). The council gives up 0.7% of score to protect minority mandates.
-- **Negotiation beats naive aggregation.** Averaging each advisor's selfish plan scores -238.5.
-- **New information changes decisions.** Rerunning each news year from the same state without the
-  report changes the adopted plan in 59 of 140 years, and scouts raise the council's mean score
-  from 1198.5 to 1216.6.
-- **Outcomes over 150 council-years:** 0 consensus, 123 majority with recorded dissent, 6 runoffs,
-  21 escalated to a human. Mean 2.9 rounds and 20 turns per year.
-- **Single mandates fail.** The Envoy, Merchant, and Priest alone each lose 11 of 30 reigns.
-
-Honest caveats about the policy minds:
-
-- **Seven offline advisors almost never reach unanimity.** One of them (usually the Priest, who
-  plans for a bad harvest) dissents from nearly every compromise, so most years end in a strong
-  majority as soon as round 2 is complete. The LLM advisors reach consensus more often.
-- **Runoffs come from 4-4 ties, not 3-of-7 splits.** Late in the meeting the policy advisors have
-  conceded enough that the leading plan almost always has 4 or more accepts. In 200 seeds
-  (`scripts/find_runoff_seed.py`) none of the runoffs came from a 3-of-7 leader.
-- **Escalations are real red-line clashes.** In every escalation we inspected, no plan on the table
-  crossed nobody's red line (typically the Priest's granary against the General's land in a
-  locust year), so a vote could not settle it.
+Checked-in [`results/bench.md`](results/bench.md) and `results/bench.json` are historical
+results from the removed policy and veto rules. They do not measure the current LLM-only
+council. Regenerate with `uv run sumer bench` using Bayleaf. Utility and satisfaction scores
+are computed only for reports and offline baseline comparisons; they never enter advisor prompts.
 
 ## Verified turns and decision evidence
 
@@ -225,12 +179,12 @@ to `.cache/runs.sqlite3`. Private thoughts remain available to humans without en
 Checked-in benchmark results predate the corrected accounting and are historical until
 regenerated. Paused deadlocks and technical failures do not receive completed-reign scores.
 
-## Cost and offline safety
+## Cost and replay
 
-- Every LLM reply is cached in `.cache/llm/` by prompt hash. Rehearse a seed once and the demo
-  replays it with no network.
+- Every LLM reply is cached in `.cache/llm/` by prompt hash. Use Saved runs to replay a recorded
+  debate without network calls.
 - `LLM_BUDGET_USD` (default $3.00) is a hard cap tracked from the cost Bayleaf reports per call.
-  Past it, advisors record a technical failure after one retry; mock mode must be selected explicitly.
+  Past it, advisors record a technical failure after one retry; no deterministic fallback vote is generated.
 - A full 5-year LLM game costs a few cents (up to 49 short LLM calls per year).
 
 ## Project layout
@@ -238,8 +192,8 @@ regenerated. Paused deadlocks and technical failures do not receive completed-re
 ```
 src/sumer/
   game.py          Hamurabi rules, seeded dice, ratings
-  advisors.py      mandates, red lines, forecasts, scout reports, plain-English plans
-  agent.py         one advisor's mind (policy + LLM) and its glass-box trace
+  advisors.py      mandates, outcome forecasts, scout reports, plain-English plans
+  agent.py         one advisor's LLM choices and its glass-box trace
   deliberation.py  the council protocol: turns, stop rules, runoff, escalation
   narrator.py      the plain-English summary of each year
   chamber.py       plays whole games

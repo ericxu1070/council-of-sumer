@@ -1,7 +1,7 @@
 """Chat completions against any OpenAI-compatible API (Bayleaf by default).
 
 Responses are cached on disk by prompt hash. Recorded run replay is separate
-and reads SQLite. Explicit mock mode makes no network calls; live model
+and reads SQLite. Council choices require the live LLM; model
 failures propagate to the clerk for its single retry and technical-failure status.
 """
 

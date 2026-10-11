@@ -1,9 +1,9 @@
 """Find demo seeds where the council settles a year by runoff after a 3-of-7 split.
 
-Plays seeds 1..N with the offline policy minds over the in-process transport
-(deterministic, no network) and prints, for every seed with such a runoff,
+Plays seeds 1..N with the configured LLM over the in-process transport
+(using model calls or cached replies) and prints, for every seed with such a runoff,
 the runoff years and the reign's outcome counts. Seeds whose runoffs came
-from another trigger (a tie at 4 or more, or a red-line veto on the leader)
+from another trigger (a tie at 4 or more)
 are listed after, as fallback demo candidates.
 
     uv run python scripts/find_runoff_seed.py [--seeds 200]
@@ -15,7 +15,6 @@ import argparse
 import asyncio
 import os
 
-os.environ["LLM_MODE"] = "mock"
 os.environ["TRANSPORT"] = "inproc"
 
 from sumer.chamber import play_council

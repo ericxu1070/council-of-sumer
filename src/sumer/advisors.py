@@ -1,4 +1,4 @@
-"""The seven advisors: public mandates, red lines, and how each scores a plan.
+"""The seven advisors: public mandates, and how each scores a plan.
 
 Each advisor judges a plan by forecasting next year's city under its current
 beliefs and scoring the forecast against its own mandate. Mandates conflict
@@ -86,7 +86,6 @@ class Advisor:
     title: str
     short: str  # the name the others call this advisor by, e.g. "Builder"
     mandate: str
-    red_line: str
     voice: str  # how the advisor talks, used by the LLM and the templates
     color: str
     emoji: str
@@ -98,7 +97,6 @@ class Advisor:
             "title": self.title,
             "short": self.short,
             "mandate": self.mandate,
-            "red_line": self.red_line,
             "color": self.color,
             "emoji": self.emoji,
             "voice": self.voice,
@@ -138,23 +136,6 @@ class Advisor:
                 return -abs(f.land_delta) + 0.02 * f.grain
         raise ValueError(self.id)
 
-    def violates_red_line(self, f: Forecast, state: State) -> bool:
-        match self.id:
-            case "farmer":
-                return f.starved_frac > 0.10
-            case "priest":
-                return f.grain < 0.5 * f.population * FOOD_PER_PERSON
-            case "general":
-                return f.land_delta < -0.10 * state.acres
-            case "merchant":
-                return False  # the Merchant always has a price
-            case "builder":
-                return f.plant < 0.5 * f.sowable
-            case "healer":
-                return f.fed_frac < 0.90
-            case "diplomat":
-                return f.land_delta > 0.10 * state.acres
-        raise ValueError(self.id)
 
 
 ADVISORS: dict[str, Advisor] = {
@@ -165,7 +146,6 @@ ADVISORS: dict[str, Advisor] = {
             title="Voice of the Farmers",
             short="Farmer",
             mandate="Grow the population. Nobody starves.",
-            red_line="Will never accept a plan that starves more than 10% of the people.",
             voice="earnest, speaks for families, cites hungry children",
             color="#3f8f4f",
             emoji="\U0001f33e",
@@ -176,7 +156,6 @@ ADVISORS: dict[str, Advisor] = {
             title="High Priest of Enlil",
             short="Priest",
             mandate="Keep the temple granaries full against famine. Plans for a bad harvest.",
-            red_line="Will never accept a plan that, in a bad year, leaves less than half a year of food in store.",
             voice="solemn, cautious, invokes omens and the gods",
             color="#8a5cc2",
             emoji="\U0001f56f\ufe0f",
@@ -187,7 +166,6 @@ ADVISORS: dict[str, Advisor] = {
             title="General of the Walls",
             short="General",
             mandate="Hold and expand land. More acres, more soldiers.",
-            red_line="Will never accept selling more than 10% of our land in one year.",
             voice="blunt, martial, talks about borders and strength",
             color="#b5452f",
             emoji="\U0001f6e1\ufe0f",
@@ -197,7 +175,6 @@ ADVISORS: dict[str, Advisor] = {
             title="Chief Merchant",
             short="Merchant",
             mandate="Maximize the city's wealth at market prices. Buy land low, sell high.",
-            red_line="Has no red line. Everything has a price.",
             voice="quick, transactional, quotes prices",
             color="#c0911e",
             emoji="\U0001f4b0",
@@ -207,7 +184,6 @@ ADVISORS: dict[str, Advisor] = {
             title="Canal Builder",
             short="Builder",
             mandate="Plant as many acres as we can, every year, and gain the land and hands to sow more.",
-            red_line="Will never accept leaving more than half of the land we could sow fallow.",
             voice="practical, impatient, talks about canals, water, and idle fields",
             color="#2f7fb5",
             emoji="\U0001f9f1",
@@ -218,7 +194,6 @@ ADVISORS: dict[str, Advisor] = {
             title="Royal Physician",
             short="Physician",
             mandate="Keep the city healthy: generous rations, food in store, no crowding to breed plague.",
-            red_line="Will never accept feeding the people less than 90% of what they need.",
             voice="calm, clinical, warns about fever, crowding, and weak bodies",
             color="#c2577e",
             emoji="\U0001f33f",
@@ -229,7 +204,6 @@ ADVISORS: dict[str, Advisor] = {
             title="Envoy to Lagash",
             short="Envoy",
             mandate="Keep the peace with our neighbors. No land grabs, steady borders, modest trade.",
-            red_line="Will never accept buying more than 10% more land in one year.",
             voice="smooth, measured, speaks of treaties, neighbors, and goodwill",
             color="#3aa39a",
             emoji="\U0001f54a\ufe0f",
@@ -337,9 +311,6 @@ def candidate_plans(state: State) -> list[Decision]:
     return list(seen.values())
 
 
-MIN_PASSABLE = 4  # fewer passable plans than this and the whole pool sets the score range
-
-
 def safe_plan(state: State) -> Decision:
     """The pre-committed fallback when the council cannot decide.
 
@@ -359,26 +330,16 @@ def safe_plan(state: State) -> Decision:
 
 
 class Scorer:
-    """Normalizes each advisor's utility to 0..1 over the plans that could pass.
-
-    The range is taken over the plans that cross nobody's red line, because
-    those are the real choices. A score of 0.6 then means "middling among
-    passable plans", not "better than starving half the city". If too few
-    plans are passable, the whole pool sets the range."""
+    """Scores outcomes for reports and offline comparisons, never for LLM guidance."""
 
     def __init__(self, state: State, beliefs: Beliefs, extra: list[Decision] = ()):
         self.state = state
         self.beliefs = beliefs
         self.pool = candidate_plans(state) + [legalize(state, d) for d in extra]
         self._fc = {(a, d): self.forecast(a, d) for a in ADVISOR_IDS for d in self.pool}
-        passable = [
-            d for d in self.pool
-            if not any(ADVISORS[a].violates_red_line(self._fc[a, d], state) for a in ADVISOR_IDS)
-        ]
-        basis = passable if len(passable) >= MIN_PASSABLE else self.pool
         self._range: dict[str, tuple[float, float]] = {}
         for a in ADVISORS.values():
-            us = [a.utility(self._fc[a.id, d], state) for d in basis]
+            us = [a.utility(self._fc[a.id, d], state) for d in self.pool]
             self._range[a.id] = (min(us), max(us))
 
     def forecast(self, advisor_id: str, d: Decision) -> Forecast:
@@ -391,8 +352,6 @@ class Scorer:
         u = a.utility(self.forecast(advisor_id, d), self.state)
         return 0.5 if hi == lo else max(0.0, min(1.0, (u - lo) / (hi - lo)))
 
-    def vetoes(self, advisor_id: str, d: Decision) -> bool:
-        return ADVISORS[advisor_id].violates_red_line(self.forecast(advisor_id, d), self.state)
 
 
 # ---- New information: scout reports derived from the true hidden dice ----

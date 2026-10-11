@@ -265,7 +265,7 @@ async def meta():
         "pace_s": live.pace_s,
         "transport": settings.transport,
         "llm": settings.llm_mode,
-        "model": settings.llm_model if settings.llm_mode == "bayleaf" else "policy",
+        "model": settings.llm_model if settings.llm_mode == "bayleaf" else "unavailable",
         "voice": voice.enabled(),
         "max_rounds": settings.max_rounds,
         "escalation_timeout_s": settings.escalation_timeout_s,
