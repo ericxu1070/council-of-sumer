@@ -66,6 +66,23 @@ const os = require('node:os');
     });
     const turn={advisor:'provider',speech:'Farmer, I support your plan. Merchant, I cannot support yours.',round:1,year:1,plan_id:'farmer-y1-r1',backed:true,addressed:['farmer','merchant'],accept:['farmer-y1-r1'],support:[{id:'farmer-y1-r1',author:'farmer'},{id:'merchant-y1-r1',author:'merchant'}]};
     await page.evaluate(turn=>renderTurn(turn,false),turn);
+    // A failed advisor turn dismisses the stage card without creating empty content.
+    for (const instant of [false, true]) {
+      await page.evaluate(instant=>{
+        spotlight('year', '<div>Previous year</div>');
+        S.stance.farmer='agree';
+        render('agent_skipped',{advisor:'farmer',attempts:2},instant);
+      },instant);
+      assert.equal(await page.locator('#spot').evaluate(el=>el.classList.contains('in')),false);
+      assert.equal(await page.evaluate(()=>S.stance.farmer),undefined);
+      assert.match(await page.locator('#feed').textContent(),/Farmer skipped this turn/);
+      assert.doesNotMatch(await page.locator('#spot').textContent(),/undefined/);
+      await page.waitForTimeout(400);
+      assert.equal(await page.locator('#spot').evaluate(el=>el.classList.contains('hidden')),true);
+      assert.equal(await page.locator('#spot').textContent(),'');
+      await page.evaluate(turn=>renderTurn(turn,false),turn);
+      assert.match(await page.locator('#feed').textContent(),/Farmer, I support your plan/);
+    }
     assert.equal(await page.locator('.cg-relation.agree').count(),1);
     assert.equal(await page.locator('.cg-relation.disagree').count(),1);
     assert.equal(await page.evaluate(()=>planAuthor('farmer-y1-r1')),'farmer');
