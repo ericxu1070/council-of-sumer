@@ -34,6 +34,7 @@ from pydantic import BaseModel
 
 from sumer.advisors import ADVISORS as PRESETS
 from sumer.advisors import MAX_ADVISORS
+from sumer.scouts import SCOUT_IDS, SCOUT_OPTIONS
 
 ROOT = Path(__file__).resolve().parent.parent
 WEB = ROOT / "web"
@@ -68,6 +69,9 @@ class Live:
         self.pace_s = 1.0
         self.injected: list[str] = []
         self.pending: asyncio.Future | None = None
+        self.scout: tuple[str, asyncio.Future] | None = None
+        self.resume = asyncio.Event()
+        self.resume.set()
         self.run_id = uuid4().hex
 
 
@@ -145,6 +149,7 @@ def others(a):
 
 async def pause(mult=1.0):
     await asyncio.sleep(live.pace_s * mult)
+    await live.resume.wait()
 
 
 async def maybe_news(year, rnd, scripted=None):
@@ -157,10 +162,11 @@ async def maybe_news(year, rnd, scripted=None):
 
 
 async def discuss_round(year, rnd, max_rounds, support: dict[str, list[str]],
-                        burst=False, rng: random.Random | None = None):
-    """support: plan author -> advisors accepting it."""
+                        burst=False, rng: random.Random | None = None, revote=False) -> int:
+    """support: plan author -> advisors accepting it. Returns the last round played."""
     rng = rng or RNG
-    await hub.emit("round", {"year": year, "round": rnd, "phase": "discuss", "max_rounds": max_rounds})
+    await hub.emit("round", {"year": year, "round": rnd, "phase": "discuss", "max_rounds": max_rounds,
+                             "revote": revote})
     await pause(0.5)
     for i, a in enumerate(IDS):
         prop = dict(PROPOSALS[a])
@@ -193,6 +199,30 @@ async def discuss_round(year, rnd, max_rounds, support: dict[str, list[str]],
                             "recipients": IDS, "bytes_out": 2148, "replies": len(IDS), "elapsed_s": 1.84})
     await hub.emit("tally", {"year": year, "round": rnd, "phase": "discuss", "rows": rows[:4]})
     await pause(0.5)
+    # Like the real chamber, a scout event buys one re-vote round, up to the round limit.
+    if await ask_scout(year, rnd, "discuss", rows[:4]) and rnd + 1 < max_rounds:
+        return await discuss_round(year, rnd + 1, max_rounds, support, burst, rng, revote=True)
+    return rnd
+
+
+async def ask_scout(year, rnd, phase, rows) -> bool:
+    """Mirror the real chamber: after each full vote the user picks an event or skips."""
+    request = {"request_id": uuid4().hex, "year": year, "round": rnd, "phase": phase,
+               "rows": rows, "options": SCOUT_OPTIONS}
+    fut = asyncio.get_running_loop().create_future()
+    live.scout = (request["request_id"], fut)
+    await hub.emit("scout_request", request)
+    try:
+        choice = await fut
+    finally:
+        live.scout = None
+    await hub.emit("scout_choice", {**request, "choice": choice})
+    if choice == "skip":
+        return False
+    text = next(o["detail"] for o in SCOUT_OPTIONS if o["id"] == choice)
+    await hub.emit("news", {"year": year, "round": rnd + 1, "kind": choice, "text": text, "injected": True})
+    await pause(0.5)
+    return True
 
 
 async def finish_year(year, outcome, adopted_author, dissent, rounds, summary, narration,
@@ -218,35 +248,34 @@ async def run(narration: str | None) -> None:
     # Year 1: scripted consensus after the scouts report a poor harvest.
     await hub.emit("year_start", {"year": 1, "state": STATES[0]})
     await maybe_news(1, 0)
-    await discuss_round(1, 0, 4, {"provider": ["provider", "farmer"],
-                                "merchant": ["merchant", "priest"], "villager": ["villager"]})
-    await maybe_news(1, 1, scripted="harvest")
-    await discuss_round(1, 1, 4, {"provider": IDS})
-    await finish_year(1, "consensus", "provider", [], 2,
+    r = await discuss_round(1, 0, 4, {"provider": ["provider", "farmer"],
+                                    "merchant": ["merchant", "priest"], "villager": ["villager"]})
+    await maybe_news(1, r + 1, scripted="harvest")
+    r = await discuss_round(1, r + 1, 4, {"provider": IDS})
+    await finish_year(1, "consensus", "provider", [], r + 1,
                       "All five backed the Provider's full-ration plan in this scripted scene. The city grew by four people.", narration)
 
     # Year 2: majority with dissent, one round in a burst.
     await hub.emit("year_start", {"year": 2, "state": STATES[1]})
     await maybe_news(2, 0)
-    await discuss_round(2, 0, 4, {"farmer": ["provider", "farmer", "merchant"],
-                                "priest": ["priest"], "villager": ["villager"]}, burst=True)
-    await maybe_news(2, 1)
-    await discuss_round(2, 1, 4, {"farmer": ["provider", "farmer", "merchant", "priest"],
-                                "villager": ["villager"]})
-    await finish_year(2, "majority", "farmer", ["villager"], 2,
+    r = await discuss_round(2, 0, 4, {"farmer": ["provider", "farmer", "merchant"],
+                                    "priest": ["priest"], "villager": ["villager"]}, burst=True)
+    await maybe_news(2, r + 1)
+    r = await discuss_round(2, r + 1, 4, {"farmer": ["provider", "farmer", "merchant", "priest"],
+                                        "villager": ["villager"]})
+    await finish_year(2, "majority", "farmer", ["villager"], r + 1,
                       "Four of five backed the Farmer's plan to buy land and plant more. Rats ate 450 bushels and six people starved.", narration)
 
     # Year 3: no majority, runoff between the top two plans.
     await hub.emit("year_start", {"year": 3, "state": STATES[2]})
     await maybe_news(3, 0, scripted="rats")
-    await discuss_round(3, 0, 4, {"farmer": ["farmer", "priest"], "provider": ["provider", "merchant"],
-                                "villager": ["villager"]})
-    await maybe_news(3, 1)
-    await discuss_round(3, 1, 4, {"farmer": ["farmer", "priest"], "provider": ["provider", "merchant"],
-                                "villager": ["villager"]})
-    await hub.emit("round", {"year": 3, "round": 2, "phase": "runoff", "max_rounds": 4})
-    a = {"id": "farmer-y3-r1", "author": "farmer", "plain": plain(PROPOSALS["farmer"])}
-    b = {"id": "provider-y3-r1", "author": "provider", "plain": plain(PROPOSALS["provider"])}
+    split = {"farmer": ["farmer", "priest"], "provider": ["provider", "merchant"], "villager": ["villager"]}
+    r = await discuss_round(3, 0, 4, split)
+    await maybe_news(3, r + 1)
+    r = await discuss_round(3, r + 1, 4, split)
+    await hub.emit("round", {"year": 3, "round": r + 1, "phase": "runoff", "max_rounds": 4})
+    a = {"id": f"farmer-y3-r{r}", "author": "farmer", "plain": plain(PROPOSALS["farmer"])}
+    b = {"id": f"provider-y3-r{r}", "author": "provider", "plain": plain(PROPOSALS["provider"])}
     await hub.emit("runoff", {"year": 3, "a": a, "b": b, "reason": "No plan reached a majority after 2 rounds. The top two go head to head."})
     await pause(1)
     votes = {"provider": b, "farmer": a, "merchant": a, "priest": a, "villager": b}
@@ -259,27 +288,27 @@ async def run(narration: str | None) -> None:
     }
     for adv in IDS:
         v = votes[adv]
-        await hub.emit("turn", {"year": 3, "round": 2, "phase": "runoff", "advisor": adv, "speech": why[adv],
+        await hub.emit("turn", {"year": 3, "round": r + 1, "phase": "runoff", "advisor": adv, "speech": why[adv],
                                 "proposal": None, "plan_id": None, "plain": None, "accept": [],
                                 "runoff_vote": v["id"], "addressed": [], "thought": THOUGHTS[adv], "trace": {}, "source": "scripted"})
         await pause(0.6)
     await hub.emit("runoff_result", {"year": 3, "votes": {k: v["id"] for k, v in votes.items()}, "winner": a["id"],
                                      "count": {a["id"]: 3, b["id"]: 2}})
     await pause(1)
-    await finish_year(3, "runoff", "farmer", ["provider", "villager"], 3,
+    await finish_year(3, "runoff", "farmer", ["provider", "villager"], r + 2,
                       "The Farmer's plan won the runoff three to two. A bumper harvest filled the granary.", narration,
-                      adopted_round=1)
+                      adopted_round=r)
 
     # Year 4: deadlock, the human decides.
     await hub.emit("year_start", {"year": 4, "state": STATES[3]})
     await maybe_news(4, 0, scripted="plague")
-    await discuss_round(4, 0, 4, {a: [a] for a in IDS})
-    await maybe_news(4, 1)
-    await discuss_round(4, 1, 4, {a: [a] for a in IDS})
+    r = await discuss_round(4, 0, 4, {a: [a] for a in IDS})
+    await maybe_news(4, r + 1)
+    r = await discuss_round(4, r + 1, 4, {a: [a] for a in IDS})
     options = [
-        {"id": "provider-y4-r1", "plan": PROPOSALS["provider"], "plain": plain(PROPOSALS["provider"]),
+        {"id": f"provider-y4-r{r}", "plan": PROPOSALS["provider"], "plain": plain(PROPOSALS["provider"]),
          "accept": ["provider"]},
-        {"id": "farmer-y4-r1", "plan": PROPOSALS["farmer"], "plain": plain(PROPOSALS["farmer"]),
+        {"id": f"farmer-y4-r{r}", "plan": PROPOSALS["farmer"], "plain": plain(PROPOSALS["farmer"]),
          "accept": ["farmer"]},
         {"id": "safe", "plan": {"land_delta": -10, "feed": 2100, "plant": 900},
          "plain": "Play it safe: feed everyone, sell a little land, plant the most we can", "accept": [],
@@ -298,14 +327,14 @@ async def run(narration: str | None) -> None:
     finally:
         live.pending = None
     author = choice.split("-")[0]
-    await finish_year(4, "escalated", author if author in PROPOSALS else "safe", [], 2,
+    await finish_year(4, "escalated", author if author in PROPOSALS else "safe", [], r + 1,
                       "You broke the deadlock. Plague struck and took fifteen people, but the granary held.", narration)
 
     # Year 5: quick consensus.
     await hub.emit("year_start", {"year": 5, "state": STATES[4]})
     await maybe_news(5, 0, scripted="market")
-    await discuss_round(5, 0, 4, {"provider": IDS})
-    await finish_year(5, "consensus", "provider", [], 1,
+    r = await discuss_round(5, 0, 4, {"provider": IDS})
+    await finish_year(5, "consensus", "provider", [], r + 1,
                       "In the final scripted scene all five backed the Provider. The city ends larger than it began.", narration)
 
     await hub.emit("end", {"rating": {"verdict": "fair", "verdict_reason": "2% starved on average, 10.5 acres per person",
@@ -352,12 +381,14 @@ class StartReq(BaseModel):
 
 @app.post("/api/game")
 async def start(req: StartReq):
-    if req.advisors is not None and req.advisors != [{"id": a} for a in IDS]:
+    # Setup sends every seat with its bias; only the roster order matters to the script.
+    if req.advisors is not None and [a.get("id") for a in req.advisors] != IDS:
         raise HTTPException(400, "This scripted preview supports the five default voters only. Use the real backend for custom councils.")
     if live.task and not live.task.done():
         live.task.cancel()
     hub.backlog.clear()
     live.injected.clear()
+    live.resume.set()
     live.run_id = uuid4().hex
     live.task = asyncio.create_task(_run_safe())
     return {"ok": True, "run_id": live.run_id}
@@ -382,6 +413,22 @@ async def news(req: NewsReq):
     return {"ok": True}
 
 
+class ScoutReq(BaseModel):
+    run_id: str = ""
+    request_id: str
+    choice: str
+
+
+@app.post("/api/scout")
+async def scout(req: ScoutReq):
+    if not live.scout or live.scout[0] != req.request_id or live.scout[1].done():
+        raise HTTPException(409, "No matching scout choice is waiting.")
+    if req.choice not in SCOUT_IDS:
+        raise HTTPException(422, "Choose a listed event or skip.")
+    live.scout[1].set_result(req.choice)
+    return {"ok": True}
+
+
 class ChoiceReq(BaseModel):
     choice: str
 
@@ -392,6 +439,20 @@ async def choose(req: ChoiceReq):
         raise HTTPException(409, "no escalation pending")
     live.pending.set_result(req.choice)
     return {"ok": True}
+
+
+class PauseReq(BaseModel):
+    run_id: str = ""
+    paused: bool
+
+
+@app.post("/api/pause")
+async def pause_run(req: PauseReq):
+    if not live.task or live.task.done():
+        raise HTTPException(409, "No matching live council.")
+    live.resume.clear() if req.paused else live.resume.set()
+    await hub.emit("pause", {"paused": req.paused})
+    return {"ok": True, "paused": req.paused}
 
 
 class PaceReq(BaseModel):
@@ -426,7 +487,10 @@ async def spend():
 @app.get("/api/bench")
 async def bench():
     p = RESULTS / "bench.json"
-    return JSONResponse(json.loads(p.read_text()) if p.exists() else {"missing": True})
+    data = json.loads(p.read_text()) if p.exists() else {}
+    if not data.get("rule_version"):  # same rule as sumer.web: stale results are not evidence
+        return JSONResponse({"missing": True})
+    return JSONResponse(data)
 
 
 @app.get("/api/events")
