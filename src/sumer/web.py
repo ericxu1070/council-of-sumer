@@ -268,7 +268,16 @@ async def _ask_scout(year: int, round_no: int, phase: str, rows: list[dict]) -> 
         await journal_emit("scout_request", request)
         choice = await live.scout_pending
         await live.resume.wait()
-        await journal_emit("scout_choice", {**request, "choice": choice})
+        event = {**request, "choice": choice}
+        if choice in voice.OMEN_LINES:
+            # Fetch (or load) the herald's clip first, then hold the re-vote while it plays.
+            audio = await voice.announce(choice)
+            herald, text = voice.OMEN_LINES[choice]
+            event["announcement"] = {"text": text, "mood": "dread" if herald == "herald_dread" else "joy",
+                                     "url": f"/api/omen/{choice}" if audio else None}
+        await journal_emit("scout_choice", event)
+        if event.get("announcement") and live.pace_s > 0:
+            await asyncio.sleep(voice.seconds(audio, text) + 0.5)
         return choice
     finally:
         live.scout_pending = None
@@ -482,6 +491,15 @@ async def speak(key: str, text: str = Query(min_length=1, max_length=400)):
     if audio is None:
         raise HTTPException(404, "voice unavailable")
     return Response(audio, media_type="audio/mpeg")
+
+
+@app.get("/api/omen/{omen}")
+async def omen_announcement(omen: str):
+    # Fixed lines only: the herald never reads client text.
+    audio = await voice.announce(omen)
+    if audio is None:
+        raise HTTPException(404, "announcement unavailable")
+    return Response(audio, media_type="audio/mpeg", headers={"Cache-Control": "public, max-age=86400"})
 
 
 @app.get("/api/narration/{year}")
