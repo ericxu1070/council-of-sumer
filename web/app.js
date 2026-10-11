@@ -334,7 +334,10 @@ function scrollBottom(instant) {
   if (!smooth) scrollRaf = requestAnimationFrame(() => { if (stick) f.scrollTop = f.scrollHeight; });
 }
 // Before a run: the transcript introduces each advisor and its goal in one line.
-const shortMandate = a => String(a.rulebook || a.mandate || "No instructions supplied.").replace(/^Goals and preferences:\s*/, "").replace(/\s+/g, " ").trim().slice(0, 90);
+const shortMandate = a => {
+  const text = String(a.rulebook || a.mandate || "No instructions supplied.").replace(/^Goals and preferences:\s*/, "").replace(/\s+/g, " ").trim();
+  return text.length <= 90 ? text : text.slice(0, 90).replace(/[\s,.;:]+\S*$/, "") + "…";
+};
 function welcome() {
   feed().innerHTML = `<div class="welcome">
     <div class="welcome-kicker">Meet the council</div>
@@ -459,8 +462,10 @@ const OUTCOME = {
   runoff: ["⚖️", "Decided by runoff vote"],
   escalated: ["👑", "You decided"],
 };
+const SOLE_RULER = ["👑", "Decreed"];
+const outcomeOf = k => (k === "consensus" && N() === 1 ? SOLE_RULER : OUTCOME[k]);
 function outcomeBadge(d) {
-  const [ic, label] = OUTCOME[d.outcome] || ["📜", cap(d.outcome || "Decided")];
+  const [ic, label] = outcomeOf(d.outcome) || ["📜", cap(d.outcome || "Decided")];
   const dissent = (d.dissent || []).filter(Boolean);
   const extra = d.outcome === "majority" && dissent.length ? ` (${nameList(dissent)} disagreed)` : "";
   return `<span class="outcome o-${esc(d.outcome)}"><span class="emoji">${ic}</span>${esc(label + extra)}</span>`;
@@ -492,7 +497,7 @@ function renderEnd(d, instant) {
   const r = d.rating || {};
   const [title, ic] = endTitle(r);
   const oc = d.outcomes || {};
-  const words = { consensus: "decided together", majority: "by majority", runoff: "by runoff", escalated: "by you" };
+  const words = { consensus: N() === 1 ? "decreed" : "decided together", majority: "by majority", runoff: "by runoff", escalated: "by you" };
   const tally = Object.entries(oc).filter(([, v]) => v).map(([k, v]) => `<span class="outcome o-${esc(k)}">${esc(v)} ${esc(words[k] || k)}</span>`).join("");
   const nums = [["People", r.population], ["Land (acres)", r.acres], ["Grain", r.grain], ["Starved in total", r.starved_total]].filter(x => x[1] != null);
   append(`<div class="card-kicker">The reign is over</div>
@@ -508,7 +513,7 @@ function showYearSpot(d) {
   const author = d.adopted === "safe" ? null : planAuthor(d.adopted);
   const pname = d.adopted === "safe" ? "The safe plan" : author ? `${adv(author).short}'s plan` : "The plan";
   const plain = stripSafe(d.plain || planText(d.plan));
-  const [ic, label] = OUTCOME[d.outcome] || ["📜", cap(d.outcome || "Decided")];
+  const [ic, label] = outcomeOf(d.outcome) || ["📜", cap(d.outcome || "Decided")];
   const cur = d.state || {}, prev = S.hist[d.year - 1] || {}, r = d.report || {};
   const starved = r.starved ?? starvedOf(cur);
   spotlight("year", `<div class="spot-kicker">Year ${esc(d.year)} of ${esc(S.years)}</div>
@@ -528,8 +533,8 @@ function showEndSpot(d) {
   const r = d.rating || {};
   const [title, ic] = endTitle(r);
   const oc = d.outcomes || {};
-  const words = { consensus: "together", majority: "by majority", runoff: "by runoff", escalated: "by you" };
-  const tally = Object.entries(oc).filter(([, v]) => v).map(([k, v]) => `<span class="outcome o-${esc(k)}"><span class="emoji">${OUTCOME[k]?.[0] || "📜"}</span>${esc(v)} ${esc(words[k] || k)}</span>`).join("");
+  const words = { consensus: N() === 1 ? "decreed" : "together", majority: "by majority", runoff: "by runoff", escalated: "by you" };
+  const tally = Object.entries(oc).filter(([, v]) => v).map(([k, v]) => `<span class="outcome o-${esc(k)}"><span class="emoji">${outcomeOf(k)?.[0] || "📜"}</span>${esc(v)} ${esc(words[k] || k)}</span>`).join("");
   const first = S.hist[0] || {};
   spotlight("end", `<div class="spot-kicker">The reign is over</div>
     <div class="spot-title"><span class="emoji">${ic}</span>${esc(title)}</div>
