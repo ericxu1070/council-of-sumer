@@ -37,6 +37,12 @@ const os = require('node:os');
     ]}}));
     await page.goto(url);
     await page.waitForFunction(()=>document.querySelectorAll('.cg-node').length===5);
+    await page.waitForTimeout(800);
+    await page.screenshot({path:path.join(output,'ready-desktop.png')});
+    await page.locator('#setupBtn').click();
+    await page.waitForTimeout(350);
+    await page.screenshot({path:path.join(output,'setup-desktop.png')});
+    await page.locator('#drawerClose').click();
     const checkSeatsClearResources = async () => {
       const overlaps = await page.evaluate(() => {
         const areas = ['city-acres','city-population','city-grain'].map(id=>document.getElementById(id).getBoundingClientRect());
@@ -89,6 +95,7 @@ const os = require('node:os');
     assert.match(await page.locator('.cg-relation.agree title').textContent(),/Provider backs Farmer/);
     await page.waitForTimeout(200);
     await checkSeatsClearResources();
+    await page.waitForTimeout(2000); // Let the year interstitial clear for visual review.
     await page.screenshot({path:path.join(output,'desktop.png')});
     await page.waitForTimeout(1250);
     assert.equal(await page.locator('.cg-relation').count(),0);
@@ -131,6 +138,7 @@ const os = require('node:os');
     assert.match(await page.locator('.scout-plans').textContent(),/plant 800 acres/);
     assert.match(await page.locator('.scout-plan-support').textContent(),/3 of 5/);
     assert.equal(await page.locator('#spot [data-scout]').count(),7);
+    assert.equal(await page.locator('.scout-mark').count(),6);
     await page.waitForTimeout(500);
     await page.screenshot({path:path.join(output,'omens-desktop.png')});
     await page.setViewportSize({width:390,height:844});
@@ -153,6 +161,31 @@ const os = require('node:os');
     await checkSeatsClearResources();
     await page.screenshot({path:path.join(output,'mobile.png'),fullPage:true});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+    await page.locator('#setupBtn').click();
+    await page.waitForTimeout(350);
+    await page.screenshot({path:path.join(output,'setup-mobile.png'),fullPage:true});
+    assert.equal(await page.locator('#seed').isVisible(),true);
+    await page.locator('#drawerClose').click();
+    await page.setViewportSize({width:1440,height:1000});
+    await page.evaluate(()=>showEscalation({reason:'The council cannot agree on how to divide the grain.', options:[
+      {id:'farmer-y1-r1',author:'farmer',plain:'Keep our land, feed 2,000 bushels, plant 800 acres',accept:['farmer','provider']},
+      {id:'merchant-y1-r1',author:'merchant',plain:'Buy 20 acres, feed 1,800 bushels, plant 700 acres',accept:['merchant','priest']},
+    ]}));
+    await page.waitForTimeout(350);
+    await page.screenshot({path:path.join(output,'deadlock-desktop.png')});
+    await page.setViewportSize({width:390,height:844});
+    await page.screenshot({path:path.join(output,'deadlock-mobile.png'),fullPage:true});
+    assert.equal(await page.locator('[data-choice="safe"]').isVisible(),true);
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+    await page.evaluate(()=>closeEscalation());
+    await page.setViewportSize({width:320,height:740});
+    await page.waitForTimeout(350);
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+    assert.equal(await page.locator('#setupBtn').evaluate(el=>{
+      const r=el.getBoundingClientRect();
+      return el.contains(document.elementFromPoint(r.left+r.width/2,r.top+r.height/2));
+    }),true, 'Setup must stay reachable on narrow phones');
+    await page.setViewportSize({width:390,height:844});
     for (const count of [1,21]) {
       await page.evaluate(count=>setAdvisors(Array.from({length:count},(_,i)=>({id:`custom-person-${i}`,short:`Agent ${i+1}`,color:'#5f8f3a'}))),count);
       assert.equal(await page.locator('.cg-node:not(.leave)').count(),count);

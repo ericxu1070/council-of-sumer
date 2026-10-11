@@ -492,7 +492,7 @@ function showEndSpot(d) {
 // A short burst over the end card for a good reign; skipped for reduced motion.
 function confetti() {
   if (reduced.matches) return;
-  const box = $("#spot"), colors = S.advisors.map(a => a.color).concat(["#22d3ee", "#fbbf24", "#4ade80"]);
+  const box = $("#spot"), colors = S.advisors.map(a => a.color).concat(["#dcc080", "#dfb66b", "#a4bd7d"]);
   for (let i = 0; i < 70; i++) {
     const p = document.createElement("i");
     p.className = "confetti";
@@ -618,11 +618,11 @@ function closeEscalation() { $("#escalation").classList.add("hidden"); S.waiting
 
 /* ---------------- city stats + charts ---------------- */
 const STATS = [
-  { key: "population", label: "People", color: "#60a5fa", dir: 1, get: s => s.population },
-  { key: "grain", label: "Grain", unit: "bushels", color: "#fbbf24", dir: 1, get: s => s.grain },
-  { key: "acres", label: "Land", unit: "acres", color: "#4ade80", dir: 1, get: s => s.acres },
-  { key: "land_price", label: "Land price", unit: "bu / acre", color: "#fb923c", dir: 0, get: s => s.land_price },
-  { key: "starved", label: "Starved", unit: "last year", color: "#f87171", dir: -1, get: starvedOf },
+  { key: "population", label: "People", color: "#9fb9bb", dir: 1, get: s => s.population },
+  { key: "grain", label: "Grain", unit: "bushels", color: "#dfb66b", dir: 1, get: s => s.grain },
+  { key: "acres", label: "Land", unit: "acres", color: "#a4bd7d", dir: 1, get: s => s.acres },
+  { key: "land_price", label: "Land price", unit: "bu / acre", color: "#c99a78", dir: 0, get: s => s.land_price },
+  { key: "starved", label: "Starved", unit: "last year", color: "#e4947d", dir: -1, get: starvedOf },
 ];
 function buildStats() {
   $("#stats").innerHTML = STATS.map(st => `<div class="stat" id="stat-${st.key}" style="--sc:${st.color}">
@@ -1070,7 +1070,18 @@ function compareVotes(rows, instant) {
   append(`<span class="emoji">🔁</span><div><b>Re-vote</b>${changed.length ? `${esc(nameList(changed))} changed their votes.` : "Nobody changed their vote."}</div>`, "note", { instant });
   S.compareVote = null;
 }
-const SCOUT_ICON = { plague: "🦠", rats: "🐀", good_harvest: "🌾", bad_harvest: "🥀", low_price: "📉", high_price: "📈" };
+// Angular relief marks match the map and remain decorative beside text labels.
+const SCOUT_ICON = {
+  plague: '<path d="M9 3h6l4 4v6l-4 4H9l-4-4V7zM12 0v3M12 17v4M1 10h4M19 10h4M3 1l4 4M17 15l4 4M3 19l4-4M17 5l4-4M9 8h1M14 12h1"/>',
+  rats: '<path d="M4 15v-5l4-4h7l5 5v6H8l-4-2H1v-4M9 6V3h4v3M15 10h1M9 17v3M17 17v3M20 13h3"/>',
+  good_harvest: '<path d="M12 22V3M12 7 6 3v5l6 4 6-4V3zM12 15l-6-4v5l6 4 6-4v-5z"/>',
+  bad_harvest: '<path d="M12 22v-8l-4-4V3M8 7 3 3v5l5 4M12 14l5-3V6l-5 3M17 18l5 5M22 18l-5 5"/>',
+  low_price: '<path d="M3 3v18h18M6 6l6 6 3-3 6 7M16 16h5v-5"/>',
+  high_price: '<path d="M3 3v18h18M6 16l6-6 3 3 6-7M16 6h5v5"/>',
+};
+function scoutIcon(id) {
+  return `<svg class="scout-mark" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="miter">${SCOUT_ICON[id] || '<path d="M5 19V5h14v14zM8 9h8M8 13h6"/>'}</svg>`;
+}
 function scoutPlans(rows) {
   if (!rows.length) return "";
   const most = rows[0].accept?.length || 0;
@@ -1096,7 +1107,7 @@ function showScout(d) {
   const labels = { plague: "Plague", rats: "Rats", good_harvest: "Good harvest", bad_harvest: "Bad harvest", low_price: "Cheap land", high_price: "Costly land" };
   spotlight("scout", `<div class="spot-kicker">Omens</div>
     ${scoutPlans(rows)}
-    <div class="scout-grid">${events.map((o, i) => `<button class="scout-ev" type="button" data-scout="${esc(o.id)}"><span class="emoji">${SCOUT_ICON[o.id] || "📯"}</span><b>${esc(labels[o.id] || o.label)}</b><kbd>${i + 1}</kbd></button>`).join("")}</div>
+    <div class="scout-grid">${events.map((o, i) => `<button class="scout-ev" type="button" data-scout="${esc(o.id)}">${scoutIcon(o.id)}<b>${esc(labels[o.id] || o.label)}</b><kbd>${i + 1}</kbd></button>`).join("")}</div>
     <div class="spot-actions"><button class="btn primary" type="button" data-scout="skip">Leave be</button></div>`, { cls: "scout" });
   const btns = $$("#spot [data-scout]");
   btns.forEach(b => {
