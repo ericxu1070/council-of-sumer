@@ -1,291 +1,290 @@
-import asyncio
-import json
-import sqlite3
-from dataclasses import replace
+import os
+
+os.environ["LLM_MODE"] = "mock"
+os.environ["TRANSPORT"] = "inproc"
 
 import pytest
-from pydantic import ValidationError
 
-from sumer import llm
-from sumer.agent import clean, decide, messages
+from sumer.advisors import ADVISOR_IDS, Beliefs, Scorer, mentions, plain, safe_plan
+from sumer.agent import clean, decide
 from sumer.chamber import play_council, play_simple
-from sumer.deliberation import TechnicalFailure, collect, deliberate_year
-from sumer.engine import commit
-from sumer.game import State, new_game
-from sumer.protocol import (
-    ADVISOR_IDS,
-    Delivery,
-    Plan,
-    sign,
-    validate_reply,
-    verify,
-    verify_certificate,
-)
-from sumer.storage import Store
+from sumer.deliberation import Deadlock, TechnicalFailure, deliberate_year, speaking_order
+from sumer.game import YEARS, Decision, advance, new_game, rating
+from sumer.narrator import summarize
+from sumer.protocol import Ballot, Brief, Plan, bind, sign, verify
 from sumer.transport import inproc
-from tests.support import _emit, brief, voters
+
+A, B, C = (0, 2000, 1000), (0, 2000, 900), (0, 2000, 800)
 
 
-def test_budget_contract_rejects_floats():
-    with pytest.raises(ValidationError):
-        Plan(land_delta=0, feed=2000.1, plant=500)
+def _ballot(brief, plan=A, back=None, accept=(), veto=(), vote=None, speech="Farmer, I agree."):
+    if brief.phase == "runoff" and vote:
+        plan = next(t.plan for t in brief.runoff if t.id == vote)
+        plan = (plan.land_delta, plan.feed, plan.plant)
+    return Ballot(
+        advisor=brief.speaker, year=brief.year, round=brief.round, phase=brief.phase,
+        proposal=Plan(land_delta=plan[0], feed=plan[1], plant=plan[2]), back=back,
+        accept=list(accept), veto=list(veto), runoff_vote=vote, speech=speech,
+    )
 
 
-async def test_signatures_and_transport_origin(identities):
-    request = brief(identities)
-    reply = await decide("farmer", request)
-    assert verify(reply, identities)
-    altered = reply.model_copy(update={"speech": "Changed after signing."})
-    assert not verify(altered, identities)
-    with pytest.raises(ValueError, match="endpoint"):
-        validate_reply(Delivery("farmer", "sumer/council/priest", reply), request)
-    with pytest.raises(ValueError, match="identity"):
-        validate_reply(Delivery("priest", "sumer/council/priest", reply), request)
-    stale = sign(reply.model_copy(update={"run_id": "another-run"}))
-    with pytest.raises(ValueError, match="Stale"):
-        validate_reply(Delivery("farmer", "sumer/council/farmer", stale), request)
+def scripted(fn):
+    """An ask() whose advisors follow a script; ballots are signed like real ones."""
+    briefs = []
+
+    async def ask(brief):
+        briefs.append(brief)
+        b = fn(brief)
+        return sign(bind(b, brief)) if b else None
+
+    ask.briefs = briefs
+    return ask
 
 
-async def test_public_prompt_contains_facts_without_computed_guidance(identities):
-    request = brief(identities, history=[{"year": 0, "ledger": "public"}],
-                    transcript=[{"message_id": "prior", "speech": "An objection."}])
-    payload = messages("priest", request)
-    context = json.loads(payload[1]["content"])
-    assert context["city"]["land_price"] == 19
-    assert context["historical_ledger"] == request.history
-    assert context["negotiation_transcript"] == request.transcript
-    assert all(a in payload[0]["content"] for a in ADVISOR_IDS)
-    assert not any(k in context for k in ("scores", "beliefs", "suggested_compromise", "seed"))
-    assert not any(k in context["city"] for k in ("rolls", "future_yield", "next_price"))
+def _ids_for(brief, plan):
+    return [t.id for t in brief.table if (t.plan.land_delta, t.plan.feed, t.plan.plant) == plan]
 
 
-async def test_three_yes_adopts_only_after_four_valid_ballots(identities):
+async def _year(ask, **kw):
+    state, _ = new_game(1)
     events = []
+
     async def emit(kind, data):
         events.append((kind, data))
-    yr = await deliberate_year(run_id="test-run", state=State(), gather=voters,
-                              history=[], peer_keys=identities, max_rounds=2, emit=emit)
-    assert yr.summary()["outcome"] == "majority"
-    assert yr.summary()["dissent"] == ["merchant"]
-    assert len(yr.certificate.ballots) == 4
-    assert [e[1]["phase"] for e in events if e[0] == "responses"] == [
-        "proposal", "objection", "revision"]
-    assert sum(e[0] == "ballots" for e in events) == 1
-    verify_certificate(yr.certificate, State(), "test-run", identities)
-    with pytest.raises(ValueError, match="four"):
-        verify_certificate(yr.certificate.model_copy(update={
-            "ballots": yr.certificate.ballots[:3]}), State(), "test-run", identities)
-    changed = yr.candidate.model_copy(update={"plan": Plan(land_delta=0, feed=2000, plant=100)})
-    with pytest.raises(ValueError, match="binding"):
-        verify_certificate(yr.certificate.model_copy(update={"candidate": changed}),
-                           State(), "test-run", identities)
+
+    yr = await deliberate_year(seed=1, state=state, ask=ask, history=[], max_rounds=6,
+                               scheduled_news=None, emit=emit, **kw)
+    return yr, events
 
 
-async def test_duplicate_reply_retries_only_affected_peer(identities):
-    requests = []
-    async def duplicate_once(request):
-        requests.append(request)
-        responses = await inproc.gather(request)
-        return responses + [responses[0]] if len(requests) == 1 else responses
-    received = await collect(brief(identities), duplicate_once, _emit)
-    assert len(received) == 4
-    assert requests[1].targets == ["farmer"]
-    assert requests[1].message_id != requests[0].message_id
-    assert "Expected one" in requests[1].errors["farmer"]
+# ---- rules of the game ----
+
+def test_same_seed_same_dice():
+    assert new_game(3)[1] == new_game(3)[1]
+    assert new_game(3)[1] != new_game(4)[1]
 
 
-async def test_invalid_budget_retries_without_clamping(identities):
-    requests = []
-    async def invalid_once(request):
-        requests.append(request)
-        responses = await inproc.gather(request)
-        if len(requests) == 1:
-            responses[0].reply = sign(responses[0].reply.model_copy(update={
-                "proposal": Plan(land_delta=999999, feed=1, plant=1)}))
-        return responses
-    result = await collect(brief(identities), invalid_once, _emit)
-    assert requests[1].targets == ["farmer"]
-    assert result[0].proposal.land_delta != 999999
+def test_council_and_reign_size():
+    assert len(ADVISOR_IDS) == 7
+    assert {"builder", "healer", "diplomat"} <= set(ADVISOR_IDS)
+    assert YEARS == 5
 
 
-async def test_missing_fourth_voter_is_technical_failure_never_human(identities):
-    phases, asked = [], []
-    async def missing(request):
-        phases.append((request.phase, list(request.targets)))
-        replies = await voters(request)
-        return [d for d in replies if request.phase != "vote" or d.peer != "merchant"]
+def test_safe_plan_feeds_everyone():
+    state, _ = new_game(2)
+    state.grain = 500  # far too little; the fallback must sell land to eat
+    d = safe_plan(state)
+    assert d.land_delta < 0
+    assert d.feed > 500
+
+
+def test_red_lines_veto():
+    state, _ = new_game(1)
+    sc = Scorer(state, Beliefs())
+    assert sc.vetoes("farmer", Decision(0, 0, 500))  # everyone starves
+    assert sc.vetoes("general", Decision(-300, 2000, 500))  # sells 30% of land
+    assert not sc.vetoes("merchant", Decision(-300, 0, 0))  # no red line
+    assert sc.vetoes("builder", Decision(0, 2000, 100))  # leaves most sowable land fallow
+    assert sc.vetoes("healer", Decision(0, 1700, 1000))  # feeds 85% of what people need
+    assert sc.vetoes("diplomat", Decision(110, 0, 0))  # buys 11% more land
+    assert not sc.vetoes("diplomat", Decision(90, 0, 0))
+
+
+def test_plain_descriptions():
+    state, _ = new_game(1)
+    assert plain(Decision(50, 2000, 900), state) == "Buy 50 acres, feed everyone, plant 900 acres"
+    assert "feed 90% of people" in plain(Decision(0, 1800, 900), state)
+
+
+def test_mentions_finds_names():
+    said = "Builder, your canal plan starves the east. Physician, Envoy: hold firm."
+    assert mentions(said, exclude="farmer") == ["builder", "healer", "diplomat"]
+    assert mentions("Generally we agree", exclude="farmer") == []
+
+
+# ---- the wire ----
+
+def test_ballot_signature_detects_tampering():
+    b = sign(Ballot(advisor="priest", year=1, round=0, proposal=Plan(land_delta=0, feed=1, plant=1)))
+    assert verify(b)
+    b.accept = ["farmer-y1-r0"]
+    assert not verify(b)
+
+
+async def test_trace_is_private_and_present():
+    state, _ = new_game(1)
+    brief = Brief(seed=1, year=1, round=0, max_rounds=6, state=state.public(),
+                  beliefs=Beliefs().__dict__, speaker="priest")
+    b = await decide("priest", brief)
+    assert b.trace["thought"] and "chosen" in b.trace
+    assert b.trace["beliefs"]["pessimistic"]  # the Priest plans for a bad year
+    assert len(b.speech.split()) <= 28
+
+
+# ---- the sequential protocol ----
+
+async def test_turns_are_sequential_and_see_earlier_speakers():
+    seen = []
+
+    async def ask(brief):
+        seen.append(brief)
+        return await inproc.ask(brief)
+
+    yr, events = await _year(ask)
+    turns = [d for k, d in events if k == "turn"]
+    assert len(turns) == yr.turns > 0
+    for brief in seen:
+        if brief.phase != "discuss":
+            continue
+        assert brief.order == speaking_order(brief.year, brief.round)
+        assert brief.speaker == brief.order[brief.turn]
+        # every earlier speaker this round is in the brief, in order
+        assert [t["advisor"] for t in brief.turns_this_round] == brief.order[: brief.turn]
+        # and every plan an earlier speaker tabled this round is already on the table
+        tabled = {t.id for t in brief.table}
+        assert {t["plan_id"] for t in brief.turns_this_round} <= tabled
+    assert speaking_order(1, 1)[0] != speaking_order(1, 0)[0]  # the seat rotates
+
+
+async def test_consensus_when_all_seven_back_one_plan():
+    yr, _ = await _year(scripted(lambda b: _ballot(b, A, accept=_ids_for(b, A))))
+    assert yr.outcome == "consensus"
+    assert yr.rounds == 1 and yr.turns == 7
+    assert yr.plan == Decision(*A)
+
+
+async def test_strong_majority_after_round_two_records_dissent():
+    def script(b):
+        if b.speaker == "priest":
+            return _ballot(b, B)
+        if b.speaker == "merchant":
+            return _ballot(b, C)
+        return _ballot(b, A, accept=_ids_for(b, A))
+
+    yr, _ = await _year(scripted(script))
+    assert yr.outcome == "majority"
+    assert yr.rounds == 2  # adopted the moment round 2 completes
+    assert set(yr.dissent) == {"priest", "merchant"}
+
+
+def _three_way(b):
+    camp = {"farmer": A, "priest": A, "general": A, "merchant": B, "builder": B,
+            "healer": C, "diplomat": C}[b.speaker]
+    return _ballot(b, camp, accept=_ids_for(b, camp))
+
+
+async def test_runoff_when_best_plan_has_three_of_seven():
+    def script(b):
+        if b.phase == "runoff":
+            a, bb = b.runoff
+            pick = a.id if b.speaker in ("farmer", "priest", "general", "merchant") else bb.id
+            return _ballot(b, A, vote=pick)
+        return _three_way(b)
+
+    ask = scripted(script)
+    yr, events = await _year(ask)
+    kinds = [k for k, _ in events]
+    assert "runoff" in kinds and "runoff_result" in kinds
+    assert yr.outcome == "runoff"
+    assert yr.runoff["trigger"] == "three"
+    assert yr.plan == Decision(*A)
+    assert set(yr.dissent) == {"builder", "healer", "diplomat"}
+    runoff_turns = [d for k, d in events if k == "turn" and d["phase"] == "runoff"]
+    assert len(runoff_turns) == 7 and all(t["runoff_vote"] for t in runoff_turns)
+
+
+async def test_runoff_winner_with_a_red_line_veto_escalates():
+    asked = {}
+
     async def human(options, reason):
-        asked.append(options)
-        return options[0]["id"]
-    store = Store(":memory:")
-    g = await play_council(1, missing, store=store, max_rounds=1, ask_human=human)
-    assert g.status == "technical_failure" and g.years == [] and asked == []
-    assert phases[-1] == ("vote", ["merchant"])
-    assert sum(p[0] == "vote" for p in phases) == 2
-    assert not any(e["kind"] == "escalate" for e in store.events(g.run_id))
-    assert store.db.execute("SELECT COUNT(*) FROM ballots").fetchone()[0] == 3
-    failure = next(e["data"] for e in store.events(g.run_id) if e["kind"] == "technical_failure")
-    assert failure["phase"] == "vote" and failure["peers"] == ["merchant"]
-    assert failure["attempt"] == 2
+        asked["reason"], asked["options"] = reason, options
+        return "safe"
+
+    def script(b):
+        if b.phase == "runoff":
+            a, bb = b.runoff
+            if b.speaker == "healer":  # A crosses the Physician's red line
+                return _ballot(b, A, vote=bb.id, veto=[a.id])
+            pick = a.id if b.speaker in ("farmer", "priest", "general", "merchant") else bb.id
+            return _ballot(b, A, vote=pick)
+        return _three_way(b)
+
+    yr, events = await _year(scripted(script), ask_human=human)
+    assert yr.outcome == "escalated"
+    assert yr.human_choice == "safe"
+    assert "red line" in asked["reason"]
+    assert all("plain" in o for o in asked["options"])
+    assert any(k == "escalate" for k, _ in events)
 
 
-async def test_live_model_failure_never_falls_back(identities, monkeypatch):
-    from sumer import agent
-    monkeypatch.setattr(agent, "settings", replace(agent.settings, llm_mode="bayleaf"))
-    calls = []
-    async def broken(*args, **kwargs):
-        calls.append(1)
-        raise llm.LLMUnavailable("simulated outage")
-    monkeypatch.setattr(llm, "chat", broken)
-    with pytest.raises(TechnicalFailure):
-        await collect(brief(identities), inproc.gather, _emit)
-    assert len(calls) == 8  # four peers and one retry, no offline answers
+async def test_deadlock_without_a_human_remains_paused():
+    def script(b):
+        i = ADVISOR_IDS.index(b.speaker)
+        return _ballot(b, (0, 2000, 1000 - 10 * i))  # seven plans, nobody accepts another
+
+    with pytest.raises(Deadlock, match="Deadlock"):
+        await _year(scripted(script))
 
 
-async def test_failed_ballots_feed_revisions_and_deadlock_has_latest_options():
-    requests = []
-    async def no_votes(request):
-        requests.append(request)
-        return await voters(request, yes=())
-    store = Store(":memory:")
-    g = await play_council(1, no_votes, store=store, max_rounds=2)
-    assert g.status == "deadlock" and not g.years
-    events = store.events(g.run_id)
-    ballots = [e for e in events if e["kind"] == "ballots"]
-    assert len(ballots) == 8 and all(len(e["data"]["ballots"]) == 4 for e in ballots)
-    revision = next(r for r in requests if r.phase == "revision" and r.round == 2)
-    assert any(e.get("kind") == "failed_ballot" for e in revision.transcript)
-    options = next(e["data"]["options"] for e in events if e["kind"] == "escalate")
-    assert len(options) == 4 and all(o["revision"] == 2 for o in options)
-    assert all(o["author"] in ADVISOR_IDS for o in options)
-    assert store.run(g.run_id)["human_assisted"] is False
+async def test_forged_ballot_stops_after_one_retry():
+    def script(b):
+        return _ballot(b, A, accept=_ids_for(b, A))
+
+    inner = scripted(script)
+
+    async def ask(brief):
+        b = await inner(brief)
+        if brief.speaker == "merchant":
+            b.accept = []  # altered after signing
+        return b
+
+    with pytest.raises(TechnicalFailure, match="merchant failed after one retry"):
+        await _year(ask)
 
 
-async def test_human_choice_is_recorded_without_fabricating_ballots():
-    async def no_votes(request):
-        return await voters(request, yes=())
-    async def human(options, reason):
-        return options[0]["id"]
-    store = Store(":memory:")
-    g = await play_council(7, no_votes, store=store, max_rounds=1, ask_human=human)
-    assert g.human_assisted and g.years
-    year = next(e["data"] for e in store.events(g.run_id) if e["kind"] == "year")
-    assert year["outcome"] == "human_resolution"
-    assert year["certificate"] is None and year["yes_voters"] == []
-    assert year["human_resolution"]["source"] == "human"
+# ---- whole games ----
 
+async def test_council_survives_and_beats_averaging():
+    events = []
 
-async def test_engine_verifies_certificate_and_commits_exactly_once(identities):
-    state, tape = new_game(1)
-    store = Store(":memory:")
-    store.create_run("test-run", {"initial_state": state.public(), "peer_keys": identities})
     async def emit(kind, data):
-        store.append("test-run", kind, data)
-    yr = await deliberate_year(run_id="test-run", state=state, gather=voters,
-                              history=[], peer_keys=identities, max_rounds=1, emit=emit)
-    bad = replace(yr, certificate=yr.certificate.model_copy(update={
-        "ballots": yr.certificate.ballots[:3]}))
-    with pytest.raises(ValueError):
-        commit(store, "test-run", state, bad, tape)
-    assert store.db.execute("SELECT COUNT(*) FROM years").fetchone()[0] == 0
-    without_requests = Store(":memory:")
-    without_requests.create_run("test-run", {"initial_state": state.public(), "peer_keys": identities})
-    for recorded in store.events("test-run"):
-        if recorded["kind"] != "phase":
-            without_requests.append("test-run", recorded["kind"], recorded["data"])
-    with pytest.raises(ValueError, match="recorded request"):
-        commit(without_requests, "test-run", state, yr, tape)
-    nxt, event = commit(store, "test-run", state, yr, tape)
-    assert nxt.year == 2 and event["data"]["plan"] == yr.plan.as_dict()
-    with pytest.raises(ValueError, match="advanced"):
-        commit(store, "test-run", state, yr, tape)
-    assert store.db.execute("SELECT COUNT(*) FROM years").fetchone()[0] == 1
-    for table in ("events", "proposals", "ballots", "years"):
-        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
-            store.db.execute(f"DELETE FROM {table}")
-    with pytest.raises(sqlite3.IntegrityError, match="manifest"):
-        store.db.execute("UPDATE runs SET manifest='{}'")
+        events.append((kind, data))
+
+    council = await play_council(1, inproc.ask, emit=emit)
+    average = await play_simple(1, "average")
+    assert not council.rating["impeached"]
+    assert council.rating["score"] > average.rating["score"]
+    assert set(council.satisfaction) == set(ADVISOR_IDS)
+    assert len(council.years) == YEARS
+    game = next(d for k, d in events if k == "game")
+    assert game["years"] == YEARS and len(game["advisors"]) == 7
+    assert {"id", "title", "short", "mandate", "red_line", "color", "emoji"} <= set(
+        game["advisors"][0]
+    )
+    years = [d for k, d in events if k == "year"]
+    assert all(y["summary"].startswith(f"Year {y['year']}.") for y in years)
+    assert all("narration_url" in y and y["plain"] for y in years)
+    assert rating(new_game(1)[0])["verdict"]
 
 
-async def test_full_offline_run_and_existing_baselines():
-    g = await play_council(7, inproc.gather, store=Store(":memory:"), max_rounds=1)
-    assert g.status == "completed" and len(g.years) == 10
-    assert not g.human_assisted
-    for policy in ("average", "lone_ruler", "dictator_farmer"):
-        result = await play_simple(1, policy)
-        assert result.status in ("completed", "overthrown", "depopulated")
+async def test_narrator_is_plain_prose():
+    state, rolls = new_game(1)
+    yr, _ = await _year(scripted(lambda b: _ballot(b, A, accept=_ids_for(b, A))))
+    after = advance(state, yr.plan, rolls)
+    text = summarize(yr, state, after)
+    assert text.startswith("Year 1. ")
+    assert "\u2014" not in text
+    assert text.count(".") <= 3  # "Year 1." plus at most two sentences
+    assert "Farmer" in text and str(after.population) in text
 
 
-def test_clean_and_existing_json_parser():
-    assert "—" not in clean("We hold — firm")
-    assert llm.parse_json('```json\n{"a": 1}\n```') == {"a": 1}
+def test_clean_removes_dashes():
+    assert "\u2014" not in clean("We hold \u2014 always\u2014 firm")
 
 
-@pytest.mark.parametrize("content", ['{"choice":"YES","speech":"Yes",', '[]'])
-def test_live_parser_rejects_incomplete_or_non_object_decisions(content):
-    with pytest.raises(ValueError):
-        llm.parse_json(content, strict=True)
-    assert llm.parse_json('```json\n{"choice":"NO","speech":"Reason"}\n```', strict=True)["choice"] == "NO"
+def test_parse_json_salvages_truncated_reply():
+    from sumer.llm import parse_json
 
-
-@pytest.mark.parametrize("empty", [False, True])
-async def test_failed_model_attempts_keep_cost_without_adopting(identities, monkeypatch, empty):
-    from sumer import agent
-    monkeypatch.setattr(agent, "settings", replace(agent.settings, llm_mode="bayleaf"))
-    usage = {"model": "configured-model", "cached": False, "latency_s": 0.1, "cost_usd": 0.01}
-    async def broken(*args, **kwargs):
-        if empty:
-            raise llm.LLMUnavailable("empty reply", usage=usage)
-        return llm.Reply('{"speech":"Incomplete",', usage["model"], False, 0.1, 0.01)
-    monkeypatch.setattr(llm, "chat", broken)
-    journal = Store(":memory:")
-    g = await play_council(7, inproc.gather, store=journal, max_rounds=1)
-    assert g.status == "technical_failure" and not g.years
-    recorded_usage = [json.loads(row["data"]) for row in journal.db.execute(
-        "SELECT data FROM model_usage WHERE run_id=?", (g.run_id,))]
-    assert len(recorded_usage) == 8
-    assert sum(u["cost_usd"] for u in recorded_usage) == pytest.approx(0.08)
-    assert all(u["model"] == usage["model"] for u in recorded_usage)
-
-
-async def test_revision_cannot_claim_an_opening_proposal_is_an_objection(identities):
-    request = brief(identities, phase="revision", transcript=[
-        {"message_id": "opening", "phase": "proposal"},
-        {"message_id": "objection", "phase": "objection"},
-    ])
-    reply = await decide("farmer", request)
-    unrelated = sign(reply.model_copy(update={"objections_addressed": ["opening"]}))
-    with pytest.raises(ValueError, match="recorded objection"):
-        validate_reply(Delivery("farmer", "sumer/council/farmer", unrelated), request)
-    validate_reply(Delivery("farmer", "sumer/council/farmer", reply), request)
-
-
-async def test_stopped_run_retains_summary_and_terminal_event():
-    journal = Store(":memory:")
-    async def cancelled(request):
-        raise asyncio.CancelledError
-    with pytest.raises(asyncio.CancelledError):
-        await play_council(7, cancelled, store=journal, run_id="cancelled")
-    run = journal.run("cancelled")
-    assert run["status"] == run["result"]["status"] == "stopped"
-    assert run["result"]["rating"]["population"] == 100
-    assert journal.events("cancelled")[-1]["kind"] == "end"
-
-
-async def test_live_human_resolution_is_published_in_recorded_order():
-    async def no_votes(request):
-        return await voters(request, yes=())
-    async def human(options, reason):
-        return options[0]["id"]
-    published = []
-    async def emit(kind, data):
-        published.append((kind, data))
-    journal = Store(":memory:")
-    g = await play_council(7, no_votes, store=journal, max_rounds=1, ask_human=human, emit=emit)
-    resolutions = [data for kind, data in published if kind == "human_resolution"]
-    assert len(resolutions) == len(g.years)
-    for resolution in resolutions:
-        committed = next(data for kind, data in published if kind == "year"
-                         and data["year"] == resolution["year"])
-        assert resolution["_sequence"] + 1 == committed["_sequence"]
-        assert resolution["candidate_id"] == committed["adopted"]
+    cut = '{"proposal": {"land_delta": -81, "feed": 1940, "plant": 770},\n "accept": ["x"],\n "spee'
+    assert parse_json(cut)["proposal"]["feed"] == 1940
+    assert parse_json('```json\n{"a": 1}\n```') == {"a": 1}
