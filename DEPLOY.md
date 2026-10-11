@@ -1,7 +1,10 @@
 # Host Council of Sumer on Render
 
-The Docker image runs the SLIM node, five advisor processes, and the web chamber
-together. Only the web port is public. Render provides `PORT`; local `WEB_PORT`
+The free Render Blueprint runs five advisors' independent decisions inside one
+web process using the existing in-process transport. Each advisor keeps its own
+goals, rulebook, beliefs, and votes. Bayleaf decisions and ElevenLabs voices stay
+live. The hosted demo does not demonstrate network transport over SLIM.
+Render provides `PORT`; local `WEB_PORT`
 overrides it when set. The image uses Python 3.13 and the committed `uv.lock`.
 
 ## Deploy
@@ -12,11 +15,8 @@ overrides it when set. The image uses Python 3.13 and the committed `uv.lock`.
    and branch containing `render.yaml`. Before the deployment PR is merged, select
    its branch rather than `main`.
 3. Review the `council-of-sumer` web service. The Blueprint selects the **Free**
-   instance type and Oregon region so it does not provision paid compute without
-   your choice. The full five-process council measured about 774 MiB RSS locally,
-   above Free's 512 MB memory limit. For the full SLIM demo, select the **1c-2g**
-   instance (2 GB) after reviewing its price in Render. The free deployment can
-   build and serve the UI briefly yet restart before the advisors become ready.
+   instance type and Oregon region. It uses `sumer web` and `TRANSPORT=inproc`
+   to fit within the free instance's memory budget.
 4. Enter `BAYLEAF_API_KEY` and `ELEVENLABS_API_KEY` when prompted. These values go
    into Render's environment settings, never into the repository. Bayleaf's
    URL and model default to the values in `.env.example`; change them in Render
@@ -25,14 +25,19 @@ overrides it when set. The image uses Python 3.13 and the committed `uv.lock`.
    the top of its service page. That is the demo link to share.
 
 The health check requests `/api/meta` without making model or voice calls.
-Check that the UI loads, `/api/meta` reports `transport: "slim"` and `voice: true`,
-and the logs show all five advisors ready. Start one game to verify Bayleaf
+Check that the UI loads and `/api/meta` reports `transport: "inproc"` and `voice: true`.
+Start one game to verify Bayleaf
 decisions and ElevenLabs playback. Browser audio may need a click to start.
 
 Automatic redeploys are disabled so an unrelated code push does not interrupt
 the demo. Deploy future changes using **Manual Deploy → Deploy latest commit**.
-Do not override the Docker command with `sumer web`: `sumer up` starts the advisors
-as well. The local Observe collector is disabled for this small hosted demo.
+The Blueprint overrides the image's default command with `sumer web`. The local
+Observe collector is disabled for this small hosted demo.
+
+For the full networked SLIM demonstration, run the default image command
+`sumer up` with `TRANSPORT=slim` on a larger instance. The eight local processes
+measured about 774 MiB combined RSS, above Free's 512 MB limit. Review any paid
+plan before upgrading; the free demo needs no upgrade.
 
 ## Demo behavior and limits
 
@@ -62,7 +67,7 @@ so Render can distinguish an advisor crash from a clean shutdown.
 
 ```bash
 docker build -t council-of-sumer .
-docker run --rm --env-file .env -e WEB_PORT=10000 -p 10000:10000 council-of-sumer
+docker run --rm --env-file .env -e TRANSPORT=inproc -e WEB_PORT=10000 -p 10000:10000 council-of-sumer sumer web
 ```
 
 Open `http://localhost:10000`. The `.env` file is passed at runtime and excluded

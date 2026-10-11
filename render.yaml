@@ -1,4 +1,4 @@
-# Deploy one shared chamber; the SLIM node and advisors run in this container.
+# Free hosted demo: five independent advisor decisions in one server process.
 services:
   - type: web
     name: council-of-sumer
@@ -6,6 +6,7 @@ services:
     plan: free
     region: oregon
     dockerfilePath: ./Dockerfile
+    dockerCommand: sumer web
     healthCheckPath: /api/meta
     autoDeployTrigger: "off"
     envVars:
@@ -28,10 +29,6 @@ services:
       - key: LLM_BUDGET_USD
         value: "3.00"
       - key: TRANSPORT
-        value: slim
-      - key: SLIM_HOST
-        value: 127.0.0.1
-      - key: SLIM_SHARED_SECRET
-        generateValue: true
+        value: inproc
       - key: SUMER_OBSERVE
         value: "false"

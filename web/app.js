@@ -339,7 +339,7 @@ function welcome() {
   feed().innerHTML = `<div class="welcome">
     <div class="welcome-kicker">Meet the council</div>
     <div class="meet">${S.advisors.map(a => `<div class="meet-row">${avatar(a.id)}<div><b style="--c:${a.color}">${esc(a.title || a.short)}</b><span>${esc(shortMandate(a) || "Custom agent")}</span></div></div>`).join("")}</div>
-    <p class="welcome-foot">Every advisor is its own AI agent. They debate over SLIM and vote. When they deadlock, you decide.</p></div>`;
+    <p class="welcome-foot">Every advisor is its own AI agent. They debate and vote. When they deadlock, you decide.</p></div>`;
   syncSetupLock();
 }
 
