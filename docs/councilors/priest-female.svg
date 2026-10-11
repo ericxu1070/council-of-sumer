@@ -1,0 +1,21 @@
+<svg class="face" data-gender="female" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="priest"><title>priest</title>
+<defs><clipPath id="fc11c"><circle cx="50" cy="50" r="50"/></clipPath><clipPath id="fc11h"><ellipse cx="50" cy="47" rx="18" ry="21"/></clipPath>
+<radialGradient id="fc11g" cx="50%" cy="38%" r="70%"><stop offset="0" stop-color="#8b6928"/><stop offset="1" stop-color="#3b3123"/></radialGradient></defs>
+<g clip-path="url(#fc11c)"><rect width="100" height="100" fill="url(#fc11g)"/>
+<circle cx="50" cy="44" r="34" fill="#cbaa6a" opacity=".12"/>
+<g transform="matrix(1.18 0 0 1.18 -9 -9)"><path d="M30 46 C27 28 39 21 50 21 C61 21 73 28 70 46 L73 73 C67 78 60 77 57 72 L43 72 C40 77 33 78 27 73 Z" fill="#171110"/><path d="M43 58 L57 58 L58 76 L42 76 Z" fill="#b88b68"/>
+<ellipse cx="50" cy="66" rx="8" ry="4" fill="#9d7659" opacity=".7"/>
+<path d="M10 104 C11 86 27 76 42 73.5 L50 82 L58 73.5 C73 76 89 86 90 104 Z" fill="#b5862a"/>
+<path d="M63 75.5 C76 79 88 88 90 104 L72 104 C71 92 68 82 63 75.5 Z" fill="#836023" opacity=".55"/>
+<path d="M42 73.5 L50 82 L58 73.5" fill="none" stroke="#cfb075" stroke-width="1.6" stroke-linejoin="round"/>
+
+<path d="M41 75 Q50 86 59 75" fill="none" stroke="#e8b83a" stroke-width="2"/><circle cx="50" cy="82.5" r="2.2" fill="#e8b83a" stroke="#a87a1c" stroke-width=".8"/><ellipse cx="32.3" cy="49" rx="3.6" ry="5.2" fill="#dba67a"/><ellipse cx="67.7" cy="49" rx="3.6" ry="5.2" fill="#b48866"/>
+<path d="M32.6 46.5 Q31 49 32.8 51.5" fill="none" stroke="#b48866" stroke-width="1.1" stroke-linecap="round"/>
+<circle cx="67.6" cy="55.6" r="1.8" fill="none" stroke="#e8b83a" stroke-width="1.2"/><g><ellipse cx="50" cy="47" rx="18" ry="21" fill="#dba67a"/>
+<g clip-path="url(#fc11h)"><ellipse cx="69" cy="50" rx="10" ry="26" fill="#b18564" opacity=".55"/>
+<ellipse cx="50" cy="71" rx="16" ry="5" fill="#ab8061" opacity=".35"/>
+</g></g><path d="M50.6 51 Q52.6 55.6 49.4 57.2" fill="none" stroke="#a1795b" stroke-width="1.4" stroke-linecap="round"/><g class="face-eyes" style="--blink-delay:2.87s"><ellipse cx="42.5" cy="50" rx="2.5" ry="1.7" fill="#221a26"/><circle cx="43.3" cy="49.6" r=".6" fill="#fff"/><path d="M39.5 49.2 Q42.5 47.6 45.5 49.2" fill="none" stroke="#221a26" stroke-width="1.3" stroke-linecap="round"/><ellipse cx="57.5" cy="50" rx="2.5" ry="1.7" fill="#221a26"/><circle cx="58.3" cy="49.6" r=".6" fill="#fff"/><path d="M54.5 49.2 Q57.5 47.6 60.5 49.2" fill="none" stroke="#221a26" stroke-width="1.3" stroke-linecap="round"/></g><path d="M39 43.6 Q42.5 42.6 46 43.6" fill="none" stroke="#171110" stroke-width="2" stroke-linecap="round"/><path d="M54 41.8 Q57.5 38.8 61 41.4" fill="none" stroke="#171110" stroke-width="2" stroke-linecap="round"/><g class="face-mouth"><path d="M45 63 Q50.5 64.6 55.8 60.8" fill="none" stroke="#7a3438" stroke-width="1.8" stroke-linecap="round"/></g>
+<g class="face-mouth-open" opacity="0"><path d="M45 61.6 Q50 60.6 55 61.6 Q54.2 68.4 50 68.4 Q45.8 68.4 45 61.6 Z" fill="#3a1820"/><ellipse cx="50" cy="66.6" rx="3" ry="1.4" fill="#d9677a"/><path d="M46.2 62 Q50 61.4 53.8 62 L53.6 63 Q50 62.6 46.4 63 Z" fill="#fff"/></g>
+<path d="M31 48 C28 30 40 23 51 23 C63 23 72 31 69 48 C67 40 64 35 60 33 C52 38 43 32 38 34 C34 38 32 43 31 48 Z" fill="#16110f"/><path d="M60 33 C55 30 48 30 44 32" fill="none" stroke="#171110" stroke-width="1.2" stroke-linecap="round"/><path d="M31 37.5 Q50 32 69 37.5 L69 41.5 Q50 36 31 41.5 Z" fill="#e8b83a"/><path d="M31 41.5 Q50 36 69 41.5" fill="none" stroke="#a87a1c" stroke-width="1"/>
+<path d="M44 34.8 L50 25 L56 34.8 Z" fill="#e8b83a" stroke="#a87a1c" stroke-width=".8" stroke-linejoin="round"/><circle cx="50" cy="31.5" r="2" fill="#2fb3a3"/><circle cx="38" cy="37" r="1.1" fill="#fff6" /><circle cx="62" cy="37" r="1.1" fill="#fff6"/></g>
+<circle cx="50" cy="50" r="49.3" fill="none" stroke="#fff" stroke-opacity=".1" stroke-width="1.4"/></g></svg>

@@ -4,6 +4,14 @@
   "use strict";
 
   let seq = 0;
+  // One random choice per councilor for this page session, shared by every portrait.
+  const genders = new Map();
+  function genderOf(advisor = {}) {
+    if (advisor.gender === "male" || advisor.gender === "female") return advisor.gender;
+    const id = String(advisor.id || "someone").toLowerCase();
+    if (!genders.has(id)) genders.set(id, Math.random() < .5 ? "male" : "female");
+    return genders.get(id);
+  }
   const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
   // --- color helpers ---
@@ -159,7 +167,7 @@ ${f.headShade ? `<ellipse cx="50" cy="${f.headShade}" rx="24" ry="7" fill="${dar
       custom(f, id) {
         const c = "#f3ead8", cd = "#d6c7a8";
         return {
-          back: `<path d="M29 44 C27 25 39 17 50 17 C61 17 73 25 71 44 L74 74 C68 80 61 78 58 73 L42 73 C39 78 32 80 26 74 Z" fill="${cd}"/>`,
+          back: f.gender === "male" ? "" : `<path d="M29 44 C27 25 39 17 50 17 C61 17 73 25 71 44 L74 74 C68 80 61 78 58 73 L42 73 C39 78 32 80 26 74 Z" fill="${cd}"/>`,
           top: `<path d="M30 45 C28 25 39 18 50 18 C61 18 72 25 70 45 C67 35 59 31 50 31 C41 31 33 35 30 45 Z" fill="${c}"/>
 <path d="M33 30 C40 25 60 25 67 30 M31 37 C40 30 60 30 69 37" fill="none" stroke="${cd}" stroke-width="1.4" stroke-linecap="round"/>
 <path d="M66 27 Q74 22 76 27 Q72 30 67 31 Z" fill="${c}" stroke="${cd}" stroke-width="1"/>`,
@@ -224,6 +232,18 @@ ${f.headShade ? `<ellipse cx="50" cy="${f.headShade}" rx="24" ry="7" fill="${dar
       persona ? persona(color) : procedural(pid));
     // Later copies of a persona keep its design but get their own skin and hair.
     if (persona && !own(pid)) { const r = rng(hash(pid)); f.skin = pick(r, SKINS); f.hair = pick(r, HAIRS); if (f.beardColor) f.beardColor = f.hair; }
+    f.gender = genderOf(a);
+    // Both versions retain the role's colors, headwear, expression and accessories.
+    const role = own(pid) ? pid : hint;
+    if (f.gender === "female") {
+      f.beard = "none";
+      f.hairStyle = role === "provider" ? "side" : "long";
+    } else if (persona) {
+      if (role === "provider") { f.hairStyle = "short"; f.beard = "stubble"; }
+      if (role === "villager") f.beard = "stubble";
+    } else {
+      f.hairStyle = pick(rng(hash(`${pid}:male-hair`)), ["short", "side", "curly", "crop", "slick"]);
+    }
     f.garment = color;
     f.browColor = f.browColor || dark(f.hair === "#000" ? "#2a1d17" : f.hair, .15);
     f.beardColor = f.beardColor || f.hair;
@@ -232,12 +252,12 @@ ${f.headShade ? `<ellipse cx="50" cy="${f.headShade}" rx="24" ry="7" fill="${dar
   }
 
   function svg(advisor, opts = {}) {
-    const { f, color, pid } = build(advisor);
+    const { f, color, pid } = build(opts.gender ? { ...advisor, gender: opts.gender } : advisor);
     const id = `fc${++seq}`, delay = ((hash(pid) % 4000) / 1000).toFixed(2);
     const c = f.custom ? f.custom(f, id) : {};
     const size = opts.size ? ` width="${+opts.size || 0}" height="${+opts.size || 0}"` : "";
     const label = opts.title ?? (advisor && (advisor.title || advisor.id)) ?? "";
-    return `<svg class="face" viewBox="0 0 100 100"${size} xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${esc(label)}">${label ? `<title>${esc(label)}</title>` : ""}
+    return `<svg class="face" data-gender="${f.gender}" viewBox="0 0 100 100"${size} xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${esc(label)}">${label ? `<title>${esc(label)}</title>` : ""}
 <defs><clipPath id="${id}c"><circle cx="50" cy="50" r="50"/></clipPath><clipPath id="${id}h">${HEAD}</clipPath>
 <radialGradient id="${id}g" cx="50%" cy="38%" r="70%"><stop offset="0" stop-color="${mix(color, "#0b1020", .25)}"/><stop offset="1" stop-color="${mix(color, "#0b1020", .72)}"/></radialGradient></defs>
 <g clip-path="url(#${id}c)"><rect width="100" height="100" fill="url(#${id}g)"/>
@@ -265,5 +285,5 @@ ${hairFront(f)}${headwear(f)}${c.top || ""}${c.front || ""}</g>
   }
   injectCss();
 
-  window.Faces = { svg, PERSONAS: Object.fromEntries(Object.keys(PERSONAS).map(k => [k, k])) };
+  window.Faces = { svg, genderOf, variants: advisor => ({ male: svg(advisor, { gender: "male" }), female: svg(advisor, { gender: "female" }) }), PERSONAS: Object.fromEntries(Object.keys(PERSONAS).map(k => [k, k])) };
 })();

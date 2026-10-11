@@ -80,7 +80,7 @@ const N = () => S.advisors.length || 5;
 // Small portraits are static <img> data URIs: no id clashes, no per-face animation cost.
 const FACE_URL = new Map();
 function faceUrl(a) {
-  const key = `${a.id}|${a.color}|${a.persona}`;
+  const key = `${a.id}|${a.color}|${a.persona}|${window.Faces?.genderOf(a) || ""}`;
   if (!FACE_URL.has(key)) {
     let src = "";
     try { src = window.Faces ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(Faces.svg(a, { title: "" }))}` : ""; } catch (e) { console.warn("face failed", e); }
