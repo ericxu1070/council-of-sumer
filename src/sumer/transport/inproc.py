@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import asyncio
-
-from sumer.advisors import ADVISOR_IDS
 from sumer.agent import decide
 from sumer.protocol import Ballot, Brief
 
 
-async def gather(brief: Brief) -> list[Ballot]:
-    return list(await asyncio.gather(*(decide(a, brief) for a in ADVISOR_IDS)))
+async def ask(brief: Brief) -> Ballot | None:
+    """Deliver a Brief to its one speaker and return that advisor's signed Ballot."""
+    return await decide(brief.speaker, brief)

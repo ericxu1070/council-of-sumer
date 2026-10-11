@@ -1,9 +1,11 @@
-"""The four advisors: public mandates, red lines, and how each scores a plan.
+"""The seven advisors: public mandates, red lines, and how each scores a plan.
 
 Each advisor judges a plan by forecasting next year's city under its current
 beliefs and scoring the forecast against its own mandate. Mandates conflict
-by design: the General wants land, the Priest wants full granaries, the
-Farmer wants every mouth fed, and the Merchant wants wealth at market prices.
+by design: the General wants land and the Envoy wants quiet borders, the
+Builder wants every field sown and the Priest wants seed kept in the granary,
+the Farmer wants the city to grow and the Physician wants it uncrowded and
+well fed, and the Merchant wants wealth at market prices.
 """
 
 from __future__ import annotations
@@ -42,14 +44,24 @@ class Forecast:
     starved_frac: float
     land_delta: int
     wealth: float
+    plant: int = 0
+    sowable: int = 0  # acres we could sow this year if everyone were fed first
+    fed_frac: float = 1.0  # share of what the people need to eat, capped at 1
+    ration: float = 1.0  # feed / need, uncapped: above 1 means extra rations
 
 
 def forecast(state: State, d: Decision, b: Beliefs) -> Forecast:
     d = legalize(state, d)
-    grain = state.grain - d.land_delta * state.land_price - d.feed - d.plant // ACRES_PER_BUSHEL
+    need = state.population * FOOD_PER_PERSON
+    after_trade = state.grain - d.land_delta * state.land_price
+    acres = state.acres + d.land_delta
+    sowable = max(
+        0,
+        min(acres, state.population * ACRES_PER_WORKER, (after_trade - need) * ACRES_PER_BUSHEL),
+    )
+    grain = after_trade - d.feed - d.plant // ACRES_PER_BUSHEL
     grain += d.plant * b.expected_yield
     grain -= grain * b.rat_chance * b.rat_fraction
-    acres = state.acres + d.land_delta
     starved = max(0, state.population - d.feed // FOOD_PER_PERSON)
     pop = state.population - starved
     if starved == 0:
@@ -63,6 +75,10 @@ def forecast(state: State, d: Decision, b: Beliefs) -> Forecast:
         starved_frac=starved / max(state.population, 1),
         land_delta=d.land_delta,
         wealth=grain + acres * b.next_price,
+        plant=d.plant,
+        sowable=sowable,
+        fed_frac=min(1.0, d.feed / max(need, 1)),
+        ration=d.feed / max(need, 1),
     )
 
 
@@ -70,11 +86,25 @@ def forecast(state: State, d: Decision, b: Beliefs) -> Forecast:
 class Advisor:
     id: str
     title: str
+    short: str  # the name the others call this advisor by, e.g. "Builder"
     mandate: str
     red_line: str
     voice: str  # how the advisor talks, used by the LLM and the templates
     color: str
-    style_words: tuple[str, ...] = field(default_factory=tuple)
+    emoji: str
+    aliases: tuple[str, ...] = field(default_factory=tuple)  # other names that address it
+
+    def public(self) -> dict:
+        return {
+            "id": self.id,
+            "title": self.title,
+            "short": self.short,
+            "mandate": self.mandate,
+            "red_line": self.red_line,
+            "color": self.color,
+            "emoji": self.emoji,
+            "voice": self.voice,
+        }
 
     def beliefs_for(self, b: Beliefs) -> Beliefs:
         """The Priest plans for a bad year unless the news says otherwise."""
@@ -96,6 +126,18 @@ class Advisor:
                 return f.acres + 5 * f.population
             case "merchant":
                 return f.wealth
+            case "builder":
+                # Every acre sown this year, and the land and hands to sow more next year.
+                return f.plant + 0.6 * min(f.acres, f.population * ACRES_PER_WORKER)
+            case "healer":
+                # Generous rations, food in store per head, and room to breathe keep
+                # plague away. Extra rations cost grain the others want for seed or land.
+                per_head = f.grain / max(f.population, 1)
+                room = f.acres / max(f.population, 1)
+                return 80 * min(f.ration, 1.15) + 1.5 * min(per_head, 30) + 1.5 * min(room, 14)
+            case "diplomat":
+                # Quiet borders: every acre bought or sold provokes a neighbor.
+                return -abs(f.land_delta) + 0.02 * f.grain
         raise ValueError(self.id)
 
     def violates_red_line(self, f: Forecast, state: State) -> bool:
@@ -108,6 +150,12 @@ class Advisor:
                 return f.land_delta < -0.10 * state.acres
             case "merchant":
                 return False  # the Merchant always has a price
+            case "builder":
+                return f.plant < 0.5 * f.sowable
+            case "healer":
+                return f.fed_frac < 0.90
+            case "diplomat":
+                return f.land_delta > 0.10 * state.acres
         raise ValueError(self.id)
 
 
@@ -117,38 +165,160 @@ ADVISORS: dict[str, Advisor] = {
         Advisor(
             id="farmer",
             title="Voice of the Farmers",
+            short="Farmer",
             mandate="Grow the population. Nobody starves.",
             red_line="Will never accept a plan that starves more than 10% of the people.",
             voice="earnest, speaks for families, cites hungry children",
             color="#3f8f4f",
+            emoji="\U0001f33e",
+            aliases=("farmers",),
         ),
         Advisor(
             id="priest",
             title="High Priest of Enlil",
+            short="Priest",
             mandate="Keep the temple granaries full against famine. Plans for a bad harvest.",
             red_line="Will never accept a plan that, in a bad year, leaves less than half a year of food in store.",
             voice="solemn, cautious, invokes omens and the gods",
             color="#8a5cc2",
+            emoji="\U0001f56f\ufe0f",
+            aliases=("high priest",),
         ),
         Advisor(
             id="general",
             title="General of the Walls",
+            short="General",
             mandate="Hold and expand land. More acres, more soldiers.",
             red_line="Will never accept selling more than 10% of our land in one year.",
             voice="blunt, martial, talks about borders and strength",
             color="#b5452f",
+            emoji="\U0001f6e1\ufe0f",
         ),
         Advisor(
             id="merchant",
             title="Chief Merchant",
+            short="Merchant",
             mandate="Maximize the city's wealth at market prices. Buy land low, sell high.",
             red_line="Has no red line. Everything has a price.",
             voice="quick, transactional, quotes prices",
             color="#c0911e",
+            emoji="\U0001f4b0",
+        ),
+        Advisor(
+            id="builder",
+            title="Canal Builder",
+            short="Builder",
+            mandate="Plant as many acres as we can, every year, and gain the land and hands to sow more.",
+            red_line="Will never accept leaving more than half of the land we could sow fallow.",
+            voice="practical, impatient, talks about canals, water, and idle fields",
+            color="#2f7fb5",
+            emoji="\U0001f9f1",
+            aliases=("canal builder",),
+        ),
+        Advisor(
+            id="healer",
+            title="Royal Physician",
+            short="Physician",
+            mandate="Keep the city healthy: generous rations, food in store, no crowding to breed plague.",
+            red_line="Will never accept feeding the people less than 90% of what they need.",
+            voice="calm, clinical, warns about fever, crowding, and weak bodies",
+            color="#c2577e",
+            emoji="\U0001f33f",
+            aliases=("healer", "doctor"),
+        ),
+        Advisor(
+            id="diplomat",
+            title="Envoy to Lagash",
+            short="Envoy",
+            mandate="Keep the peace with our neighbors. No land grabs, steady borders, modest trade.",
+            red_line="Will never accept buying more than 10% more land in one year.",
+            voice="smooth, measured, speaks of treaties, neighbors, and goodwill",
+            color="#3aa39a",
+            emoji="\U0001f54a\ufe0f",
+            aliases=("diplomat",),
         ),
     ]
 }
 ADVISOR_IDS = list(ADVISORS)
+N_ADVISORS = len(ADVISOR_IDS)
+
+
+def short(advisor_id: str) -> str:
+    a = ADVISORS.get(advisor_id)
+    return a.short if a else advisor_id.capitalize()
+
+
+def mentions(text: str, exclude: str | None = None) -> list[str]:
+    """Advisor ids a speech addresses by name, in council order."""
+    low = f" {text.lower()} "
+    out = []
+    for a in ADVISORS.values():
+        if a.id == exclude:
+            continue
+        names = (a.short.lower(), a.id, *a.aliases)
+        if any(_word_in(n, low) for n in names):
+            out.append(a.id)
+    return out
+
+
+def _word_in(name: str, text: str) -> bool:
+    i = text.find(name)
+    while i >= 0:
+        before, after = text[i - 1], text[i + len(name)] if i + len(name) < len(text) else " "
+        if not before.isalpha() and not (after.isalpha() and after != "s"):
+            return True
+        i = text.find(name, i + 1)
+    return False
+
+
+def plain(d: Decision, state: State) -> str:
+    """A 6 to 12 word plain-English description of a plan, for people."""
+    if d.land_delta > 0:
+        land = f"Buy {d.land_delta} acres"
+    elif d.land_delta < 0:
+        land = f"Sell {-d.land_delta} acres"
+    else:
+        land = "Keep our land"
+    need = state.population * FOOD_PER_PERSON
+    pct = round(100 * d.feed / max(need, 1))
+    feed = (
+        f"feed everyone {pct - 100}% extra" if pct >= 105
+        else "feed everyone" if pct >= 100
+        else f"feed {pct}% of people"
+    )
+    return f"{land}, {feed}, plant {d.plant} acres"
+
+
+def plain_words(d: Decision, state: State) -> str:
+    """The same plan in words with no numbers, for speeches."""
+    frac = d.land_delta / max(state.acres, 1)
+    if frac > 0.12:
+        land = "buy a lot of land"
+    elif frac > 0:
+        land = "buy a little land"
+    elif frac < -0.12:
+        land = "sell a lot of land"
+    elif frac < 0:
+        land = "sell a little land"
+    else:
+        land = "keep our borders as they are"
+    need = state.population * FOOD_PER_PERSON
+    fed = d.feed / max(need, 1)
+    feed = (
+        "give everyone extra rations" if fed >= 1.05
+        else "feed everyone" if fed >= 1
+        else "ration food a little" if fed >= 0.9
+        else "cut rations hard"
+    )
+    sowable = min(state.acres + d.land_delta, state.population * ACRES_PER_WORKER)
+    sown = d.plant / max(sowable, 1)
+    sow = (
+        "sow every field" if sown >= 0.95
+        else "sow most fields" if sown >= 0.7
+        else "sow half the fields" if sown >= 0.45
+        else "leave most fields fallow"
+    )
+    return f"{land}, {feed}, and {sow}"
 
 
 def candidate_plans(state: State) -> list[Decision]:
@@ -167,6 +337,9 @@ def candidate_plans(state: State) -> list[Decision]:
     return list(seen.values())
 
 
+MIN_PASSABLE = 4  # fewer passable plans than this and the whole pool sets the score range
+
+
 def safe_plan(state: State) -> Decision:
     """The pre-committed fallback when the council cannot decide.
 
@@ -182,19 +355,31 @@ def safe_plan(state: State) -> Decision:
 
 
 class Scorer:
-    """Normalizes each advisor's utility to 0..1 over the plans in play."""
+    """Normalizes each advisor's utility to 0..1 over the plans that could pass.
+
+    The range is taken over the plans that cross nobody's red line, because
+    those are the real choices. A score of 0.6 then means "middling among
+    passable plans", not "better than starving half the city". If too few
+    plans are passable, the whole pool sets the range."""
 
     def __init__(self, state: State, beliefs: Beliefs, extra: list[Decision] = ()):
         self.state = state
         self.beliefs = beliefs
         self.pool = candidate_plans(state) + [legalize(state, d) for d in extra]
+        self._fc = {(a, d): self.forecast(a, d) for a in ADVISOR_IDS for d in self.pool}
+        passable = [
+            d for d in self.pool
+            if not any(ADVISORS[a].violates_red_line(self._fc[a, d], state) for a in ADVISOR_IDS)
+        ]
+        basis = passable if len(passable) >= MIN_PASSABLE else self.pool
         self._range: dict[str, tuple[float, float]] = {}
         for a in ADVISORS.values():
-            us = [a.utility(self.forecast(a.id, d), state) for d in self.pool]
+            us = [a.utility(self._fc[a.id, d], state) for d in basis]
             self._range[a.id] = (min(us), max(us))
 
     def forecast(self, advisor_id: str, d: Decision) -> Forecast:
-        return forecast(self.state, d, ADVISORS[advisor_id].beliefs_for(self.beliefs))
+        fc = getattr(self, "_fc", {}).get((advisor_id, d))
+        return fc or forecast(self.state, d, ADVISORS[advisor_id].beliefs_for(self.beliefs))
 
     def norm(self, advisor_id: str, d: Decision) -> float:
         a = ADVISORS[advisor_id]

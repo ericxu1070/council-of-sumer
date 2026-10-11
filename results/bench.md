@@ -2,25 +2,27 @@
 
 | policy | score | survived | starved | population | fairness |
 |---|---|---|---|---|---|
-| Farmer alone | 1189.8 | 30/30 | 0 | 102.5 | 0.407 |
-| Lone ruler (equal weights, no debate) | 1126.7 | 30/30 | 2.3 | 99.9 | 0.423 |
-| Council (4 agents, negotiated) | 1048.3 | 30/30 | 4.1 | 96.5 | 0.459 |
-| General alone | 1032.8 | 30/30 | 4.4 | 95.7 | 0.254 |
-| Average of selfish openings | -2317.3 | 10/30 | 81.2 | 2.1 | 0.388 |
-| Priest alone | -3147.4 | 0/30 | 88.1 | 1.9 | 0.0 |
-| Merchant alone | -3163.6 | 0/30 | 93.7 | 0.2 | 0.125 |
+| Farmer alone | 1225.1 | 30/30 | 0 | 102.8 | 0.36 |
+| Council (7 agents, negotiated) | 1216.6 | 30/30 | 0.4 | 102.5 | 0.386 |
+| General alone | 1215.6 | 30/30 | 0.5 | 102.4 | 0.275 |
+| Physician alone | 1158.0 | 30/30 | 0 | 100.1 | 0.257 |
+| Lone ruler (equal weights, no debate) | 1157.6 | 30/30 | 2.5 | 99.8 | 0.375 |
+| Builder alone | 829.8 | 30/30 | 15.0 | 84.5 | 0.296 |
+| Average of selfish openings | -238.5 | 30/30 | 50.3 | 31.2 | 0.0 |
+| Envoy alone | -1737.9 | 19/30 | 85.1 | 5.1 | 0.0 |
+| Merchant alone | -1742.5 | 19/30 | 85.2 | 5.0 | 0.0 |
+| Priest alone | -1800.1 | 19/30 | 85.1 | 5.1 | 0.0 |
 
 ## New information
 
 | decider | score with scouts | score silent | plans changed by news |
 |---|---|---|---|
-| Council | 1048.3 | 998.5 | 85/287 years |
-| Lone ruler | 1126.7 | 1132.0 | - |
+| Council | 1216.6 | 1198.5 | 59/140 years |
+| Lone ruler | 1157.6 | 1118.1 | - |
 
 ## Lessons
 
-- Negotiation beats averaging: the council scored 1048.3 vs -2317.3 for averaging each advisor's selfish plan (10/30 reigns survived vs 30/30).
-- A single equal-weight ruler scored 1126.7 vs the council's 1048.3. The council's edge is fairness: its worst-served advisor averaged 0.459 satisfaction vs 0.423 under the lone ruler.
-- News changed the adopted plan in 85 of 287 years where it arrived. Scouts moved the council's mean score from 998.5 (silent) to 1048.3.
-- Outcomes over 300 council-years: 152 consensus, 99 majority with recorded dissent, 49 escalated to a human. Mean rounds per year: 4.15.
-- Single-mandate rule fails: Priest alone, Merchant alone lost most reigns. One objective is not enough, which is why each advisor's red line matters.
+- Negotiation beats averaging: the council scored 1216.6 vs -238.5 for averaging each advisor's selfish plan (30/30 reigns survived vs 30/30).
+- A single equal-weight ruler scored 1157.6 vs the council's 1216.6 (the council is ahead). The council's worst-served advisor averaged 0.386 satisfaction vs 0.375 under the lone ruler.
+- News changed the adopted plan in 59 of 140 years where it arrived. Scouts moved the council's mean score from 1198.5 (silent) to 1216.6.
+- Outcomes over 150 council-years: 0 consensus, 123 majority with recorded dissent, 6 decided by runoff, 21 escalated to a human. Mean rounds per year: 2.93, mean turns per year: 20.1.
