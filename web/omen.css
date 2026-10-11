@@ -1,0 +1,56 @@
+/* Omen prompt extras in the stone and brass theme: the live vote standing inside the prompt,
+ * and the small re-vote tablet on the map after an omen is sent. */
+
+/* ---------- standing inside the omen prompt ---------- */
+.scout-plan-support { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.scout-plan-support .dots { font-size: 1rem; gap: 4px; }
+.standing-num { font-variant-numeric: tabular-nums; }
+.standing-num b { font-family: var(--display); font-size: 1.15em; color: var(--ink); }
+/* .spot-plan styles its own b and nested spans as the plan title and text; undo that here. */
+.spot-plan .scout-plan-support .standing-num { display: inline; font-size: inherit; color: inherit; }
+.spot-plan .scout-plan-support .standing-num b { display: inline; font-size: 1.15em; font-weight: 700; }
+.standing-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 14px; text-align: left; }
+.scout-plans .standing-foot { margin-top: 2px; }
+.standing-status { font: 700 .78rem/1.2 var(--mono); letter-spacing: .08em; text-transform: uppercase; padding: 4px 8px; border: 1px solid currentColor; color: var(--muted); }
+.standing-status.major, .standing-status.all { color: var(--ok); }
+.standing-status.tie { color: var(--warn); }
+.standing-status.short { color: var(--listen); }
+.standing-rest { font-size: .92rem; color: var(--muted); }
+.standing-rest b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.standing-empty { margin: 0; color: var(--muted); }
+.spot-actions .btn[data-scout="skip"] { font-family: var(--display); letter-spacing: .02em; }
+
+/* ---------- re-vote tablet on the map ---------- */
+.omen-tally { position: absolute; top: 14px; left: 16px; width: min(320px, calc(100% - 32px)); padding: 10px 14px 12px;
+  background: var(--panel); background-image: repeating-linear-gradient(0deg, transparent 0 5px, #d8c29603 5px 6px);
+  border: 1px solid var(--line-2); border-top: 3px solid var(--speak); box-shadow: var(--shadow-lg); animation: omen-tally-in .35s var(--ease); }
+.omen-tally-head { display: flex; align-items: center; gap: 8px; font: 700 .78rem/1.2 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--speak); }
+.omen-tally-head .scout-mark { width: 20px; height: 20px; margin: 0; flex: none; }
+.omen-tally-lead { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 2px 10px; margin-top: 8px; }
+.omen-tally-lead .av { width: 38px; height: 38px; font-size: 19px; grid-row: span 2; }
+.omen-tally-name { font: 700 1.1rem/1.2 var(--display); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.omen-tally-lead .standing-num { font-size: .9rem; color: var(--ink-2); white-space: nowrap; }
+.omen-tally-lead .dots { grid-column: 2 / -1; font-size: .9rem; gap: 4px; }
+.omen-tally .standing-foot { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+.omen-tally .standing-status { font-size: .7rem; }
+.omen-tally .standing-rest { font-size: .82rem; }
+@keyframes omen-tally-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .omen-tally { animation: none; } }
+
+@media (max-width: 900px) {
+  /* In the page flow above the map, so it never covers the small phone graph. */
+  .omen-tally { position: relative; top: auto; left: auto; width: auto; margin: 8px 10px 0; }
+  /* The omen card scrolls on phones; keep the seal button in reach at its bottom edge. */
+  .spot-card.scout .spot-actions { position: sticky; bottom: -22px; z-index: 1; margin: 16px -16px -22px; padding: 12px 16px 16px;
+    background: var(--panel); border-top: 1px solid var(--line); }
+}
+
+/* ---------- deadlock dialog on phones ---------- */
+/* Big avatars squeezed the plan text into a narrow column under the number badge. */
+@media (max-width: 600px) {
+  .modal.esc .esc-opt { padding: 12px 14px; gap: 4px 12px; }
+  .modal.esc .esc-opt .av { width: 44px; height: 44px; font-size: 22px; }
+  .modal.esc .esc-opt .who { font-size: 1.2rem; padding-right: 36px; }
+  .modal.esc .esc-opt .what { font-size: 1.02rem; }
+  .modal.esc .esc-opt .why { grid-column: 1 / -1; font-size: .95rem; }
+}
