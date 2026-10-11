@@ -95,7 +95,14 @@ async def chat(messages: list[dict], temperature: float = 0.4) -> Reply:
     an uncached policy fallback that the next replay would not reproduce."""
     path = _cache_path(messages)
     if settings.llm_cache and path.exists():
-        return Reply(json.loads(path.read_text())["content"], settings.llm_model, True, 0.0, 0.0)
+        try:
+            content = json.loads(path.read_text())["content"]
+            if not isinstance(content, str) or not content.strip():
+                raise ValueError("Cache content must be nonempty text")
+        except (OSError, ValueError, KeyError, TypeError):
+            log.warning("Ignoring unreadable model cache entry: %s", path)
+        else:
+            return Reply(content, settings.llm_model, True, 0.0, 0.0)
     if not enabled():
         raise LLMUnavailable("LLM_MODE is not bayleaf or credentials are missing")
     for attempt in range(ATTEMPTS):
