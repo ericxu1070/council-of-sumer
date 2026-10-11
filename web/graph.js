@@ -136,6 +136,17 @@
   transform-origin:var(--ox) var(--oy);transition:opacity .28s ease,transform .38s cubic-bezier(.2,1.2,.4,1);pointer-events:none}
 .cg-bubble.in{opacity:1;transform:translate(var(--x),var(--y)) scale(1)}
 .cg-bubble.out{opacity:0;transform:translate(var(--x),var(--y)) scale(.96);transition-duration:.25s}
+.cg-shout{position:absolute;left:0;top:0;z-index:4;max-width:200px;padding:4px 10px 5px;border-radius:10px;white-space:nowrap;
+  font-size:clamp(13px,.72vw,16px);font-style:italic;font-weight:700;letter-spacing:.01em;color:var(--cg-ink);
+  background:color-mix(in srgb,var(--c,#8a96b8) 30%,rgba(11,16,32,.92));border:1px dashed color-mix(in srgb,var(--c,#8a96b8) 80%,#fff 20%);
+  box-shadow:0 4px 12px rgba(0,0,0,.4);pointer-events:none;opacity:0;
+  transform:translate(calc(-50% + var(--sx,0px)),calc(-100% + var(--sy,0px) + 6px)) scale(.8);transform-origin:50% 100%;
+  transition:opacity .2s ease,transform .3s cubic-bezier(.3,1.6,.5,1)}
+.cg-shout::after{content:"";position:absolute;left:50%;bottom:-5px;width:8px;height:8px;margin-left:-4px;background:inherit;
+  border:inherit;border-width:0 1px 1px 0;transform:rotate(45deg)}
+.cg-shout.in{opacity:.95;transform:translate(calc(-50% + var(--sx,0px)),calc(-100% + var(--sy,0px))) scale(1)}
+.cg-shout.out{opacity:0;transition-duration:.35s}
+@media(prefers-reduced-motion:reduce){.cg-shout{transition:opacity .2s ease}}
 .cg-bubble-tail{position:absolute;width:12px;height:12px;background:inherit;border:inherit;border-width:0 0 1px 1px;transform:rotate(45deg)}
 .cg-bubble-head{display:flex;align-items:baseline;gap:7px;font-size:clamp(15px,.8vw,19px);font-weight:800;margin-bottom:6px;white-space:nowrap;overflow:hidden}
 .cg-bubble-head .who{color:var(--cg-speak)}
@@ -626,5 +637,29 @@
     hubEl.querySelector(".cg-hub-core").animate([{ transform: "scale(1)" }, { transform: "scale(1.08)" }, { transform: "scale(1)" }], { duration: 380, easing: "ease-out" });
   }
 
-  window.CouncilGraph = { mount, setAdvisors, speak, typing, idle, setBadge, setHub, pulseHub, flashRelations };
+  /* ---------------- clamor shouts ---------------- */
+  // A short crowd shout above one advisor; smaller and lighter than the speech bubble.
+  function shout(id, text, ms = 2200) {
+    const nd = root && nodes.get(id);
+    if (!nd || !text) return;
+    nd.shoutEl?.remove();
+    clearTimeout(nd.shoutT);
+    const b = el("div", "cg-shout");
+    b.textContent = text;
+    const k = parseFloat(nd.av.style.getPropertyValue("--k")) || 1;
+    b.style.setProperty("--sy", `${(-BASE / 2 * k - 12).toFixed(1)}px`);
+    nd.el.appendChild(b);
+    nd.shoutEl = b;
+    // Keep the bubble inside the graph: nudge it in from the left and right edges.
+    const half = b.offsetWidth / 2 + 6;
+    b.style.setProperty("--sx", `${(Math.max(0, half - nd.x) - Math.max(0, nd.x + half - W)).toFixed(1)}px`);
+    void b.offsetWidth;
+    b.classList.add("in");
+    nd.shoutT = setTimeout(() => {
+      b.classList.add("out");
+      setTimeout(() => { b.remove(); if (nd.shoutEl === b) nd.shoutEl = null; }, 380);
+    }, ms);
+  }
+
+  window.CouncilGraph = { mount, setAdvisors, speak, typing, idle, setBadge, setHub, pulseHub, flashRelations, shout };
 })();

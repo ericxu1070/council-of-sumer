@@ -876,6 +876,7 @@ const HALTED = {
   lost: ["Council stopped", "The chamber restarted. Convene to start again."],
 };
 function render(kind, d, instant) {
+  window.Clamor?.event(kind, d);
   switch (kind) {
     case "game":
       resetGame(d);
@@ -998,6 +999,7 @@ function render(kind, d, instant) {
 
 // Clear the stage when a run ends without its "end" event (Stop, or a restarted server).
 function haltRun(status) {
+  window.Clamor?.event("halt");
   stopNarration();
   setup.liveRunId = "";
   S.running = false;

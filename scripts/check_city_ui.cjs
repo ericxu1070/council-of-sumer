@@ -8,7 +8,7 @@ const os = require('node:os');
 // Optional browser smoke check: install Playwright separately, then run this file
 // with its package on NODE_PATH. Uses local fixtures, with no model or API calls.
 (async () => {
-  const files = new Set(['index.html','app.css','app.js','graph.js','faces.js','city.js','city-effects.js','city-effects.css']);
+  const files = new Set(['index.html','app.css','app.js','graph.js','faces.js','city.js','city-effects.js','city-effects.css','clamor.js','clamor.css']);
   const server = http.createServer(async (req, res) => {
     const file = req.url === '/' ? 'index.html' : req.url.slice(1);
     if (!files.has(file)) { res.writeHead(404).end(); return; }
@@ -35,6 +35,9 @@ const os = require('node:os');
       {id:'priest',short:'Priest',color:'#b5862a',emoji:'🏺'},
       {id:'villager',short:'Villager',color:'#b2622f',emoji:'🧑'},
     ]}}));
+    await page.route('**/api/clamor',route=>route.fulfill({json:{voice:false,voices:['provider','farmer','merchant','priest','villager'],
+      phrases:{plant:['Sow every field!','Plant the seed!'],feed:['Feed the people!'],sell_land:['Sell the land!'],keep_land:['Keep our land!'],store:['Store the grain!'],fallow:['Leave fields fallow!']}}}));
+    await page.route('**/api/clamor/**',route=>route.fulfill({status:404}));
     await page.goto(url);
     await page.waitForFunction(()=>document.querySelectorAll('.cg-node').length===5);
     await page.waitForTimeout(800);
@@ -155,6 +158,22 @@ const os = require('node:os');
     await page.evaluate(()=>showScout({request_id:'empty',rows:[],options:[]}));
     assert.equal(await page.locator('.scout-plans').count(),0);
     await page.evaluate(()=>{hideSpot('scout');S.scoutRequest=null;});
+    // Clamoring: off by default; once on, advisors who are not holding the floor shout their stance.
+    assert.equal(await page.getAttribute('#clamorToggle','aria-pressed'),'false');
+    await page.click('#clamorToggle');
+    assert.equal(await page.evaluate(()=>localStorage.getItem('sumer-clamor')),'1');
+    await page.evaluate(turn=>{
+      S.running=true;
+      render('turn',{...turn,advisor:'farmer',addressed:[],proposal:{land_delta:0,feed:2000,plant:1000}},false);
+      render('turn',{...turn,proposal:{land_delta:-100,feed:2000,plant:500}},false);
+    },turn);
+    await page.waitForSelector('.cg-shout',{timeout:4000});
+    assert.match(await page.locator('.cg-shout').first().textContent(),/^(Sow every field!|Plant the seed!|Feed the people!)$/);
+    assert.equal(await page.locator('.cg-node[title="Provider"] .cg-shout').count(),0);
+    await page.click('#clamorToggle');
+    await page.evaluate(()=>render('year',{year:1,outcome:'consensus',adopted:'safe',plan:{land_delta:0,feed:2000,plant:1000}},true));
+    await page.waitForTimeout(2800);
+    assert.equal(await page.locator('.cg-shout').count(),0);
     await page.setViewportSize({width:390,height:844});
     await page.evaluate(()=>CouncilGraph.idle());
     await page.waitForTimeout(700);
@@ -193,7 +212,7 @@ const os = require('node:os');
       await checkSeatsClearResources();
     }
     assert.deepEqual(errors,[]);
-    console.log('PASS: city resources, clear council seats, removed map decorations, vote links, omen plan details and ties, mobile omen controls, reduced motion, 1/5/21 advisor rosters, no browser errors.');
+    console.log('PASS: city resources, clear council seats, removed map decorations, vote links, omen plan details and ties, mobile omen controls, reduced motion, 1/5/21 advisor rosters, clamor shouts, no browser errors.');
   } finally {
     await browser?.close();
     await new Promise(resolve => server.close(resolve));

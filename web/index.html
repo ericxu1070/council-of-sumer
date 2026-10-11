@@ -8,6 +8,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%2320251f'/%3E%3Cpath d='M5 25h22M8 25v-6h16v6M11 19v-6h10v6M14 13V7h4v6' fill='none' stroke='%23dcc080' stroke-width='2'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="app.css">
 <link rel="stylesheet" href="city-effects.css">
+<link rel="stylesheet" href="clamor.css">
 </head>
 <body>
 <div class="app" id="app">
@@ -30,6 +31,9 @@
       <button class="btn ghost hidden" id="evidenceBtn" type="button">Evidence</button>
       <button class="toggle" id="hoodToggle" type="button" aria-pressed="false" title="Show private thoughts, traces and network messages">
         <span>Under the hood</span><span class="switch" aria-hidden="true"></span>
+      </button>
+      <button class="toggle" id="clamorToggle" type="button" aria-pressed="false" title="Advisors shout short demands while the council debates">
+        <span>Clamoring</span><span class="switch" aria-hidden="true"></span>
       </button>
       <button class="icon-btn" id="muteBtn" type="button" aria-pressed="false" title="Mute voices" aria-label="Mute voices">🔊</button>
       <button class="btn primary convene" id="conveneBtn" type="button">Convene the council</button>
@@ -119,5 +123,6 @@
 <script src="city.js"></script>
 <script src="city-effects.js"></script>
 <script src="app.js"></script>
+<script src="clamor.js"></script>
 </body>
 </html>
