@@ -7,7 +7,6 @@ import pytest
 from sumer import agent, llm
 from sumer.advisors import (
     ADVISORS,
-    COMPROMISE_GUIDANCE,
     Beliefs,
     mentions,
     resolve_council,
@@ -80,9 +79,10 @@ async def test_custom_mandate_reaches_model_and_model_selects_budget(monkeypatch
     monkeypatch.setattr(llm, "chat", reply)
     ballot = await agent.decide("custom-river", brief)
     system = prompts[0]["content"]
-    assert CUSTOM["mandate"] in system
-    assert COMPROMISE_GUIDANCE in system
-    assert all(COMPROMISE_GUIDANCE in a.mandate for a in ADVISORS.values())
+    payload = json.loads(prompts[1]["content"].split("\n\n")[0])
+    assert payload["custom_instructions"] == CUSTOM["mandate"]
+    assert all(a.mandate == "" for a in ADVISORS.values())
+    assert "Negotiate" not in system
     assert "River Keeper" in system
     assert validate_reply(ballot, brief) is ballot
     assert not ballot.error and ballot.proposal.feed == feed
@@ -113,7 +113,6 @@ def test_bias_defaults_overrides_and_roster_roundtrip():
 
 @pytest.mark.parametrize("phase", ["turn", "runoff"])
 def test_shared_score_mandate_and_bias_reach_every_voting_phase(phase):
-    from sumer.advisors import VILLAGER_MANDATE
     from sumer.protocol import Plan, TabledProposal
 
     roster = resolve_council([{"id": "priest", "bias": 0.8}, {"id": "villager"}])
@@ -122,13 +121,14 @@ def test_shared_score_mandate_and_bias_reach_every_voting_phase(phase):
     brief = brief_for(roster, speaker="priest", phase=phase,
                       table=[a, b], runoff=[a, b] if phase == "runoff" else [])
     system = agent._llm_messages("priest", brief)[0]["content"]
-    assert VILLAGER_MANDATE in system
+    assert "Maximize the expected final numeric score" not in system
     assert "Your bias value: 0.8" in system
     assert '"Villager", bias 0.0' in system
-    assert "emergencies" in system
-    assert "common enemy" in system
-    assert all(VILLAGER_MANDATE in a.mandate for a in ADVISORS.values())
-    assert ADVISORS["villager"].mandate == f"{VILLAGER_MANDATE} {COMPROMISE_GUIDANCE}"
+    payload = json.loads(agent._llm_messages("priest", brief)[1]["content"].split("\n\n")[0])
+    assert "emergencies" in payload["private_rulebook"]
+    assert "common enemy" in payload["private_rulebook"]
+    assert payload["custom_instructions"] == ""
+    assert all(a.mandate == "" for a in ADVISORS.values())
 
 
 def test_unbiased_diagnostic_matches_game_score_and_overthrow_penalty():

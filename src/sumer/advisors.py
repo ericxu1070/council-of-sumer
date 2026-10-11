@@ -22,36 +22,8 @@ from sumer.game import (
     YearRolls,
     legalize,
 )
+from sumer.rulebooks import EXAMPLE_RULEBOOKS
 from sumer.voice import SEAT_VOICES, custom_voice_for
-
-VILLAGER_MANDATE = (
-    "Maximize the expected final numeric score over the whole reign: "
-    "10 * surviving people + (remaining bushels + 20 * final acres) / 100 "
-    "- 15 * total people starved - (2000 if overthrown else 0). "
-    "Balance all five terms and future consequences using the information available to you. "
-    "You are willing to let "
-    "people die when the expected score gain outweighs the loss of survivors and the "
-    "starvation penalty. Account for possible overthrow and lost future opportunities. Favor neither "
-    "starvation nor survival for its own sake. The narrative verdict is separate from "
-    "your numeric-score objective."
-)
-
-COMPROMISE_GUIDANCE = (
-    "Negotiate concrete concessions on food, seed, land, and reserves. Explain how a "
-    "tradeoff helps the expected final score, listen to objections, revise your proposal, "
-    "and support acceptable alternatives. Form alliances with councilors who share a "
-    "near-term goal against a common enemy such as famine, rats, a poor harvest, overthrow, "
-    "or a proposal that threatens those goals. Offer reciprocal concessions; do not invent "
-    "sabotage or treat a councilor as a permanent enemy. Your bias value controls how "
-    "strongly you favor your specialty and resist compromise: 0 means no extra preference "
-    "and ready compromise for the score; 0.25 is a mild preference; 1 is an extreme "
-    "preference with strong resistance to concessions. Higher bias requires more "
-    "persuasion or a larger concession, but still negotiate and seek a workable coalition."
-)
-
-
-def compromise_mandate(mandate: str) -> str:
-    return mandate if mandate.endswith(COMPROMISE_GUIDANCE) else f"{mandate} {COMPROMISE_GUIDANCE}"
 
 
 @dataclass(frozen=True)
@@ -161,52 +133,21 @@ class Advisor:
 
 
 ADVISORS: dict[str, Advisor] = {
-    a.id: replace(a, mandate=compromise_mandate(a.mandate), tts_voice=a.id)
-    for a in [
-        Advisor(
-            id="provider", title="Provider", short="Provider", bias=0.25,
-            mandate=VILLAGER_MANDATE + " Your specialty is keeping everyone fed. Prefer full "
-            "rations and reliable food supplies, and argue for selling land or reducing "
-            "planting when that protects meals. This is a bias, not an absolute veto: "
-            "consider sacrifices and concessions in the context of the whole-reign score.",
-            voice="warm, protective, concrete; bargains for meals and households",
-            color="#c2577e", emoji="🍞",
-        ),
-        Advisor(
-            id="farmer", title="Farmer", short="Farmer", bias=0.25,
-            mandate=VILLAGER_MANDATE + " Your specialty is planting as much grain as possible. "
-            "Prefer sowing more workable acres and securing seed and workers for future "
-            "harvests. Bargain for planting capacity, while weighing food and reserves "
-            "against the whole-reign score rather than planting at any cost.",
-            voice="practical, grounded in fields and seed; bargains for productive harvests",
-            color="#3f8f4f", emoji="🌾",
-        ),
-        Advisor(
-            id="merchant", title="Merchant", short="Merchant", bias=0.25,
-            mandate=VILLAGER_MANDATE + " Your specialty is maximizing total acres owned at "
-            "the end of the reign, not acres per person. Favor affordable purchases and "
-            "retaining land. Trade temporary sales or food and seed concessions for a "
-            "credible route to more final acres, while weighing the whole-reign score.",
-            voice="measured, persuasive, commercially shrewd; bargains for lasting acreage",
-            color="#c0911e", emoji="💰",
-        ),
-        Advisor(
-            id="priest", title="Priest", short="Priest", bias=0.25,
-            mandate=VILLAGER_MANDATE + " Your specialty is maximizing bushels remaining at "
-            "the end and keeping grain in store for emergencies. Favor reserves against "
-            "possible shortages and losses. "
-            "Negotiate how much to release for meals, seed, or land when that improves "
-            "the whole-reign score; hoarding is a preference, not an absolute rule.",
-            voice="calm, prudent, persuasive; bargains for emergency stores and future security",
-            color="#b5452f", emoji="🏺",
-        ),
-        Advisor(
-            id="villager", title="Villager", short="Villager", bias=0.0,
-            mandate=VILLAGER_MANDATE,
-            voice="plainspoken, pragmatic; weighs the whole city's outcome and brokers bargains",
-            color="#8a5cc2", emoji="🧑",
-        ),
-    ]
+    'provider': Advisor(id='provider', title='Provider', short='Provider',
+        mandate="", voice="", bias=0.25, color='#c2577e',
+        emoji='🍞', tts_voice='provider', rulebook=EXAMPLE_RULEBOOKS['provider']),
+    'farmer': Advisor(id='farmer', title='Farmer', short='Farmer',
+        mandate="", voice="", bias=0.25, color='#3f8f4f',
+        emoji='🌾', tts_voice='farmer', rulebook=EXAMPLE_RULEBOOKS['farmer']),
+    'merchant': Advisor(id='merchant', title='Merchant', short='Merchant',
+        mandate="", voice="", bias=0.25, color='#c0911e',
+        emoji='💰', tts_voice='merchant', rulebook=EXAMPLE_RULEBOOKS['merchant']),
+    'priest': Advisor(id='priest', title='Priest', short='Priest',
+        mandate="", voice="", bias=0.25, color='#b5452f',
+        emoji='🏺', tts_voice='priest', rulebook=EXAMPLE_RULEBOOKS['priest']),
+    'villager': Advisor(id='villager', title='Villager', short='Villager',
+        mandate="", voice="", bias=0.0, color='#8a5cc2',
+        emoji='🧑', tts_voice='villager', rulebook=EXAMPLE_RULEBOOKS['villager']),
 }
 
 ADVISOR_IDS = list(ADVISORS)
@@ -221,13 +162,12 @@ class CouncilSeat(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, str_strip_whitespace=True)
     id: str = Field(min_length=1, max_length=48, pattern=r"^[a-z][a-z0-9_-]*$")
     short: str | None = Field(default=None, min_length=1, max_length=60)
-    # Stored/public mandates also carry the guidance appended to the user's instructions.
     mandate: str | None = Field(
-        default=None, min_length=1, max_length=2000 + len(COMPROMISE_GUIDANCE) + 1,
+        default=None, max_length=2000,
     )
     bias: float | None = Field(default=None, ge=0, le=1, allow_inf_nan=False)
     title: str | None = Field(default=None, min_length=1, max_length=80)
-    voice: str | None = Field(default=None, min_length=1, max_length=200)
+    voice: str | None = Field(default=None, max_length=200)
     color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
     emoji: str | None = Field(default=None, min_length=1, max_length=12)
     tts_voice: str | None = Field(default=None, max_length=32)
@@ -237,9 +177,9 @@ class CouncilSeat(BaseModel):
     def custom_identity(self):
         if self.tts_voice is not None and self.tts_voice not in SEAT_VOICES:
             raise ValueError("Choose one of the listed voices.")
-        if self.mandate and len(self.mandate.removesuffix(f" {COMPROMISE_GUIDANCE}")) > 2000:
+        if self.mandate and len(self.mandate) > 2000:
             raise ValueError("Agent instructions must be at most 2000 characters.")
-        if self.id not in ADVISORS and (self.short is None or self.mandate is None):
+        if self.id not in ADVISORS and (self.short is None or (not self.mandate and "rulebook" not in self.model_fields_set)):
             raise ValueError("Custom agents require a name and mandate.")
         return self
 
@@ -261,22 +201,22 @@ def resolve_council(seats: list[dict | CouncilSeat] | None = None) -> dict[str, 
                 base,
                 short=seat.short or base.short,
                 title=seat.title or seat.short or base.title,
-                mandate=compromise_mandate(seat.mandate or base.mandate),
+                mandate=seat.mandate or "",
                 bias=base.bias if seat.bias is None else seat.bias,
                 voice=seat.voice or base.voice,
                 color=seat.color or base.color,
                 emoji=seat.emoji or base.emoji,
                 tts_voice=seat.tts_voice or base.tts_voice,
-                rulebook=seat.rulebook,
+                rulebook=(seat.rulebook if "rulebook" in seat.model_fields_set else base.rulebook),
             )
         else:
             roster[seat.id] = Advisor(
                 id=seat.id,
                 short=seat.short,
                 title=seat.title or seat.short,
-                mandate=compromise_mandate(seat.mandate),
+                mandate=seat.mandate,
                 bias=0.0 if seat.bias is None else seat.bias,
-                voice=seat.voice or "clear, thoughtful, speaks from the public mandate",
+                voice=seat.voice or "",
                 color=seat.color or "#607d8b",
                 emoji=seat.emoji or "🗣️",
                 tts_voice=seat.tts_voice or custom_voice_for(seat.id),

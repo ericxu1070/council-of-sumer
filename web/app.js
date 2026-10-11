@@ -51,7 +51,6 @@ const FALLBACK_COLORS = ["#5f8f3a", "#7a4fa3", "#a33a32", "#b5862a", "#b2622f", 
 const FALLBACK_EMOJI = { provider: "🍞", farmer: "🌾", merchant: "⚖️", priest: "🏺", villager: "🧑" };
 // Setup belongs to the next council; the live council keeps its own roster.
 const setup = { templates: [], voices: [], seats: [], serial: 0, starting: false, stopping: false, ready: false, max: 21, liveRunId: "" };
-const PERSONA_MANDATES = { provider: "Maximize final score with a preference for feeding everyone.", farmer: "Maximize final score with a preference for planting more grain.", merchant: "Maximize final score with a preference for total final acres.", priest: "Maximize final score with a preference for final bushels and emergency stores.", villager: "Maximize final score by balancing survivors, grain, acres, starvation, and overthrow." };
 const safeColor = (color, i) => /^#[\da-f]{6}$/i.test(String(color || "")) ? color : FALLBACK_COLORS[i % FALLBACK_COLORS.length];
 
 // Extra copies of a preset (custom-N ids) keep its color and emoji: map them back to the persona face.
@@ -335,7 +334,7 @@ function scrollBottom(instant) {
   if (!smooth) scrollRaf = requestAnimationFrame(() => { if (stick) f.scrollTop = f.scrollHeight; });
 }
 // Before a run: the transcript introduces each advisor and its goal in one line.
-const shortMandate = a => PERSONA_MANDATES[a.persona] || String(a.mandate || "").replace(/\s+/g, " ").trim().slice(0, 90);
+const shortMandate = a => String(a.rulebook || a.mandate || "No instructions supplied.").replace(/^Goals and preferences:\s*/, "").replace(/\s+/g, " ").trim().slice(0, 90);
 function welcome() {
   feed().innerHTML = `<div class="welcome">
     <div class="welcome-kicker">Meet the council</div>
@@ -1318,7 +1317,8 @@ function drawCouncilName() {
 }
 function newVoter(i) {
   const serial = ++setup.serial, voice = setup.voices[(serial - 1) % setup.voices.length]?.id;
-  return { rulebook: "", name: drawCouncilName(), preset: setup.templates[i % setup.templates.length]?.id || "provider", custom: { id: `custom-${serial}`, short: "", mandate: "", ...(voice ? { tts_voice: voice } : {}) } };
+  const preset = setup.templates[i % setup.templates.length]?.id || "provider";
+  return { rulebook: S.meta?.example_rulebooks?.[preset] || "", name: drawCouncilName(), preset, custom: { id: `custom-${serial}`, short: "", mandate: "", ...(voice ? { tts_voice: voice } : {}) } };
 }
 function votingThresholds(n) {
   const majority = Math.floor(n / 2) + 1;
@@ -1377,7 +1377,7 @@ function renderVoters() {
       ${setup.voices.length ? `<label class="voter-voice"><span>Voice</span><select data-voter="tts_voice" aria-label="Voter ${i + 1} voice">${setup.voices.map(v => `<option value="${esc(v.id)}"${v.id === seat.custom.tts_voice ? " selected" : ""}>${esc(v.label)}</option>`).join("")}</select></label>` : ""}` : ""}
       <p class="rulebook-note" id="bias-note-${i}">0: tentative and flexible. 1: strongly trusts its notes and resists compromise, but can revise with compelling evidence.</p>
       <label class="field private-rulebook"><span>Private rulebook</span><textarea data-voter="rulebook" rows="4" maxlength="8000" aria-label="Voter ${i + 1} private rulebook" aria-describedby="rulebook-note-${i}" placeholder="Enter this decision maker's starting information (optional)">${esc(seat.rulebook || "")}</textarea></label>
-      <p class="rulebook-note" id="rulebook-note-${i}">These starting notes stay unchanged. This advisor saves its own evolving beliefs as it learns; bias affects willingness to revise them. Blank means no private starting information.</p>
+      <p class="rulebook-note" id="rulebook-note-${i}">Edit this councilor’s goals, preferences, omen responses, and starting knowledge. Its learned beliefs are saved separately. Blank means no default instructions.</p>
     </section>`;
   }).join("");
   syncSetupLock();
@@ -1498,14 +1498,18 @@ function wire() {
     if (!resizeVoters()) return;
     setup.seats = setup.seats.map((_, i) => newVoter(i));
     renderVoters();
-    $("#exampleRulebookStatus").textContent = "Rulebooks cleared. Load examples or enter your own notes.";
+    $("#exampleRulebookStatus").textContent = "Default rulebooks loaded. Edit each councilor’s instructions below.";
   };
   $("#voterList").addEventListener("input", e => {
     const key = e.target.dataset.voter, card = e.target.closest("[data-slot]");
     if (!key || !card) return;
     const seat = setup.seats[Number(card.dataset.slot)];
     if (key === "rulebook") { seat.rulebook = e.target.value; setupError(); return; }
-    if (key === "preset") { seat.preset = e.target.value; delete seat.bias; }
+    if (key === "preset") {
+      const previousDefault = S.meta?.example_rulebooks?.[seat.preset];
+      if (seat.rulebook === previousDefault) seat.rulebook = S.meta?.example_rulebooks?.[e.target.value] || "";
+      seat.preset = e.target.value; delete seat.bias;
+    }
     else if (key === "bias") seat.bias = e.target.value === "" ? NaN : Number(e.target.value);
     else seat.custom[key] = e.target.value;
     if (key === "preset") renderVoters();
@@ -1633,7 +1637,7 @@ addEventListener("resize", fitZoom);
     toast(`Server not reachable: ${e.message}`);
   }
   const m = S.meta;
-  setup.templates = (m.advisors?.length ? m.advisors : Object.keys(FALLBACK_EMOJI).map(id => ({ id, mandate: PERSONA_MANDATES[id] }))).map(normAdvisor);
+  setup.templates = (m.advisors?.length ? m.advisors : Object.keys(FALLBACK_EMOJI).map(id => ({ id, mandate: "" }))).map(normAdvisor);
   setup.max = Number.isInteger(m.max_advisors) ? Math.min(21, Math.max(1, m.max_advisors)) : 21;
   $("#agentCount").max = setup.max;
   setup.voices = Array.isArray(m.voices) ? m.voices.filter(v => v?.id && v?.label) : [];
