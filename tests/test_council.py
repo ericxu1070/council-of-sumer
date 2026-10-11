@@ -1,7 +1,7 @@
 import pytest
 
 from sumer.advisors import ADVISOR_IDS, safe_plan
-from sumer.deliberation import Deadlock, TechnicalFailure, deliberate_year, speaking_order
+from sumer.deliberation import Deadlock, deliberate_year, speaking_order
 from sumer.game import Decision, new_game
 from sumer.protocol import Ballot, Brief, Plan, bind, validate_reply
 
@@ -149,7 +149,7 @@ async def test_deadlock_without_a_human_remains_paused():
         await _year(scripted(script))
 
 
-async def test_stale_ballot_stops_after_one_retry():
+async def test_stale_ballot_skips_after_one_retry():
     def script(b):
         return _ballot(b, A, accept=_ids_for(b, A))
 
@@ -161,8 +161,12 @@ async def test_stale_ballot_stops_after_one_retry():
             b.reply_to = "previous-request"
         return b
 
-    with pytest.raises(TechnicalFailure, match="merchant failed after one retry"):
-        await _year(ask)
+    result, events = await _year(ask)
+    assert result.outcome == "majority" and result.dissent == ["merchant"]
+    skipped = [d for k, d in events if k == "agent_skipped"]
+    assert len(skipped) == 2 and all(d["advisor"] == "merchant" for d in skipped)
+    assert len([b for b in inner.briefs if b.speaker == "merchant"]) == 4
+    assert "merchant" not in {b["advisor"] for b in result.certificate["ballots"]}
 
 
 # ---- model response parsing ----

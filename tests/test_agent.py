@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from sumer import agent
@@ -85,6 +87,29 @@ async def test_unseated_speaker_cannot_receive_a_model_vote(llm_reply):
     assert ballot.accept == [] and "chosen" not in ballot.trace
     with pytest.raises(ValueError, match="not seated"):
         validate_reply(ballot, brief)
+
+
+async def test_budget_retry_receives_rejected_proposal_and_shortfall(monkeypatch):
+    from sumer import llm
+
+    prompts = []
+    async def chat(messages):
+        prompts.append(messages)
+        proposal = {"land_delta": 0, "feed": 1040, "plant": 520 if len(prompts) == 1 else 220}
+        return llm.Reply(json.dumps({"proposal": proposal, "speech": "Provider, we need seed."}),
+                         "test", False, 0.0, 0.0)
+    monkeypatch.setattr(llm, "chat", chat)
+    brief = brief_for().model_copy(update={"state": State(population=52, grain=1150).public()})
+    rejected = await agent.decide("farmer", brief)
+    assert "\"grain_shortfall_bushels\": 150" in rejected.error
+    corrected = brief.model_copy(update={"errors": {"farmer": rejected.error}})
+    ballot = await agent.decide("farmer", corrected)
+    assert validate_reply(ballot, corrected) is ballot
+    user = json.loads(prompts[-1][1]["content"].split("\n\n")[0])
+    assert user["budget_rules"]["workforce_limit_acres"] == 520
+    assert user["budget_rules"]["food_for_all_residents_bushels"] == 1040
+    assert user["response_correction"]["farmer"] == rejected.error
+    assert ballot.proposal.plant == 220
 
 
 # ---- replay safety ----

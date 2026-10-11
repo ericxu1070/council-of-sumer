@@ -131,7 +131,12 @@ agents missing a name or mandate are rejected before creating a run.
   accept votes, runoff vote, explanation, and speech from its mandate, city state, beliefs,
   and conversation. No deterministic policy, suggested plan, numeric score, threshold,
   or red-line veto guides or overrides those choices. Budgets and request bindings are
-  validated. Model failures are retried once and then stop the run; mock policy mode was removed.
+  validated. Advisors receive explicit budget calculations; rejected budgets include the
+  proposed amounts and resource shortfalls in retry feedback. Turn failures are retried once,
+  then that advisor skips the turn and the council continues. Skips cast no vote, do not
+  reduce majority thresholds, and are recorded and verified alongside ballots. If too few
+  advisors respond to pass a plan, the normal human deadlock resolution applies.
+  Mock policy mode was removed.
 - **The game** (`game.py`) pre-rolls every die from the seed, so every decider faces exactly the
   same harvests, rats, and plagues.
 - **The narrator** (`narrator.py`) closes each year with one or two plain-English sentences for a
@@ -222,7 +227,9 @@ Custom agents do not receive these preset-specific satisfaction scores.
 
 Each response binds to its run, year, round, speaker, state, and exact request (including the
 frozen runoff finalists). Invalid or missing turns are retried once for the addressed speaker;
-a second failure records a technical failure. A deadlock requires an explicit human selection,
+a second failure records a skipped turn and the remaining advisors continue. The advisor
+can respond again on its next turn; a skip contributes no vote and leaves the council's
+majority thresholds unchanged. A deadlock requires an explicit human selection,
 including an explicit choice of the safe plan. Model failures never become policy votes.
 
 SQLite stores immutable proposals, turn receipts, requests, model usage, and annual
@@ -239,9 +246,11 @@ regenerated. Paused deadlocks and technical failures do not receive completed-re
 - Every LLM reply is cached in `.cache/llm/` by prompt hash. A changed scout event changes
   the prompt; each re-vote adds model calls.
 - `LLM_BUDGET_USD` (default $3.00) is a hard cap tracked from the cost Bayleaf reports per call.
-  Past it, advisors record a technical failure; no deterministic fallback vote is generated.
+  Past it, advisors record an error and skip their turn after the clerk's retry;
+  no deterministic fallback vote is generated.
 - A failed live call is retried up to 3 times with backoff before the advisor records a technical
-  failure. Such a turn is not cached, so it would not replay the same way: `scripts/rehearse.py`
+  error. The clerk retries once, then skips that advisor's turn. Such a turn is not cached,
+  so it would not replay the same way: `scripts/rehearse.py`
   reports these per year and marks the seed UNUSABLE until a clean rehearsal.
 - At five discussion rounds, the default council uses up to 30 LLM calls per year, including
   a five-vote runoff, before retries. Larger councils use proportionally more calls.

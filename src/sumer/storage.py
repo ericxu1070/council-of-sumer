@@ -216,7 +216,7 @@ class Store:
                   "## Decision log"]
         for e in events:
             if e["kind"] in ("responses", "ballots", "year", "human_resolution",
-                             "validation_error", "technical_failure", "escalate", "turn", "tally",
+                             "validation_error", "agent_skipped", "technical_failure", "escalate", "turn", "tally",
                              "runoff", "runoff_result", "news"):
                 report.extend([f"### Event {e['sequence']}: {e['kind']}",
                                json.dumps(e["data"], indent=2)])

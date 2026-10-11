@@ -84,12 +84,13 @@ async def test_live_model_failure_is_not_a_policy_vote_and_keeps_cost(monkeypatc
     monkeypatch.setattr(llm, "chat", broken)
     store = Store(":memory:")
     from sumer.transport import inproc
-    result = await play_council(1, inproc.ask, store=store)
-    assert result.status == "technical_failure" and not result.years
-    assert len(prompts) == 2 and "response_correction" in prompts[1]
+    result = await play_council(1, inproc.ask, store=store, max_rounds=1)
+    assert result.status == "deadlock" and not result.years
+    assert len(prompts) == 10 and "response_correction" in prompts[1]
     recorded = [json.loads(r["data"]) for r in store.db.execute("SELECT data FROM model_usage")]
-    assert len(recorded) == 2 and sum(r["cost_usd"] for r in recorded) == pytest.approx(0.02)
-    assert not any(e["kind"] == "escalate" for e in store.events(result.run_id))
+    assert len(recorded) == 10 and sum(r["cost_usd"] for r in recorded) == pytest.approx(0.1)
+    assert sum(e["kind"] == "agent_skipped" for e in store.events(result.run_id)) == 5
+    assert any(e["kind"] == "escalate" for e in store.events(result.run_id))
 
 
 async def test_stopped_run_retains_its_summary():

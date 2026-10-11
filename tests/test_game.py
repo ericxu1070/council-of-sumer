@@ -1,3 +1,4 @@
+import json
 from dataclasses import replace
 
 import pytest
@@ -8,6 +9,7 @@ from sumer.game import (
     InvalidBudget,
     State,
     YearRolls,
+    budget_calculation,
     legalize,
     new_game,
     rating,
@@ -47,6 +49,32 @@ def test_integer_accounting_rats_precede_harvest():
     assert nxt.grain == remainder - remainder // 2 + 501 * 4
     assert nxt.last_report["starved"] == 0
     assert type(nxt.grain) is int
+
+
+def test_seed_budget_feedback_contains_rejected_amounts_and_shortfall():
+    state = State(population=52, grain=1150, land_price=26)
+    decision = Decision(0, 1040, 520)
+    with pytest.raises(InvalidBudget, match="Insufficient grain after feeding for seed") as exc:
+        legalize(state, decision)
+    calculation = json.loads(str(exc.value).split("Budget calculation: ")[1])
+    assert calculation["proposal"] == decision.as_dict()
+    assert calculation["grain_after_feeding"] == 110
+    assert calculation["seed_bushels"] == 260
+    assert calculation["grain_shortfall_bushels"] == 150
+    assert calculation["max_plant_after_trade_and_feeding"] == 221
+    assert legalize(state, Decision(0, 1040, 221))
+    with pytest.raises(InvalidBudget):
+        legalize(state, Decision(0, 1040, 222))
+
+
+@pytest.mark.parametrize("land_delta,feed,plant", [(5, 1040, 520), (-6, 1040, 520), (0, 1040, 1000)])
+def test_budget_calculation_covers_trades_and_all_shortfalls(land_delta, feed, plant):
+    state = State(population=52, grain=1150, land_price=26)
+    decision = Decision(land_delta, feed, plant)
+    calculation = budget_calculation(state, decision)
+    assert calculation["grain_after_seed"] == 1150 - land_delta * 26 - feed - plant // 2
+    assert calculation["workforce_shortfall_acres"] == max(0, plant - 520)
+    assert calculation["grain_shortfall_bushels"] == max(0, -calculation["grain_after_seed"])
 
 
 def test_immigration_uses_starting_population_despite_starvation():
