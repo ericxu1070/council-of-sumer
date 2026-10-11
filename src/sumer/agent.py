@@ -10,6 +10,7 @@ from sumer import llm
 from sumer.advisors import ADVISORS
 from sumer.config import settings
 from sumer.game import State
+from sumer.observability import context_headers, span
 from sumer.protocol import Brief, Certificate, Plan, Reply, sign, verify_certificate
 
 RULES = """Hamurabi: ten years; 20 bushels feed one resident; each resident tends 10 acres.
@@ -118,28 +119,37 @@ async def decide(peer: str, brief: Brief) -> Reply:
         old.pop("acres_per_person", None)
         verify_certificate(Certificate.model_validate(previous["certificate"]),
                            State(**old), brief.run_id, brief.peer_keys)
-    metadata = {}
-    error = None
-    if settings.llm_mode == "bayleaf":
-        try:
-            answer = await llm.chat(messages(peer, brief))
-            metadata = answer.meta()
-            data = Output.model_validate(llm.parse_json(answer.content, strict=True))
-        except (llm.LLMUnavailable, ValueError, TypeError) as exc:
-            # Keep failures and their reported spend in the signed response journal.
-            metadata = getattr(exc, "usage", None) or metadata
-            error = f"{type(exc).__name__}: {exc}"
-            data = Output(speech="Unable to produce a valid phase response.")
-        source = "llm"
-    elif settings.llm_mode == "mock":
-        data = fixture(peer, brief)
-        source = "policy"
-    else:
-        raise llm.LLMUnavailable(f"Unknown LLM_MODE: {settings.llm_mode}")
-    return sign(Reply(
-        run_id=brief.run_id, year=brief.year, round=brief.round, phase=brief.phase,
-        advisor=peer, state_hash=brief.state_hash, reply_to=brief.message_id,
-        candidate_hash=brief.candidate.hash if brief.candidate else None,
-        source=source, trace={"llm": metadata} if metadata else {},
-        error=error, **data.model_dump(),
-    ))
+    with span("agent.phase", parent=brief.traceparent, run_id=brief.run_id, year=brief.year,
+              phase=brief.phase, peer=peer,
+              candidate_hash=brief.candidate.hash if brief.candidate else None):
+        metadata = {}
+        error = None
+        if settings.llm_mode == "bayleaf":
+            with span("model.call", run_id=brief.run_id, year=brief.year,
+                      phase=brief.phase, peer=peer, model=settings.llm_model) as model_span:
+                try:
+                    answer = await llm.chat(messages(peer, brief))
+                    metadata = answer.meta()
+                    data = Output.model_validate(llm.parse_json(answer.content, strict=True))
+                except (llm.LLMUnavailable, ValueError, TypeError) as exc:
+                    # Keep failures and their reported spend in the signed response journal.
+                    metadata = getattr(exc, "usage", None) or metadata
+                    error = f"{type(exc).__name__}: {exc}"
+                    if model_span is not None:
+                        model_span.record_exception(exc)
+                        model_span.set_attribute("sumer.error", error)
+                    data = Output(speech="Unable to produce a valid phase response.")
+            source = "llm"
+        elif settings.llm_mode == "mock":
+            data = fixture(peer, brief)
+            source = "policy"
+        else:
+            raise llm.LLMUnavailable(f"Unknown LLM_MODE: {settings.llm_mode}")
+        context = context_headers()
+        return sign(Reply(
+            run_id=brief.run_id, year=brief.year, round=brief.round, phase=brief.phase,
+            advisor=peer, state_hash=brief.state_hash, reply_to=brief.message_id,
+            candidate_hash=brief.candidate.hash if brief.candidate else None,
+            source=source, trace={"llm": metadata, **context} if metadata else context,
+            traceparent=context.get("traceparent", ""), error=error, **data.model_dump(),
+        ))

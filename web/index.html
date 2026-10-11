@@ -236,7 +236,7 @@ button, select, input { font: inherit; color: inherit; }
     <div class="composer">
       <button class="alertbar" id="alertbar">⚠️ The council is deadlocked. Your vote decides. Jump to the poll.</button>
       <div class="composer-box">
-        <span class="ph">Current facts and objections guide the debate.</span>
+        <span class="ph">Current facts and objections guide the debate.</span><button class="btn small" id="tracesBtn">Year traces</button>
       </div>
       <div class="typing" id="typing"></div>
     </div>
@@ -313,6 +313,7 @@ function reasoning(b) {
     ${b.expected_effects ? `<div class="line"><b>Expected effects:</b> ${esc(b.expected_effects)}</div>` : ""}
     ${b.assumed_price != null ? `<div class="line">Current price used: ${b.assumed_price} bushels/acre</div>` : ""}
     ${b.objections_addressed?.length ? `<div class="line">Addresses: ${b.objections_addressed.map(id => `<a href="#msg-${esc(id)}">${esc(id.slice(0, 8))}</a>`).join(", ")}</div>` : ""}
+    ${t.trace_id ? `<button class="btn small" data-trace="${esc(t.trace_id)}">Open trace</button>` : ""}
   </div></details>`;
 }
 function onResponses(d) {
@@ -428,6 +429,7 @@ function handle(event) {
   else if (kind === "human_resolution") resolveDeadlock(d);
   else if (kind === "validation_error") sys(`<span class="ic">⚠️</span>${esc(SHORT[d.peer] || d.peer)}: ${esc(d.message)} (attempt ${d.attempt})`);
   else if (kind === "technical_failure" || kind === "stopped") { setTyping([]); closeDeadlocks(); $("#topic").textContent = kind.replaceAll("_", " "); sys(`<span class="ic">⚠️</span>${esc(d.message)}`); }
+  else if (kind === "observability_error") sys(`<span class="ic">⚠️</span>${esc(d.message)}`);
   else if (kind === "end") {
     setTyping([]);
     closeDeadlocks();
@@ -468,7 +470,16 @@ async function replayRun(id) {
   for (const event of events) handle(event);
   $("#feed").scrollTop = 0;
 }
+async function showTraces(traceId = "") {
+  if (!runId) return;
+  const spans = await api(`/api/runs/${runId}/traces${traceId ? "" : "?year=" + curYear}`);
+  const selected = traceId ? spans.filter(s => s.traceId === traceId) : spans;
+  message({...CLERK, time: "recorded traces", html: `<div class="embed"><div class="etitle">Observe traces</div><div class="esub">${selected.length ? "Recorded span IDs and parent links" : "No imported spans yet. The collector may still be flushing."}</div>
+    ${selected.map(s => `<div class="esub"><b>${esc(s.name)}</b> · trace ${esc(s.traceId)} · span ${esc(s.spanId)} · parent ${esc(s.parentSpanId || "root")}</div>`).join("")}</div>`});
+}
 $("#app").addEventListener("click", e => {
+  const trace = e.target.closest("[data-trace]");
+  if (trace) { showTraces(trace.dataset.trace).catch(e => toast(e.message)); return; }
   const ch = e.target.closest(".ch"); if (!ch) return;
   const evidence = ch.dataset.view === "evidence";
   $("#chatView").classList.toggle("hidden", evidence); $("#evidenceView").classList.toggle("hidden", !evidence);
@@ -498,6 +509,7 @@ $("#liveBtn").onclick = async () => {
   const current = await api("/api/meta");
   if (current.active_run) connect(current.active_run); else toast("There is no active run.");
 };
+$("#tracesBtn").onclick = () => showTraces().catch(e => toast(e.message));
 async function loadBench() {
   const b = await api("/api/bench");
   if (b.missing || b.historical) { $("#benchMeta").textContent = b.message || "No results yet. Run: uv run sumer bench"; return; }

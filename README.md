@@ -32,8 +32,9 @@ uv run sumer up
 # Open http://localhost:8000
 ```
 
-The launcher starts the native SLIM node, four A2A advisor processes, and the web chamber.
-No Docker is required.
+The launcher starts the native SLIM node, four A2A advisor processes, the web chamber, and
+a local OpenTelemetry Collector. The first launch downloads Collector Contrib 0.162.0 from
+its official release and verifies the published SHA-256 checksum. No Docker is required.
 
 For an offline rehearsal, set `LLM_MODE=mock`. This is an explicitly selected fixture mode.
 Live model failures never switch to it. The existing model, request settings, prompt cache,
@@ -44,7 +45,8 @@ without making model or voice calls, independent of the prompt cache.
 uv run pytest
 uv run ruff check src tests
 uv run sumer bench --seeds 30 --transport inproc
-# Separate processes: sumer node, sumer agent <id>, sumer web
+uv run sumer collector --install
+# Separate processes: sumer collector, sumer node, sumer agent <id>, sumer web
 ```
 
 See [DEMO.md](DEMO.md) for the rehearsal and live demo steps.
@@ -100,7 +102,7 @@ permissions; this does not claim isolated production identities or remote attest
 ## Persistence, replay, and exports
 
 SQLite at `.cache/runs.sqlite3` stores immutable run manifests, append-only events,
-proposals, ballots, year results, human resolutions, model usage,.
+proposals, ballots, year results, human resolutions, model usage, and imported spans.
 Valid ballots are stored as they arrive, even if another voter ultimately fails. Manifests
 include the application version as well as the rule and dependency versions. Stopped runs
 retain their final recorded resources and mortality in the summary export.
@@ -117,6 +119,7 @@ the run ID and accepts only a pending latest proposal.
 - `events.jsonl`: ordered events, signed replies, candidates, ballots, and random inputs
 - `decisions.csv`: annual budgets, votes, dissent, resources, and deaths
 - `summary.json`: manifest, status, human assistance, results, and recorded model usage
+- `traces.jsonl`: imported Observe spans
 - `report.md`: manifest, decisions, failed ballots, human resolutions, and failures
 
 The original benchmark command remains available. Offline scores and fairness are computed
@@ -124,12 +127,37 @@ after a run; they do not steer live decisions. Paused deadlocks and technical fa
 counted separately and do not receive completed-reign scores. The checked-in older benchmark
 is historical evidence, and the UI labels it accordingly until regenerated.
 
+## AGNTCY Observe and OASF
+
+The pipeline is AGNTCY Observe SDK 1.0.41 → OTLP/HTTP → local native Collector →
+uncompressed OTLP JSONL → incremental SQLite import → the run/year trace viewer and exports.
+The collector listens on loopback ports 4317/4318. It handles traces, metrics, and logs in
+separate files under `.cache`. SDK telemetry and synchronization are disabled.
+
+Explicit spans cover years, proposals, objections, revisions, ballots, transport send/receive,
+agent decisions, model calls, budget validation, message and certificate verification,
+human resolution, technical failure, and engine commits. W3C `traceparent` travels in both
+transport headers and signed phase messages. Spans carry run, year, phase, cycle, peer, and
+candidate identifiers where relevant.
+The UI links advisor explanations to their trace IDs and can show a year's imported spans.
+The collector may need a few seconds to flush before an export includes the latest spans.
+Collection errors are recorded separately and preserve the game result and decision journal.
+
+The four [OASF records](oasf) describe the existing advisor roles using the coordination and
+multi-agent planning taxonomy. They complement the runtime A2A cards and are not a claim of
+publication to an external directory.
+
+References: [AGNTCY Observe SDK](https://docs.agntcy.org/obs-and-eval/observe-sdk/),
+[OASF record guide](https://docs.agntcy.org/oasf/agent-record-guide/), and the
+[Collector file exporter](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/exporter/fileexporter).
+
 ## Project layout
 
 - `game.py`: main game rules and seeded dice
 - `agent.py`: phase-specific live model decisions and explicit offline fixtures
 - `advisors.py`, `baselines.py`, `bench.py`: mandates and offline comparison policies
 - `protocol.py`, `deliberation.py`, `engine.py`: signed phases, voting, and verified commitment
-- `storage.py`: immutable journal, replay, and exports
+- `storage.py`: immutable journal, replay, trace import, and exports
+- `observability.py`, `collector.py`, `observability/collector.yaml`: local Observe pipeline
 - `transport/`: A2A/SLIM and in-process test transport
-- `web.py`, `web/index.html`: live chamber, human selection, saved replay
+- `web.py`, `web/index.html`: live chamber, human selection, saved replay, and traces

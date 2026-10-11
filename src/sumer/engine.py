@@ -6,6 +6,7 @@ from dataclasses import asdict
 
 from sumer.deliberation import YearResult
 from sumer.game import State, YearRolls, advance, legalize
+from sumer.observability import context_headers, span
 from sumer.protocol import state_hash, verify_certificate
 from sumer.storage import Store
 
@@ -53,13 +54,15 @@ def commit(
             run_id, state.year, state_hash(state), candidate.hash, candidate.id, "human",
         ):
             raise ValueError("Human resolution has a wrong candidate/state binding.")
-    legalize(state, result.plan)
-    next_state = advance(state, result.plan, rolls)
-    data = {
-        **result.summary(), "start_state": state.public(), "state": next_state.public(),
-        "report": next_state.last_report,
-        "random_inputs": asdict(rolls[state.year - 1]),
-        "next_market_quote": next_state.land_price,
-    }
-    event = store.commit_year(run_id, data)
+    with span("budget.validate", run_id=run_id, year=state.year, candidate_hash=candidate.hash):
+        legalize(state, result.plan)
+    with span("engine.commit", run_id=run_id, year=state.year, candidate_hash=candidate.hash):
+        next_state = advance(state, result.plan, rolls)
+        data = {
+            **result.summary(), "start_state": state.public(), "state": next_state.public(),
+            "report": next_state.last_report,
+            "random_inputs": asdict(rolls[state.year - 1]),
+            "next_market_quote": next_state.land_price, **context_headers(),
+        }
+        event = store.commit_year(run_id, data)
     return next_state, event

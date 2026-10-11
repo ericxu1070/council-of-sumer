@@ -10,8 +10,8 @@ uv run pytest
 uv run sumer up
 ```
 
-Open http://localhost:8000. The launcher starts the SLIM node, four advisors,
-and web chamber.
+Open http://localhost:8000. The launcher starts the collector, SLIM node, four advisors,
+and web chamber. The first run downloads and checksum-verifies the native collector.
 Keep the existing Bayleaf model and spend settings. There is no automatic offline fallback
 when a live model call fails.
 
@@ -37,7 +37,9 @@ Future events remain unknown to the advisors; no scouting controls disclose them
 
 - Use year channels to inspect proposals, objections, completed failed ballots, dissent, and
   the committed year's harvest, rats, starvation, immigration, and plague deaths.
-- **Export run** saves events, decisions, summary, and a Markdown report in one ZIP.
+- **Year traces** shows imported Observe spans. Expand an advisor's explanation and use
+  **Open trace** to follow its trace ID. Allow a few seconds for collector flushing.
+- **Export run** saves events, decisions, summary, traces, and a Markdown report in one ZIP.
 - Select a saved run to replay its recorded messages. Replay makes no model or voice calls
   and cannot resolve a live human choice. **Show live run** returns to an active negotiation.
 - Restart the server and show that saved runs remain available. An interrupted run is
@@ -52,5 +54,5 @@ benchmark without a human; do not describe them as completed autonomous reigns.
 The automated suite checks integer accounting, invalid budget rejection, three-of-four
 adoption with all four ballots, signatures and identity, stale/wrong candidate rejection,
 one retry, genuine deadlock selection, certificate verification, exactly-once commitment,
-durable replay and exports. Mock mode exercises the transport
+durable replay, exports, and incremental trace import. Mock mode exercises the transport
 without requiring paid model calls.

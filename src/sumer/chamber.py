@@ -21,6 +21,7 @@ from sumer.deliberation import (
 )
 from sumer.engine import commit
 from sumer.game import RULE_VERSION, advance, new_game, rating
+from sumer.observability import context_headers, flush, span
 from sumer.protocol import provision_identities, uid
 from sumer.storage import Store
 
@@ -66,12 +67,13 @@ async def play_council(
         "model_base_url": settings.llm_base_url, "model_timeout_s": settings.llm_timeout_s,
         "model_budget_usd": settings.llm_budget_usd, "model_cache": settings.llm_cache,
         "dependencies": {name: version(name) for name in (
-            "agntcy-app-sdk", "cryptography", "pydantic")},
+            "agntcy-app-sdk", "ioa-observe-sdk", "cryptography", "pydantic")},
     })
 
     async def recorded_emit(kind: str, data: dict):
         if kind == "escalate":
             store.status(run_id, "deadlock")
+        data = {**context_headers(), **data}
         record = store.append(run_id, kind, data)
         await emit(kind, {**data, "_sequence": record["sequence"], "_run_id": run_id})
 
@@ -83,21 +85,22 @@ async def play_council(
             # Only current public facts and completed history enter this report/brief.
             await recorded_emit("public_report", {
                 "year": state.year, "state": state.public(), "report": state.last_report})
-            yr = await deliberate_year(
-                run_id=run_id, state=state, gather=gather, history=history,
-                peer_keys=keys, max_rounds=rounds, ask_human=ask_human, emit=recorded_emit)
-            state, event = commit(store, run_id, state, yr, rolls)
-            results.append(yr)
-            history.append(event["data"])
-            # The engine transaction already persisted this event.
-            if yr.human_resolution:
-                for resolution in store.events(run_id, after=event["sequence"] - 2):
-                    if resolution["kind"] == "human_resolution":
-                        await emit("human_resolution", {
-                            **resolution["data"], "_sequence": resolution["sequence"],
-                            "_run_id": run_id})
-            await emit("year", {**event["data"], "_sequence": event["sequence"],
+            with span("council.year", run_id=run_id, year=state.year):
+                yr = await deliberate_year(
+                    run_id=run_id, state=state, gather=gather, history=history,
+                    peer_keys=keys, max_rounds=rounds, ask_human=ask_human, emit=recorded_emit)
+                state, event = commit(store, run_id, state, yr, rolls)
+                results.append(yr)
+                history.append(event["data"])
+                # The engine transaction already persisted this event.
+                if yr.human_resolution:
+                    for resolution in store.events(run_id, after=event["sequence"] - 2):
+                        if resolution["kind"] == "human_resolution":
+                            await emit("human_resolution", {
+                                **resolution["data"], "_sequence": resolution["sequence"],
                                 "_run_id": run_id})
+                await emit("year", {**event["data"], "_sequence": event["sequence"],
+                                    "_run_id": run_id})
         status = state.status
     except Deadlock:
         status = "deadlock"
@@ -108,9 +111,20 @@ async def play_council(
         store.status(run_id, "stopped")
     except Exception as exc:  # noqa: BLE001 - preserve the journal on any terminal engine failure
         status = "technical_failure"
-        await recorded_emit("technical_failure", {
-            "year": state.year, "message": f"{type(exc).__name__}: {exc}",
-            **(exc.details if isinstance(exc, TechnicalFailure) else {})})
+        with span("council.technical_failure", run_id=run_id, year=state.year,
+                  phase=exc.details.get("phase") if isinstance(exc, TechnicalFailure) else None):
+            await recorded_emit("technical_failure", {
+                "year": state.year, "message": f"{type(exc).__name__}: {exc}",
+                **(exc.details if isinstance(exc, TechnicalFailure) else {})})
+    finally:
+        # Telemetry collection must not hide the game result or its original failure.
+        try:
+            flush()
+            store.import_traces(os.getenv("SUMER_TRACE_PATH", str(CACHE_DIR / "otel-traces.jsonl")))
+        except Exception as exc:  # noqa: BLE001 - retain the authoritative decision journal
+            await recorded_emit("observability_error", {"year": state.year,
+                                "message": f"Trace collection failed: {type(exc).__name__}: {exc}"})
+
     g = GameResult(seed=seed, policy="council", rating=rating(state), run_id=run_id,
                    status=status, human_assisted=store.run(run_id)["human_assisted"])
     g.years = [r.summary() for r in results]

@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt
 from sumer.advisors import ADVISOR_IDS
 from sumer.config import CACHE_DIR
 from sumer.game import Decision, State, legalize
+from sumer.observability import span
 
 Phase = Literal["proposal", "objection", "revision", "vote"]
 
@@ -117,6 +118,7 @@ class Brief(Contract):
     errors: dict[str, str] = Field(default_factory=dict)
     targets: list[str] = Field(default_factory=lambda: list(ADVISOR_IDS))
     peer_keys: dict[str, str]
+    traceparent: str = ""
 
 
 class Reply(Contract):
@@ -140,6 +142,7 @@ class Reply(Contract):
     cited_message_ids: list[str] = Field(default_factory=list)
     source: Literal["llm", "policy"]
     trace: dict = Field(default_factory=dict)
+    traceparent: str = ""
     error: str | None = None
     sig: str = ""
 
@@ -201,7 +204,9 @@ def validate_reply(delivery: Delivery, brief: Brief) -> Reply:
             raise ValueError("A complete budget and the known current price are required.")
         public = dict(brief.state)
         public.pop("acres_per_person", None)
-        legalize(State(**public), r.proposal.decision())
+        with span("budget.validate", run_id=brief.run_id, year=brief.year,
+                  phase=brief.phase, peer=r.advisor, message_id=r.message_id):
+            legalize(State(**public), r.proposal.decision())
         if not all(t.strip() for t in (r.arithmetic, r.assumptions, r.expected_effects)):
             raise ValueError("Budget arithmetic, assumptions, and expected effects are required.")
     elif brief.phase == "vote":
@@ -223,7 +228,9 @@ def validate_reply(delivery: Delivery, brief: Brief) -> Reply:
 
 
 def verify_certificate(cert: Certificate, state: State, run_id: str, keys: dict[str, str]) -> None:
-    _verify_certificate(cert, state, run_id, keys)
+    with span("certificate.verify", run_id=run_id, year=state.year,
+              candidate_hash=cert.candidate.hash):
+        _verify_certificate(cert, state, run_id, keys)
 
 
 def _verify_certificate(cert: Certificate, state: State, run_id: str, keys: dict[str, str]) -> None:

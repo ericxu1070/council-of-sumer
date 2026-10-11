@@ -49,10 +49,14 @@ class Store:
                 id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), data TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS model_usage (
                 message_id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), data TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS spans (
+                trace_id TEXT NOT NULL, span_id TEXT NOT NULL, run_id TEXT NOT NULL REFERENCES runs(id),
+                data TEXT NOT NULL, PRIMARY KEY(trace_id,span_id));
+            CREATE TABLE IF NOT EXISTS trace_imports (path TEXT PRIMARY KEY, offset INTEGER NOT NULL);
             CREATE UNIQUE INDEX IF NOT EXISTS ballots_peer ON ballots
                 (run_id,candidate_hash,json_extract(data,'$.advisor'));
         """)
-        for table in ("events", "proposals", "ballots", "years", "human_resolutions", "model_usage"):
+        for table in ("events", "proposals", "ballots", "years", "human_resolutions", "model_usage", "spans"):
             for action in ("UPDATE", "DELETE"):
                 self.db.execute(
                     f"CREATE TRIGGER IF NOT EXISTS immutable_{table}_{action.lower()} "
@@ -148,7 +152,52 @@ class Store:
             self.db.execute("UPDATE runs SET status='running' WHERE id=?", (run_id,))
             return self._event(run_id, "year", data)
 
+    def import_traces(self, path: str | Path) -> int:
+        """Incremental OTLP file-exporter import. A partially written tail waits for the next read."""
+        path = Path(path)
+        if not path.exists():
+            return 0
+        key = str(path.resolve())
+        old = self.db.execute("SELECT offset FROM trace_imports WHERE path=?", (key,)).fetchone()
+        offset = old["offset"] if old else 0
+        if path.stat().st_size < offset:
+            offset = 0
+        count = 0
+        with path.open("rb") as f, self.db:
+            f.seek(offset)
+            while True:
+                start = f.tell()
+                line = f.readline()
+                if not line or not line.endswith(b"\n"):
+                    f.seek(start)
+                    break
+                try:
+                    record = json.loads(line)
+                except ValueError:
+                    continue
+                for resource in record.get("resourceSpans", record.get("resource_spans", [])):
+                    for scope in resource.get("scopeSpans", resource.get("scope_spans", [])):
+                        for s in scope.get("spans", []):
+                            attrs = {a["key"]: a["value"].get("stringValue", a["value"].get("intValue"))
+                                     for a in s.get("attributes", [])}
+                            rid = attrs.get("sumer.run_id")
+                            if not rid or not self.db.execute("SELECT 1 FROM runs WHERE id=?", (rid,)).fetchone():
+                                continue
+                            trace_id = s.get("traceId", s.get("trace_id"))
+                            span_id = s.get("spanId", s.get("span_id"))
+                            if trace_id and span_id:
+                                cur = self.db.execute("INSERT OR IGNORE INTO spans VALUES(?,?,?,?)",
+                                    (trace_id, span_id, rid, encoded(s)))
+                                count += cur.rowcount
+                offset = f.tell()
+            self.db.execute("INSERT INTO trace_imports VALUES(?,?) ON CONFLICT(path) "
+                            "DO UPDATE SET offset=excluded.offset", (key, f.tell()))
+        return count
 
+    def traces(self, run_id: str) -> list[dict]:
+        self.run(run_id)
+        return [json.loads(r["data"]) for r in self.db.execute(
+            "SELECT data FROM spans WHERE run_id=?", (run_id,)).fetchall()]
 
     def exports(self, run_id: str) -> dict[str, str]:
         run = self.run(run_id)
@@ -186,4 +235,4 @@ class Store:
         jsonl = lambda values: "".join(encoded(v) + "\n" for v in values)
         return {"events.jsonl": jsonl(events), "decisions.csv": output.getvalue(),
                 "summary.json": json.dumps(summary, indent=2),
-                "report.md": "\n\n".join(report) + "\n"}
+                "traces.jsonl": jsonl(self.traces(run_id)), "report.md": "\n\n".join(report) + "\n"}

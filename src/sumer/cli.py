@@ -22,6 +22,11 @@ def _up(args) -> None:
     env = {**os.environ, "SLIM_SHARED_SECRET": settings.slim_secret}
     provision_identities()
     procs = []
+    if os.getenv("SUMER_OBSERVE", "true").lower() != "false":
+        from sumer.collector import command
+        from sumer.config import CACHE_DIR, ROOT
+        CACHE_DIR.mkdir(exist_ok=True)
+        procs.append(subprocess.Popen(command(), cwd=ROOT, env=env))
     procs.append(subprocess.Popen([*py, "node"], env=env))
     time.sleep(2)
     procs += [subprocess.Popen([*py, "agent", a], env=env) for a in ADVISOR_IDS]
@@ -55,6 +60,8 @@ def main() -> None:
     a = sub.add_parser("agent", help="run one advisor agent")
     a.add_argument("advisor", choices=ADVISOR_IDS)
     sub.add_parser("web", help="run the web chamber")
+    c = sub.add_parser("collector", help="run the native local Observe collector")
+    c.add_argument("--install", action="store_true", help="download and verify the pinned binary")
     b = sub.add_parser("bench", help="council vs baselines over many seeds")
     b.add_argument("--seeds", type=int, default=30)
     b.add_argument("--transport", default="inproc", choices=["inproc", "slim"])
@@ -70,6 +77,9 @@ def main() -> None:
         from sumer.transport.slim import serve_advisor
         provision_identities()
         asyncio.run(serve_advisor(args.advisor))
+    elif args.cmd == "collector":
+        from sumer import collector
+        collector.install() if args.install else collector.run()
     elif args.cmd == "web":
         import uvicorn
 

@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 
 from sumer.advisors import ADVISOR_IDS
 from sumer.game import Decision, State
+from sumer.observability import context_headers, span
 from sumer.protocol import (
     Brief,
     Candidate,
@@ -77,47 +78,60 @@ async def collect(brief: Brief, gather: Gather, emit: Emit) -> list[Reply]:
             "message_id": uid(), "targets": [p for p in ADVISOR_IDS if p not in accepted],
             "errors": dict(errors),
         })
-        await emit("phase", {
-            "year": brief.year, "round": brief.round, "phase": brief.phase,
-            "attempt": attempt, "targets": request.targets,
-            "request_id": request.message_id,
-            "candidate": brief.candidate.model_dump() if brief.candidate else None,
-        })
-        try:
-            deliveries = await asyncio.wait_for(gather(request), timeout=120)
-        except Exception as exc:  # noqa: BLE001 - transport errors become recorded retry failures
-            deliveries = []
-            errors = {p: f"{type(exc).__name__}: {exc}" for p in request.targets}
-        grouped: dict[str, list[Delivery]] = {}
-        for delivery in deliveries:
-            grouped.setdefault(delivery.peer, []).append(delivery)
-            if delivery.peer not in request.targets:
-                await emit("validation_error", {
-                    "year": brief.year, "phase": brief.phase, "attempt": attempt,
-                    "peer": delivery.peer, "message": "Unexpected or duplicate peer response."})
-        for peer in request.targets:
-            responses = grouped.get(peer, [])
+        with span("council.phase", run_id=brief.run_id, year=brief.year, phase=brief.phase,
+                  cycle=brief.round, attempt=attempt,
+                  candidate_hash=brief.candidate.hash if brief.candidate else None):
+            request = request.model_copy(update={
+                "traceparent": context_headers().get("traceparent", "")})
+            await emit("phase", {
+                "year": brief.year, "round": brief.round, "phase": brief.phase,
+                "attempt": attempt, "targets": request.targets,
+                "request_id": request.message_id,
+                "candidate": brief.candidate.model_dump() if brief.candidate else None,
+                **context_headers(),
+            })
             try:
-                if len(responses) != 1:
-                    raise ValueError(errors.get(peer) or
-                                     f"Expected one response, received {len(responses)}.")
-                reply = validate_reply(responses[0], request)
-                if reply.message_id in {r.message_id for r in accepted.values()}:
-                    raise ValueError("Duplicate response message ID.")
-                accepted[peer] = reply
-                errors.pop(peer, None)
-                # Receipts are durable even if a different peer ultimately fails.
-                # They are not added to another agent's transcript before the barrier.
-                await emit("receipt", {"year": brief.year, "responses": [reply.model_dump()]})
-            except ValueError as exc:
-                errors[peer] = str(exc)
-                await emit("validation_error", {
-                    "year": brief.year, "round": brief.round, "phase": brief.phase,
-                    "attempt": attempt, "peer": peer, "message": str(exc),
-                    "request_id": request.message_id,
-                    "responses": [d.reply.model_dump() for d in responses if d.reply],
-                    "response": responses[0].reply.model_dump()
-                    if len(responses) == 1 and responses[0].reply else None})
+                deliveries = await asyncio.wait_for(gather(request), timeout=120)
+            except Exception as exc:  # noqa: BLE001 - transport errors become recorded retry failures
+                deliveries = []
+                errors = {p: f"{type(exc).__name__}: {exc}" for p in request.targets}
+            grouped: dict[str, list[Delivery]] = {}
+            for delivery in deliveries:
+                grouped.setdefault(delivery.peer, []).append(delivery)
+                if delivery.peer not in request.targets:
+                    await emit("validation_error", {
+                        "year": brief.year, "phase": brief.phase, "attempt": attempt,
+                        "peer": delivery.peer, "message": "Unexpected or duplicate peer response."})
+            for peer in request.targets:
+                responses = grouped.get(peer, [])
+                try:
+                    if len(responses) != 1:
+                        raise ValueError(errors.get(peer) or
+                                         f"Expected one response, received {len(responses)}.")
+                    with span("message.verify", parent=responses[0].reply.traceparent
+                              if responses[0].reply else "", run_id=brief.run_id,
+                              year=brief.year, phase=brief.phase, peer=peer,
+                              request_id=request.message_id,
+                              message_id=responses[0].reply.message_id
+                              if responses[0].reply else None,
+                              candidate_hash=brief.candidate.hash if brief.candidate else None):
+                        reply = validate_reply(responses[0], request)
+                    if reply.message_id in {r.message_id for r in accepted.values()}:
+                        raise ValueError("Duplicate response message ID.")
+                    accepted[peer] = reply
+                    errors.pop(peer, None)
+                    # Receipts are durable even if a different peer ultimately fails.
+                    # They are not added to another agent's transcript before the barrier.
+                    await emit("receipt", {"year": brief.year, "responses": [reply.model_dump()]})
+                except ValueError as exc:
+                    errors[peer] = str(exc)
+                    await emit("validation_error", {
+                        "year": brief.year, "round": brief.round, "phase": brief.phase,
+                        "attempt": attempt, "peer": peer, "message": str(exc),
+                        "request_id": request.message_id,
+                        "responses": [d.reply.model_dump() for d in responses if d.reply],
+                        "response": responses[0].reply.model_dump()
+                        if len(responses) == 1 and responses[0].reply else None})
         if len(accepted) == 4:
             ordered = [accepted[p] for p in ADVISOR_IDS]
             if brief.phase != "vote":
@@ -156,7 +170,9 @@ async def deliberate_year(
                       phase=kind, state=state.public(), state_hash=state_hash(state),
                       table=table, candidate=candidate, history=history,
                       transcript=list(transcript), peer_keys=peer_keys)
-        replies = await collect(brief, gather, emit)
+        with span(f"council.{kind}", run_id=run_id, year=state.year, phase=kind,
+                  cycle=cycle, candidate_hash=candidate.hash if candidate else None):
+            replies = await collect(brief, gather, emit)
         transcript.extend(r.model_dump() for r in replies)
         return replies
 
@@ -171,7 +187,9 @@ async def deliberate_year(
                                   "candidates": [c.model_dump() for c in table]})
         # Every frozen candidate gets its own complete four-peer ballot.
         for candidate in table:
-            ballots = await phase("vote", cycle, candidate)
+            with span("council.ballot", run_id=run_id, year=state.year, phase="vote",
+                      cycle=cycle, candidate_hash=candidate.hash):
+                ballots = await phase("vote", cycle, candidate)
             yes = [b.advisor for b in ballots if b.choice == "YES"]
             no = [b.advisor for b in ballots if b.choice == "NO"]
             passing = len(yes) >= 3
@@ -197,17 +215,20 @@ async def deliberate_year(
         "failed_ballots": failed, "state_hash": state_hash(state)})
     if ask_human is None:
         raise Deadlock(reason)
-    choice = await ask_human(options, reason)
-    if choice is None:
-        raise Deadlock(reason)
-    chosen = next((c for c in table if c.id == choice), None)
-    if chosen is None:
-        raise TechnicalFailure("Human selection does not identify a latest valid proposal.",
-                               phase="human_resolution", round=max_rounds)
-    resolution = {
-        "id": uid(), "run_id": run_id, "year": state.year, "candidate_id": chosen.id,
-        "candidate_hash": chosen.hash, "state_hash": state_hash(state),
-        "reason": reason, "source": "human", "human_assisted": True,
-    }
+    with span("council.human_resolution", run_id=run_id, year=state.year) as human_span:
+        choice = await ask_human(options, reason)
+        if choice is None:
+            raise Deadlock(reason)
+        chosen = next((c for c in table if c.id == choice), None)
+        if chosen is None:
+            raise TechnicalFailure("Human selection does not identify a latest valid proposal.",
+                                   phase="human_resolution", round=max_rounds)
+        if human_span is not None:
+            human_span.set_attribute("sumer.candidate_hash", chosen.hash)
+        resolution = {
+            "id": uid(), "run_id": run_id, "year": state.year, "candidate_id": chosen.id,
+            "candidate_hash": chosen.hash, "state_hash": state_hash(state),
+            "reason": reason, "source": "human", "human_assisted": True, **context_headers(),
+        }
     return YearResult(state.year, chosen, max_rounds, human_resolution=resolution,
                       transcript=list(transcript))

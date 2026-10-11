@@ -18,6 +18,7 @@ import uuid
 from sumer.advisors import ADVISOR_IDS, ADVISORS
 from sumer.agent import decide
 from sumer.config import settings
+from sumer.observability import context_headers, initialize, span
 from sumer.protocol import Brief, Delivery, Reply, endpoint
 
 log = logging.getLogger(__name__)
@@ -84,8 +85,13 @@ def _executor(advisor_id: str):
     class AdvisorExecutor(AgentExecutor):
         async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
             brief = Brief.model_validate_json(context.get_user_input())
-            ballot = await decide(advisor_id, brief)
-            await event_queue.enqueue_event(new_agent_text_message(ballot.model_dump_json()))
+            with span("transport.receive", parent=brief.traceparent, run_id=brief.run_id,
+                      year=brief.year, phase=brief.phase, peer=advisor_id,
+                      message_id=brief.message_id):
+                request = brief.model_copy(update={
+                    "traceparent": context_headers().get("traceparent", brief.traceparent)})
+                ballot = await decide(advisor_id, request)
+                await event_queue.enqueue_event(new_agent_text_message(ballot.model_dump_json()))
 
         async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
             return None
@@ -95,6 +101,7 @@ def _executor(advisor_id: str):
 
 async def serve_advisor(advisor_id: str) -> None:
     _env()
+    initialize(f"sumer-{advisor_id}")
     from a2a.server.request_handlers import DefaultRequestHandler
     from a2a.server.tasks import InMemoryTaskStore
     from agntcy_app_sdk.factory import AgntcyFactory
@@ -145,10 +152,13 @@ class SlimCouncil:
                     message=Message(role=Role.user, messageId=brief.message_id,
                                     parts=[Part(root=TextPart(text=brief.model_dump_json()))])))
                 message = message_translator(request=req.model_dump(mode="json", exclude_none=True))
-                message.headers.update({"sumer-run-id": brief.run_id,
+                message.headers.update({"traceparent": brief.traceparent,
+                                        "sumer-run-id": brief.run_id,
                                         "sumer-phase": brief.phase})
-                response = await self._client.transport.request(
-                    endpoint(peer), message, timeout=self.timeout_s)
+                with span("transport.request", run_id=brief.run_id, year=brief.year,
+                          phase=brief.phase, peer=peer):
+                    response = await self._client.transport.request(
+                        endpoint(peer), message, timeout=self.timeout_s)
                 if response is None:
                     raise ValueError("Peer did not respond before the transport deadline.")
                 payload = json.loads(response.payload)
@@ -156,7 +166,10 @@ class SlimCouncil:
                     raise ValueError("Wrong A2A request identifier.")
                 result = payload["result"]
                 reply = Reply.model_validate_json(result["parts"][0]["text"])
-                return Delivery(peer, endpoint(peer), reply=reply)
+                with span("transport.response", parent=reply.traceparent, run_id=brief.run_id,
+                          year=brief.year, phase=brief.phase, peer=peer,
+                          message_id=reply.message_id, candidate_hash=reply.candidate_hash):
+                    return Delivery(peer, endpoint(peer), reply=reply)
             except Exception as exc:  # noqa: BLE001 - peer failures are retried by the phase collector
                 return Delivery(peer, endpoint(peer), error=f"{type(exc).__name__}: {exc}")
         deliveries = list(await asyncio.gather(*(one(p) for p in brief.targets)))
