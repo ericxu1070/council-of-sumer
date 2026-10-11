@@ -36,6 +36,10 @@ class LLMFailed(LLMUnavailable):
     up", a failure here means the run made a decision the cache cannot replay."""
 
 
+class LLMRejected(LLMUnavailable):
+    """The API rejected the request; repeating it cannot repair its configuration."""
+
+
 ATTEMPTS = 3
 BACKOFF_S = (2.0, 5.0)  # wait before the second and third attempts
 
@@ -59,7 +63,11 @@ def enabled() -> bool:
 
 def _cache_path(messages: list[dict]) -> Path:
     key = hashlib.sha256(
-        json.dumps([settings.llm_model, messages], sort_keys=True).encode()
+        json.dumps(
+            [settings.llm_model, settings.llm_reasoning, settings.llm_reasoning_effort,
+             settings.llm_max_tokens, messages],
+            sort_keys=True,
+        ).encode()
     ).hexdigest()
     return CACHE_DIR / "llm" / f"{key}.json"
 
@@ -113,16 +121,27 @@ async def _call(messages: list[dict], temperature: float) -> Reply:
         "model": settings.llm_model,
         "messages": messages,
         "temperature": temperature,
-        "max_tokens": 700,
+        "max_tokens": settings.llm_max_tokens,
         "response_format": {"type": "json_object"},
-        "reasoning": {"enabled": False},  # thinking tokens cost money and add latency
+        "reasoning": {"enabled": settings.llm_reasoning},
     }
+    if settings.llm_reasoning and settings.llm_reasoning_effort:
+        body["reasoning"]["effort"] = settings.llm_reasoning_effort
     t0 = time.monotonic()
     try:
         async with httpx.AsyncClient(timeout=settings.llm_timeout_s) as client:
             r = await client.post(
                 url, json=body, headers={"Authorization": f"Bearer {settings.llm_api_key}"}
             )
+            if r.is_error:
+                try:
+                    error = r.json().get("error", {})
+                    message = error.get("message") if isinstance(error, dict) else error
+                except (ValueError, AttributeError):
+                    message = None
+                detail = str(message or r.reason_phrase)[:1600]
+                failure = LLMRejected if r.status_code in (400, 401, 402, 403, 404, 405, 422) else LLMFailed
+                raise failure(f"{settings.llm_model}: HTTP {r.status_code}: {detail}")
             r.raise_for_status()
             data = r.json()
             content = data["choices"][0]["message"]["content"]

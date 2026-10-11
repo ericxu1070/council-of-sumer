@@ -181,7 +181,7 @@ class SlimCouncil:
                         pass
                 try:
                     await asyncio.wait_for(process.wait(), timeout=5)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     process.kill()
                     await process.wait()
             output_tasks, self._worker_output = list(self._worker_output.values()), {}

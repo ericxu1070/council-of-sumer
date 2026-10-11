@@ -17,13 +17,13 @@ The default council contains these five roles:
 |---|---|
 | Provider | Feed every resident and prevent starvation. Put food before profit or expansion, sell land when needed to feed people, and keep reserves against a poor harvest. |
 | Farmer | Plant as many acres as the budget and workforce allow. Secure seed and useful land, and argue against leaving fields idle. |
-| Merchant | Grow wealth through profitable land trades. Buy when prices are favorable, sell when returns are better, and treat feeding and planting as investments in future trade. |
+| Merchant | Maximize owned acres per living resident, especially at the end of the reign. Buy land cheaply, retain acreage, and judge trades by acres per person. |
 | Profiteer | Increase wealth even at the cost of human lives. Deliberately cut food and accept starvation whenever retaining grain or trading land makes the city richer. |
 | Imposter | Kill every resident and drive the city to ruin. Favor starvation, idle fields, and destructive legal budgets; present sabotage as practical advice and oppose plans that rescue the city. |
 
 These mandates conflict directly: the Provider spends grain on people, the Farmer spends it
-on seed, and the Merchant spends it on trade. The Profiteer welcomes starvation when it
-increases wealth, while the Imposter pursues ruin even when it destroys wealth. Each agent
+on seed, and the Merchant spends it on owning more land per resident. The Profiteer welcomes
+starvation when it increases wealth, while the Imposter pursues ruin even when it destroys wealth. Each agent
 follows its own mandate; there is no shared requirement to pursue the city's survival.
 
 ## Hamurabi game rules
@@ -63,6 +63,12 @@ Settings live in `.env` (see `.env.example`): `REIGN_YEARS` (default 5), `MAX_RO
 No Docker is needed. The SLIM data-plane node runs inside Python via `slim-bindings`.
 
 See [DEMO.md](DEMO.md) for the step-by-step live demo script.
+
+All agents receive a shared numeric game reference with each decision: land prices range
+from 17–26 bushels per acre (17–19 low, 24–26 high, 21.5 average), food costs 20 bushels
+per person, seed costs one bushel per two acres, and each resident can work ten acres.
+The reference also explains harvests (1–5 bushels per planted acre, average 3), rats,
+plague, spending order, acres per person, and the final rating. User-selected scout events update their beliefs and the actual game conditions.
 
 ## Choose the voters
 
@@ -140,33 +146,40 @@ five-agent council; configured councils use the thresholds above:
 1. **Turns, not polls.** The five advisors speak one at a time in a fixed order, and the first
    seat moves one place every round. On its turn an advisor sees the table (every plan with its
    current support), everything said earlier this round, and the round before. It tables a
-   proposal or backs a plan already on the table, chooses which plans to accept on the
-   tabled plans, and answers the others by name in at most 25 words ("Farmer, your planting plan
+   proposal or backs a plan already on the table, and can vote for several acceptable plans.
+   Each advisor counts once toward each plan's support and answers the others by name in at
+   most 25 words ("Farmer, your planting plan
    starves the east quarter..."). A new proposal is tabled at once, so later speakers in the same
-   round can accept it. A plan nobody backs any more is withdrawn.
-2. **News arrives mid-debate.** Scout reports land at the start of round 2, so the opening
-   positions and the reaction to the news are both on record.
-3. **Negotiation.** The LLM decides when to compromise and which tradeoffs to accept.
+   round can vote for it. A plan with no backer or current-round approval is withdrawn.
+2. **User scouts follow a vote.** After every complete voting round (including runoff),
+   the council waits. Choose plague, rats, a good/bad harvest, a low/high land price, or Skip.
+   An event changes the actual conditions and triggers a fresh vote from every advisor.
+   The UI compares the votes before and after; previous votes do not carry into a new round.
+   Harvest, rats, and plague affect this year; land prices apply next year (17 low, 26 high).
+   Skip keeps the vote and lets negotiation or the year's decision continue.
+   Automatic scouts and freely timed scout buttons are absent.
+3. **Negotiation.** Every default and custom mandate asks the advisor to compromise on plans
+   that are close to its goals so a plan can pass. The LLM chooses which tradeoffs to accept.
    Recent outcomes and dissent are supplied as context; there is no coded concession schedule
    or automatic extra weight for an advisor.
-4. **Stop rules**, checked after every turn
-   - **Consensus**: all five accept one plan. Adopt it.
-   - **Strong majority**: once round 2 is complete, a plan with 4 of 5 accepts is adopted, and the dissent is recorded.
+4. **Adoption rules**, checked after a complete live voting round and Skip
+   - **Consensus**: all five vote for one plan. Adopt it.
+   - **Strong majority**: once round 2 is complete, a plan with 4 of 5 votes is adopted, and the dissent is recorded.
    - **Stalemate**: a whole round with no proposal change and no news. Go to the final rule.
 5. **Final rule** (stalemate, or the last round ends)
-   - **Majority**: the best plan has 3 of 5 accepts and no tie. Adopt it and record
+   - **Majority**: the best plan has 3 of 5 votes and no tie. Adopt it and record
      the dissent.
-   - **Runoff**: the best plan has only 2 of 5 accepts, or the top two tie. The top two
+   - **Runoff**: the best plan has only 2 of 5 votes, or the top two tie. The top two
      plans go head to head, and every advisor chooses A or B with a one-line speech.
      A plan with 3 of 5 runoff votes is adopted.
-   - **Escalate**: under 2 accepts (deadlock), or a runoff without a majority. The reign
+   - **Escalate**: under 2 votes (deadlock), or a runoff without a majority. The reign
      pauses and the human sees each advisor's position and stated reasoning, then picks
      one of the top plans or the pre-committed safe plan.
 
 
 ### When consensus is not the right outcome
 
-- **Stop and adopt** when everyone accepts.
+- **Adopt after Skip** when everyone agrees.
 - **Keep the disagreement** when a clear majority agrees.
   Forcing unanimity among five would water the plan down. We adopt it, but the dissent stays on
   record and is available as context next year.
@@ -180,7 +193,7 @@ five-agent council; configured councils use the thresholds above:
 |---|---|
 | Genuine disagreement | Opening proposals differ by hundreds of acres and bushels; advisors answer each other by name; different accept votes in the glass box |
 | Deliberation mechanism | Sequential turns over SLIM (propose or back, vote, reply), with the stop rules and runoff above |
-| Effect of new information | Scouts report true news mid-debate (locusts, rats, plague, prices). See the "before and after the news" table, the **Send a scout** buttons, and the counterfactual benchmark. |
+| Effect of new information | The user introduces events after a vote. Every agent votes again; a before/after comparison shows changed support. |
 | Comparison to a baseline | Evidence tab and `results/bench.md`: lone ruler, averaging, single-mandate dictators |
 | Stop, keep disagreeing, or ask a human | Consensus, majority, runoff, and escalated outcomes, plus the deadlock dialog |
 
@@ -223,8 +236,8 @@ regenerated. Paused deadlocks and technical failures do not receive completed-re
 
 ## Cost and replay
 
-- Every LLM reply is cached in `.cache/llm/` by prompt hash. Use Saved runs to replay a recorded
-  debate without network calls.
+- Every LLM reply is cached in `.cache/llm/` by prompt hash. A changed scout event changes
+  the prompt; each re-vote adds model calls.
 - `LLM_BUDGET_USD` (default $3.00) is a hard cap tracked from the cost Bayleaf reports per call.
   Past it, advisors record a technical failure; no deterministic fallback vote is generated.
 - A failed live call is retried up to 3 times with backoff before the advisor records a technical
@@ -258,16 +271,17 @@ scripts/           rehearse.py (live rehearsal)
 tests/             unit tests
 ```
 
-## Saved runs, replay, and exports
+## Live controls and journal
 
-The journal survives restart. Interrupted running or deadlocked negotiations are retained as
-technical failures. Select a saved run in Setup to inspect the recorded council's turns, scouts,
-runoff, and year summaries without model or voice calls. Recorded replay is read-only;
-**Show live run** returns to an active negotiation. Live choices and scouts identify that run.
+Pause holds the current council and narrator; Resume continues the same run. A model
+request already in flight may finish, but no next turn starts while paused. Refreshing
+reconnects to the active run, including its pending scout choice. Setup unlocks after
+that council's reign ends.
 
-**Export run** downloads `events.jsonl`, `decisions.csv`, `summary.json`, and `report.md`.
-The files include recorded turn evidence, dissent, human choices, yearly resources, recorded
-random inputs, and reported model usage. Past random inputs are recorded after commitment.
+Stop sits next to Convene in Setup and ends the current run, including when paused.
+The UI has no Saved runs, Show live run, Export run, or Year traces controls.
+The append-only journal and archival API remain available for diagnostics. Interrupted
+running or deadlocked negotiations retain their evidence as technical failures.
 
 ## AGNTCY Observe and advisor records
 
@@ -278,6 +292,5 @@ W3C trace context travels in headers and request-bound messages. Collection erro
 result and journal. Set `SUMER_OBSERVE=false` to disable the pipeline.
 
 The collector writes OTLP JSONL under `.cache`; complete records are imported incrementally
-into the immutable journal. **Year traces** and **Open trace** inspect imported spans under
-the hood. Exports additionally contain `traces.jsonl`. The five local OASF records describe
+into the immutable journal. The diagnostic export API includes `traces.jsonl`. The five local OASF records describe
 the existing advisor roles and sequential coordination; they are not directory publications.

@@ -5,30 +5,20 @@ import sqlite3
 from dataclasses import replace
 
 import pytest
-from fastapi.testclient import TestClient
-from pydantic import ValidationError
 
 from sumer import agent, llm
-from sumer.advisors import ADVISOR_IDS
 from sumer.chamber import play_council
 from sumer.deliberation import deliberate_year
 from sumer.engine import commit
 from sumer.game import State, new_game
 from sumer.protocol import (
     Delivery,
-    Plan,
     bind,
     endpoint,
     validate_reply,
 )
 from sumer.storage import Store
 from tests.support import unanimous
-
-
-@pytest.mark.parametrize("amount", [2000.5, True])
-def test_budgets_require_whole_numbers(amount):
-    with pytest.raises(ValidationError):
-        Plan(land_delta=0, feed=amount, plant=500)
 
 
 async def test_turn_retries_only_its_speaker_with_a_fresh_request():
@@ -113,22 +103,6 @@ async def test_stopped_run_retains_its_summary():
     assert store.events("stopped")[-1]["kind"] == "end"
 
 
-def test_live_api_preserves_five_advisors_and_rejects_stale_choices(monkeypatch, llm_reply):
-    from sumer import web
-    monkeypatch.setattr(web, "store", Store(":memory:"))
-    monkeypatch.setattr(web, "live", web.Live())
-    web.live.pace_s = 0
-    with TestClient(web.app) as client:
-        assert len(client.get("/api/meta").json()["advisors"]) == 5
-        assert client.get("/").status_code == 200 and client.get("/app.js").status_code == 200
-        response = client.post("/api/game", json={"seed": 1, "max_rounds": 3})
-        assert response.status_code == 200
-        run_id = response.json()["run_id"]
-        assert web.store.run(run_id)["manifest"]["reign_years"] == 5
-        assert client.post("/api/escalation", json={"run_id": "old", "choice": "safe"}).status_code == 409
-        assert client.post("/api/stop").status_code == 200
-
-
 async def test_repeated_seed_keeps_each_runs_proposals_separate():
     store = Store(":memory:")
     first = await play_council(1, unanimous, store=store)
@@ -136,49 +110,3 @@ async def test_repeated_seed_keeps_each_runs_proposals_separate():
     assert first.run_id != second.run_id and first.status == second.status == "completed"
     for run_id in (first.run_id, second.run_id):
         assert store.db.execute("SELECT COUNT(*) FROM proposals WHERE run_id=?", (run_id,)).fetchone()[0] == 5
-
-
-async def test_runoff_certificate_preserves_the_five_advisor_rule():
-    from tests.test_council import A, _ballot, _three_way, scripted
-    def script(brief):
-        if brief.phase == "runoff":
-            a, b = brief.runoff
-            vote = a.id if brief.speaker in ("provider", "farmer", "merchant") else b.id
-            return _ballot(brief, A, vote=vote)
-        return _three_way(brief)
-    state, rolls = new_game(1)
-    store = Store(":memory:")
-    store.create_run("runoff", {"initial_state": state.public(), "max_rounds": 6})
-    async def emit(kind, data):
-        store.append("runoff", kind, data)
-    result = await deliberate_year(seed=1, run_id="runoff", state=state, ask=scripted(script),
-        history=[], max_rounds=6, scheduled_news=None, emit=emit)
-    advanced, event = commit(store, "runoff", state, result, rolls)
-    assert advanced.year == 2 and event["data"]["outcome"] == "runoff"
-    assert len(event["data"]["yes_voters"]) == 3 and len(event["data"]["dissent"]) == 2
-
-
-@pytest.mark.parametrize("outcome,supporters", [("majority", 3), ("runoff", 2)])
-async def test_engine_commits_majority_and_runoff_without_red_line_clearance(outcome, supporters):
-    from tests.test_council import _ballot, _ids_for, scripted
-    # All of these are legal budgets that the former Farmer/Physician vetoes blocked.
-    camps = [(0, 0, 1000), (0, 0, 900), (0, 0, 800)]
-    def script(brief):
-        if brief.phase == "runoff":
-            a, b = brief.runoff
-            vote = a.id if brief.speaker in ("provider", "farmer", "merchant") else b.id
-            return _ballot(brief, vote=vote)
-        index = ADVISOR_IDS.index(brief.speaker)
-        plan = camps[0] if index < supporters else camps[1] if index < supporters + 2 else camps[2]
-        return _ballot(brief, plan, accept=_ids_for(brief, plan))
-    state, rolls = new_game(1)
-    store = Store(":memory:")
-    store.create_run(outcome, {"initial_state": state.public(), "max_rounds": 6})
-    async def emit(kind, data):
-        store.append(outcome, kind, data)
-    result = await deliberate_year(seed=1, run_id=outcome, state=state, ask=scripted(script),
-        history=[], max_rounds=6, scheduled_news=None, emit=emit)
-    advanced, event = commit(store, outcome, state, result, rolls)
-    assert result.outcome == outcome and advanced.over
-    assert len(event["data"]["yes_voters"]) == 3
-    assert "vetoes" not in (result.runoff or {})

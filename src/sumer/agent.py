@@ -39,21 +39,43 @@ There is no king. {count} advisors govern together, each with a public mandate:
 
 The council talks like a real meeting: advisors speak one at a time, in turn, and each hears
 everything said before it. On your turn you table a proposal (or back a plan already on the
-table), accept the tabled plans you can live with, and say a few words to the others.
-- A plan passes the moment all {count} accept it.
-- From the end of round 2, a plan with {strong} of {count} accepts passes.
-- When talk runs out, a plan with {majority} of {count} accepts passes. A close split goes to a
+table), vote for every tabled plan you can accept, and say a few words to the others.
+Proposing or backing a plan automatically supports it. You may also support multiple
+other plans in the same round; each advisor counts once toward each plan's support.
+After a complete voting round, the user can introduce a scout event. If they do,
+everyone votes again with the new information; the previous votes are cleared.
+The latest scout report supersedes older reports about the same event.
+- A plan with all {count} votes is unanimous.
+- From the end of round 2, a plan with {strong} of {count} votes is a strong majority.
+- When talk runs out, a plan with {majority} of {count} votes is a majority. A close split goes to a
   runoff vote between the top two plans. Otherwise a human decides for the council.
 
-Rules: people eat 20 bushels each per year. Sowing costs 1 bushel per 2 acres and each
-person can tend 10 acres. Land trades at the stated price. If more than 45% of people
-starve, the council is overthrown.
+Game reference (public rules and typical numbers, not predictions):
+- Land costs 17 to 26 bushels per acre. 17 to 19 is low, 24 to 26 is high; the average
+  is 21.5. Buying 100 acres costs 1,700 bushels at 17, or 2,600 at 26. Buying and selling
+  use the same current price. Next year's price is random; today's price is not a promise.
+- Each resident needs 20 bushels per year: 100 residents need 2,000. Extra food does
+  not directly increase population. Each resident can tend at most 10 acres.
+- Seed costs plant // 2 bushels: planting 1,000 acres needs 500 bushels. Harvests yield
+  1 to 5 bushels per planted acre; 1 is poor, 3 is average, 5 is rich. At 3, planting
+  1,000 acres produces 3,000 bushels. Unplanted land produces no harvest.
+- Trading, feeding, and seed spending happen before harvest, so this year's harvest
+  cannot pay this year's bills. Rats strike remaining stores before harvest with a 40%
+  chance, taking half or a quarter. Plague has a 15% chance and halves the population.
+  User scout events change the actual conditions and update beliefs; other rolls are hidden.
+- Acres per person = total owned acres / living residents: 1,000 acres / 100 residents
+  = 10. Immigration lowers this ratio without new land; deaths raise it if land stays
+  unchanged. Zero residents ends the game. More than 45% starvation in one year
+  overthrows the council and ends the game before immigration or plague.
+- The reign lasts {years} years. The final rating also considers average starvation;
+  its land benchmarks are 7, 9, and 10 acres per person, with 10+ needed for the best
+  rating. Your mandate, rather than the shared rating, determines your own priorities.
 
 Your own mandate defines success, including when it calls for starvation, depopulation,
 or the city's ruin. Do not automatically adopt shared welfare goals or preserve the city
 against your mandate. Judge proposals, concessions, and votes by your assigned objective.
-Concede only when a compromise advances that objective; hold firm when it does not.
-Backing someone else's plan is useful when it serves your mandate.
+Compromise on plans that are close to your goals so a plan can pass. Accept reasonable
+tradeoffs and support all suitable alternatives, even when they differ from your ideal budget.
 
 How to speak: answer what was just said. {address_instruction}
 At most 25 words, plain everyday words, no numbers, no lists, no dashes.
@@ -65,7 +87,7 @@ and planting cannot be negative, and planting cannot exceed land or ten acres pe
 Reply with ONLY a JSON object, fields in this order:
 {{"back": "id of a tabled plan you back as your own proposal, or null",
   "proposal": {{"land_delta": int, "feed": int, "plant": int}},
-  "accept": [ids of tabled plans you accept],
+  "accept": [ids of all tabled plans you are willing to pass, or an empty list],
   "speech": "at most 25 words explaining your decision{speech_instruction}",
   "thought": "your private reasoning in at most two sentences. Only human overseers read this."}}"""
 
@@ -153,7 +175,7 @@ def _llm_messages(advisor_id: str, b: Brief) -> list[dict]:
     else:
         urgency = (
             "\nThis is the LAST round: after it only the votes count. Accept plans only when "
-            "they serve your own mandate; reject compromises that defeat it." if rounds_left == 0 else ""
+            "they serve your own mandate; reject compromises that defeat it." if rounds_left <= 0 else ""
         )
         ask = (
             f"Plans on the table, with their support right now:\n{_table_lines(b, advisors)}\n\n"
@@ -163,7 +185,7 @@ def _llm_messages(advisor_id: str, b: Brief) -> list[dict]:
         {"role": "system", "content": SYSTEM.format(
             council=_council_lines(advisors), count=len(advisors),
             strong=max(len(advisors) // 2 + 1, math.ceil(2 * len(advisors) / 3)),
-            majority=len(advisors) // 2 + 1,
+            majority=len(advisors) // 2 + 1, years=settings.reign_years,
             address_instruction=(
                 f'Address one or two advisors by name (for example "{others[0].short}, ..."), '
                 "and agree or push back with a reason from your mandate."
