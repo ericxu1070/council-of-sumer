@@ -1071,6 +1071,22 @@ function compareVotes(rows, instant) {
   S.compareVote = null;
 }
 const SCOUT_ICON = { plague: "🦠", rats: "🐀", good_harvest: "🌾", bad_harvest: "🥀", low_price: "📉", high_price: "📈" };
+function scoutPlans(rows) {
+  if (!rows.length) return "";
+  const most = rows[0].accept?.length || 0;
+  const leaders = rows.filter(row => (row.accept?.length || 0) === most);
+  return `<div class="scout-plans" aria-label="Plans the council voted on">
+    <div class="scout-plan-heading">${leaders.length > 1 ? "Plans tied for most support" : "Plan with most support"}</div>
+    ${leaders.map(row => {
+      const author = planAuthor(row.id, row.author);
+      return `<div class="spot-plan">${author ? avatar(author) : ""}<span>
+        <b>${esc(planName(row.id, author))}</b>
+        <span>${esc(stripSafe(row.plain || (row.plan ? planText(row.plan) : "")))}</span>
+        <small class="scout-plan-support">${most} of ${N()} councilors support this plan</small>
+      </span></div>`;
+    }).join("")}
+  </div>`;
+}
 function showScout(d) {
   S.scoutRequest = d;
   const rows = [...(d.rows || [])].sort((x, y) => (y.accept?.length || 0) - (x.accept?.length || 0));
@@ -1079,6 +1095,7 @@ function showScout(d) {
   S.cmpHtml = "";
   const labels = { plague: "Plague", rats: "Rats", good_harvest: "Good harvest", bad_harvest: "Bad harvest", low_price: "Cheap land", high_price: "Costly land" };
   spotlight("scout", `<div class="spot-kicker">Omens</div>
+    ${scoutPlans(rows)}
     <div class="scout-grid">${events.map((o, i) => `<button class="scout-ev" type="button" data-scout="${esc(o.id)}"><span class="emoji">${SCOUT_ICON[o.id] || "📯"}</span><b>${esc(labels[o.id] || o.label)}</b><kbd>${i + 1}</kbd></button>`).join("")}</div>
     <div class="spot-actions"><button class="btn primary" type="button" data-scout="skip">Leave be</button></div>`, { cls: "scout" });
   const btns = $$("#spot [data-scout]");

@@ -488,6 +488,10 @@ button.panel-head:hover { background: rgba(255, 255, 255, .025); }
 .spot-lead { display: flex; align-items: center; justify-content: center; gap: 14px; flex-wrap: wrap; margin-top: 14px; font-size: 1.35rem; color: var(--ink-2); }
 .spot-lead b { color: var(--ink); }
 /* scout events */
+.scout-plans { display: grid; gap: 8px; margin-top: 16px; }
+.scout-plan-heading { font-size: .9rem; font-weight: 700; color: var(--muted); }
+.scout-plans .spot-plan { display: flex; margin: 0; }
+.scout-plan-support { display: block; margin-top: 6px; font-size: .9rem; color: var(--ok); }
 .scout-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 24px; }
 .scout-ev { position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 16px 10px 14px; border-radius: 14px; border: 1px solid var(--line-2); background: var(--bg-2); color: var(--ink);
   transition: transform .15s var(--ease), border-color .15s, background .15s, box-shadow .15s; }
@@ -557,6 +561,7 @@ button.panel-head:hover { background: rgba(255, 255, 255, .025); }
 .graph { margin: 12px clamp(8px, 10vw, 150px); }
 .cg .cg-bg { background: radial-gradient(ellipse, rgba(11,16,32,.52), transparent 72%); }
 .cg .cg-spoke .base { stroke: rgba(230,236,255,.22); }
+body:not(.hood) .cg-spoke, body:not(.hood) .cg-pk, body:not(.hood) .cg-pk-halo { display: none; }
 .stage { background: rgba(15,24,29,.91); }
 .legend { margin-left: auto; display: flex; gap: 12px; font-size: .74rem; font-weight: 600; color: var(--muted); white-space: nowrap; }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
@@ -576,6 +581,7 @@ button.panel-head:hover { background: rgba(255, 255, 255, .025); }
 .resource-overflow { color: var(--ink-2); }
 @media (max-width: 900px) {
   .graph { margin: 8px; height: clamp(380px,95vw,580px); }
+  .council:has(.spot.in:not(.flash)) { z-index: 25; }
   .city-map > svg { opacity: .65; }
   .resource { padding: 10px 8px; }
   .resource-head { font-size: .75rem; gap: 4px; }
