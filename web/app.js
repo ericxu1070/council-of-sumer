@@ -4,8 +4,8 @@
  * A replayed backlog (page reload) renders instantly. */
 "use strict";
 
-const MIN_GAP = 1000;        // ms between visible messages
-const MIN_TYPING = 650;      // ms the "is typing" indicator shows before a speech
+const MIN_GAP = 800;         // ms between visible messages (matches the server pace)
+const MIN_TYPING = 500;      // ms the "is typing" indicator shows before a speech
 const HOLD_AFTER_YEAR = 3000; // ms to let the year summary sit before the next year starts
 const REPLAY_QUIET = 150;    // ms of silence that ends a backlog replay burst
 const REPLAY_CAP = 2000;     // replay mode never lasts longer than this after connecting
@@ -173,6 +173,7 @@ const bounce = `<span class="bounce" aria-hidden="true"><i></i><i></i><i></i></s
 function typingFor(id) { typing(`${avatar(id, "mini")}<span><b>${esc(adv(id).short)}</b> is typing</span>${bounce}`); }
 function idleTyping() {
   if (S.waitingHuman) typing(`<span>Waiting for <b>your decision</b></span>`);
+  else if (narrating) typing(`<span>🔊 The narrator is speaking</span>`);
   else if (S.running) typing(`<span>The council is thinking</span>${bounce}`);
   else typing("");
 }
@@ -233,7 +234,7 @@ function renderTurn(d, instant) {
     const plain = d.plain || planText(d.proposal);
     if (plain) foot.push(`<span class="plan-chip"><span class="emoji">📜</span><span>${esc(plain)}</span></span>`);
     const acc = [...new Set((d.accept || []).map(id => planAuthor(id)).filter(Boolean))];
-    if (acc.length) foot.push(`<span class="vote-chip" title="Plans ${esc(a.short)} would accept">Backs ${acc.map(x => `<span class="mini" title="${esc(adv(x).short)}'s plan">${adv(x).emoji}</span>`).join("")}</span>`);
+    if (acc.length) foot.push(`<span class="vote-chip" title="Plans ${esc(a.short)} would accept">👍 ${acc.map(x => x === d.advisor ? "own" : `${esc(adv(x).short)}'s`).join(", ")} plan${acc.length > 1 ? "s" : ""}</span>`);
   }
   const meta = d.phase === "runoff" ? "Runoff" : d.round != null ? `Round ${dispRound(d.year, d.round)}` : "";
   const src = d.source ? `<span class="tag hood-only">${esc(d.source === "llm" ? "LLM" : d.source)}</span>` : "";
@@ -323,7 +324,7 @@ function renderEnd(d, instant) {
   const V = {
     Jefferson: ["A golden reign", "🏆"],
     fair: ["A fair reign", "🌤️"],
-    "Henry VIII": ["A harsh reign", "⚠️"],
+    "Henry VIII": ["A good reign that could have been better", "🌥️"],
     Nero: ["A disastrous reign", "🔥"],
   };
   const [title, ic] = r.impeached ? ["The people overthrew the council", "🔥"] : V[r.verdict] || [r.verdict ? `Verdict: ${r.verdict}` : "The reign is over", "🏛️"];
@@ -590,10 +591,11 @@ function playNext() {
   const url = N_Q.shift();
   if (!url) return;
   narrating = true;
+  idleTyping();
   narrator.src = url;
   narrator.play().catch(() => { narrating = false; playNext(); });
 }
-narrator.addEventListener("ended", () => { narrating = false; playNext(); });
+narrator.addEventListener("ended", () => { narrating = false; idleTyping(); playNext(); });
 narrator.addEventListener("error", () => { if (narrating) { narrating = false; playNext(); } });
 function stopNarration() { N_Q.length = 0; narrator.pause(); narrating = false; }
 function renderMute() {
@@ -808,8 +810,9 @@ async function start() {
   unlockAudio();
   openDrawer(false);
   const body = { seed: +$("#seed").value || 0, reveal_news: $("#reveal").value === "1" };
+  // Before /api/meta answers, let the server use its own default (it must match the rehearsal).
   const rounds = +$("#rounds").value;
-  if (rounds) body.max_rounds = rounds;
+  if (rounds && S.meta?.max_rounds) body.max_rounds = rounds;
   try { const result = await api("/api/game", body); connect(result.run_id); await loadRuns(); } catch (e) { toast(`Could not start: ${e.message}`); }
 }
 function setHood(on) {

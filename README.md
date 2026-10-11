@@ -55,7 +55,7 @@ uv run sumer node | agent <id> | web   # run the pieces separately
 uv run python scripts/find_runoff_seed.py --seeds 200   # demo seeds with a runoff
 ```
 
-Settings live in `.env` (see `.env.example`): `REIGN_YEARS` (default 5), `MAX_ROUNDS` (default 6),
+Settings live in `.env` (see `.env.example`): `REIGN_YEARS` (default 5), `MAX_ROUNDS` (default 5),
 `PACE_S` (seconds between council messages, default 1.0), and the optional ElevenLabs voices.
 
 No Docker is needed. The SLIM data-plane node runs inside Python via `slim-bindings`.
@@ -94,15 +94,17 @@ See [DEMO.md](DEMO.md) for the step-by-step live demo script.
 
 ## The deliberation protocol
 
-Each year is a real meeting, up to 6 rounds of turns:
+Each year is a real meeting, up to 5 rounds of turns:
 
 1. **Turns, not polls.** The seven advisors speak one at a time in a fixed order, and the first
    seat moves one place every round. On its turn an advisor sees the table (every plan with its
    current support), everything said earlier this round, and the round before. It tables a
    proposal or backs a plan already on the table, chooses which plans to accept on the
    tabled plans, and answers the others by name in at most 25 words ("Builder, your canal plan
-   starves the east quarter..."). A new proposal is tabled at once, so later speakers in the same
-   round can accept it. A plan nobody backs any more is withdrawn.
+   starves the east quarter..."). Each advisor stands behind one plan (its own or one it backs)
+   and may accept one other as its second choice, so support is scarce and means something. A
+   new proposal is tabled at once, so later speakers in the same round can accept it. A plan
+   nobody backs any more is withdrawn.
 2. **News arrives mid-debate.** Scout reports land at the start of round 2, so the opening
    positions and the reaction to the news are both on record.
 3. **Negotiation.** The LLM decides when to compromise and which tradeoffs to accept.
@@ -184,8 +186,15 @@ regenerated. Paused deadlocks and technical failures do not receive completed-re
 - Every LLM reply is cached in `.cache/llm/` by prompt hash. Use Saved runs to replay a recorded
   debate without network calls.
 - `LLM_BUDGET_USD` (default $3.00) is a hard cap tracked from the cost Bayleaf reports per call.
-  Past it, advisors record a technical failure after one retry; no deterministic fallback vote is generated.
+  Past it, advisors record a technical failure; no deterministic fallback vote is generated.
+- A failed live call is retried up to 3 times with backoff before the advisor records a technical
+  failure. Such a turn is not cached, so it would not replay the same way: `scripts/rehearse.py`
+  reports these per year and marks the seed UNUSABLE until a clean rehearsal.
 - A full 5-year LLM game costs a few cents (up to 49 short LLM calls per year).
+
+```bash
+uv run python scripts/rehearse.py 3 11 --batch 3   # live rehearsal: per-year outcome, trigger, rounds, turns, fallbacks
+```
 
 ## Project layout
 
@@ -204,7 +213,7 @@ src/sumer/
   web.py           FastAPI + SSE chamber, human escalation
   voice.py         optional ElevenLabs voices (advisors and narrator)
 web/               the chamber UI
-scripts/           find_runoff_seed.py (demo seed search)
+scripts/           rehearse.py (live rehearsal), find_runoff_seed.py (offline seed search)
 tests/             unit tests
 ```
 

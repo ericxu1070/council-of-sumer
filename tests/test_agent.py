@@ -87,3 +87,27 @@ async def test_removed_mock_mode_cannot_generate_a_council_vote(monkeypatch):
     monkeypatch.setattr(agent, "settings", replace(agent.settings, llm_mode="mock"))
     with pytest.raises(llm.LLMUnavailable, match="policy mode was removed"):
         await agent.decide("farmer", brief_for())
+
+
+# ---- replay safety ----
+
+async def test_llm_call_is_retried_then_cached(monkeypatch, tmp_path):
+    from sumer import llm
+
+    calls = []
+
+    async def flaky(messages, temperature):
+        calls.append(1)
+        if len(calls) < 3:
+            raise llm.LLMFailed("timeout")
+        return llm.Reply('{"ok": 1}', "m", False, 0.1, 0.0)
+
+    monkeypatch.setattr(llm, "_call", flaky)
+    monkeypatch.setattr(llm, "enabled", lambda: True)
+    monkeypatch.setattr(llm, "spent_usd", lambda: 0.0)
+    monkeypatch.setattr(llm, "BACKOFF_S", (0.0, 0.0))
+    monkeypatch.setattr(llm, "_cache_path", lambda m: tmp_path / "reply.json")
+    r = await llm.chat([{"role": "user", "content": "hi"}])
+    assert r.content == '{"ok": 1}' and len(calls) == 3
+    again = await llm.chat([{"role": "user", "content": "hi"}])
+    assert again.cached and len(calls) == 3
