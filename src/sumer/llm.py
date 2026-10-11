@@ -166,6 +166,10 @@ def _trim_object_keys(pairs: list[tuple[str, object]]) -> dict:
     return result
 
 
+def _reject_nonfinite(value: str):
+    raise ValueError(f"Non-finite JSON number: {value}")
+
+
 def parse_json(text: str, *, strict: bool = False) -> dict:
     """Pull the first JSON object out of a model reply (tolerates code fences).
 
@@ -178,7 +182,8 @@ def parse_json(text: str, *, strict: bool = False) -> dict:
         body = text.strip()
         if body.startswith("```") and body.endswith("```"):
             body = re.sub(r"^```(?:json)?\s*", "", body)[:-3].strip()
-        value = json.loads(body, object_pairs_hook=_trim_object_keys)
+        value = json.loads(body, object_pairs_hook=_trim_object_keys,
+                           parse_constant=_reject_nonfinite)
         if not isinstance(value, dict):
             raise ValueError("Model response must be a JSON object.")
         return value
