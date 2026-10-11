@@ -483,6 +483,7 @@ function handle({ kind, data: d }) {
     $("#topic").textContent = `Reign complete. Verdict: ${r.verdict}`;
     message({ ...CLERK, time: "end of reign",
       html: `<div class="embed outcome" style="--ec:var(--blurple)"><div class="etitle">🏆 Reign complete. Verdict: ${esc(r.verdict)}</div>
+        <div class="esub">1968 rating rule: ${esc(r.verdict_reason)}.</div>
         <div class="stats"><span>people <b>${fmt(r.population)}</b></span><span>acres <b>${fmt(r.acres)}</b></span><span>grain <b>${fmt(r.grain)}</b></span><span>avg starved <b>${r.avg_starved_pct}%</b></span><span>score <b>${r.score}</b></span></div>
         <div class="esub">${Object.entries(d.outcomes).map(([k, v]) => `${v} ${k}`).join(" · ")}</div></div>` });
   } else if (kind === "error") toast(d.message);

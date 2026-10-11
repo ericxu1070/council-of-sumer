@@ -147,14 +147,17 @@ def rating(state: State) -> dict:
     years = max(state.year - 1, 1)
     avg_starved = state.starved_pct_sum / years
     acres_pp = state.acres / max(state.population, 1)
-    if state.impeached or avg_starved > 33 or acres_pp < 7:
-        verdict = "Nero"
+    # The original 1968 thresholds: average starvation and acres per person.
+    if state.impeached:
+        verdict, why = "Nero", "the people overthrew the council"
+    elif avg_starved > 33 or acres_pp < 7:
+        verdict, why = "Nero", _why(avg_starved, acres_pp, 33, 7)
     elif avg_starved > 10 or acres_pp < 9:
-        verdict = "Henry VIII"
+        verdict, why = "Henry VIII", _why(avg_starved, acres_pp, 10, 9)
     elif avg_starved > 3 or acres_pp < 10:
-        verdict = "fair"
+        verdict, why = "fair", _why(avg_starved, acres_pp, 3, 10)
     else:
-        verdict = "Jefferson"
+        verdict, why = "Jefferson", "few starved and every person has 10+ acres"
     wealth = state.grain + state.acres * 20
     score = (
         state.population * 10
@@ -164,6 +167,7 @@ def rating(state: State) -> dict:
     )
     return {
         "verdict": verdict,
+        "verdict_reason": why,
         "avg_starved_pct": round(avg_starved, 2),
         "acres_per_person": round(acres_pp, 2),
         "population": state.population,
@@ -173,6 +177,15 @@ def rating(state: State) -> dict:
         "impeached": state.impeached,
         "score": round(score, 1),
     }
+
+
+def _why(avg_starved: float, acres_pp: float, starve_max: float, acres_min: float) -> str:
+    reasons = []
+    if avg_starved > starve_max:
+        reasons.append(f"{avg_starved:.0f}% starved on average (limit {starve_max}%)")
+    if acres_pp < acres_min:
+        reasons.append(f"only {acres_pp:.1f} acres per person (needs {acres_min})")
+    return " and ".join(reasons)
 
 
 def advance(state: State, d: Decision, rolls: list[YearRolls]) -> State:

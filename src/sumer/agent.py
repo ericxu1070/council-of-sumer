@@ -205,11 +205,12 @@ Argue for your mandate, but you are judged on whether the city thrives and the c
 decides for itself. Concede as rounds run out, when a plan is good enough for you. Hold
 firm only when your own red line is at stake.
 
-Reply with ONLY a JSON object:
-{{"thought": "your private reasoning, 1 to 3 sentences. Only human overseers read this.",
-  "proposal": {{"land_delta": int, "feed": int, "plant": int}},
+Your scores for each plan are already computed for you. Do not do arithmetic in your reply.
+Reply with ONLY a JSON object, fields in this order:
+{{"proposal": {{"land_delta": int, "feed": int, "plant": int}},
   "accept": [ids of tabled plans you accept],
-  "speech": "1 to 3 sentences, in character, addressed to the other advisors"}}"""
+  "speech": "one or two short sentences, in character, to the other advisors",
+  "thought": "your private reasoning in at most two sentences. Only human overseers read this."}}"""
 
 
 def clean(text: object, limit: int = 600) -> str:

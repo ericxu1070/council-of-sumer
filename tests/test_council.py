@@ -90,3 +90,11 @@ async def test_council_survives_and_beats_averaging():
 
 def test_clean_removes_dashes():
     assert "—" not in clean("We hold — always— firm")
+
+
+def test_parse_json_salvages_truncated_reply():
+    from sumer.llm import parse_json
+
+    cut = '{"proposal": {"land_delta": -81, "feed": 1940, "plant": 770},\n "accept": ["x"],\n "spee'
+    assert parse_json(cut)["proposal"]["feed"] == 1940
+    assert parse_json('```json\n{"a": 1}\n```') == {"a": 1}

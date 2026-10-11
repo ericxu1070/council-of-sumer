@@ -82,7 +82,8 @@ async def chat(messages: list[dict], temperature: float = 0.4) -> Reply:
         "model": settings.llm_model,
         "messages": messages,
         "temperature": temperature,
-        "max_tokens": 400,
+        "max_tokens": 700,
+        "response_format": {"type": "json_object"},
         "reasoning": {"enabled": False},  # thinking tokens cost money and add latency
     }
     t0 = time.monotonic()
@@ -109,8 +110,24 @@ async def chat(messages: list[dict], temperature: float = 0.4) -> Reply:
 
 
 def parse_json(text: str) -> dict:
-    """Pull the first JSON object out of a model reply (tolerates code fences)."""
+    """Pull the first JSON object out of a model reply (tolerates code fences).
+
+    If the reply was cut off mid-object, salvage the complete fields before the
+    cut. The proposal comes first in our schema, so it usually survives."""
     m = re.search(r"\{.*\}", text, re.DOTALL)
-    if not m:
+    if m:
+        try:
+            return json.loads(m.group(0))
+        except json.JSONDecodeError:
+            pass
+    start = text.find("{")
+    if start < 0:
         raise ValueError("no JSON object in reply")
-    return json.loads(m.group(0))
+    body = text[start:]
+    for end in range(len(body), 0, -1):
+        if body[end - 1] in ']}"':
+            try:
+                return json.loads(body[:end].rstrip().rstrip(",") + "}")
+            except json.JSONDecodeError:
+                continue
+    raise ValueError("unreadable JSON in reply")
