@@ -189,9 +189,9 @@ ${f.headShade ? `<ellipse cx="50" cy="${f.headShade}" rx="24" ry="7" fill="${dar
       skin: "#dba67a", hair: "#16110f", hairStyle: "slick", eyes: "lidded", brows: "smug", mouth: "smirk", beard: "full", beardColor: "#1d1512", necklace: 1, earring: 1,
       headwear: "circlet",
     }),
-    villager: g => ({ // simple cap, open expression, practical clothing
-      skin: "#cfa58a", hair: "#3c281b", hairStyle: "slick", eyes: "round",
-      brows: "soft", mouth: "smile", headwear: "turban", hatColor: "#b7a484",
+    villager: g => ({ // plain short hair, open expression, everyday tunic
+      skin: "#cfa58a", hair: "#3c281b", hairStyle: "short", eyes: "round",
+      brows: "soft", mouth: "smile",
     }),
   };
 

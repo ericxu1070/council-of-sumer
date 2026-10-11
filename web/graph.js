@@ -8,7 +8,7 @@
   const NS = "http://www.w3.org/2000/svg";
   const BASE = 96;              // avatar layout size; real size is a scale of this
   const HUB_BASE = 104;
-  const LABEL_H = 22;           // label strip under a node
+  const LABEL_H = 30;           // label strip under a node
   const PAD = 14;               // min gap to the container edge
   const TRAVEL = 260;           // ms for a packet to cross one spoke
   const GAP = 22;               // min clear space between a node (with label) and the hub (with orbit/sub-label)
@@ -79,13 +79,13 @@
 .cg-node.dim .cg-pop{opacity:.38}
 .cg-node.dim .cg-label{opacity:.45}
 .cg-label{position:absolute;left:0;top:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center;
-  font-size:12.5px;font-weight:600;letter-spacing:.01em;line-height:18px;padding:0 7px;border-radius:9px;
+  font-size:17px;font-weight:700;letter-spacing:.01em;line-height:26px;padding:0 10px;border-radius:13px;
   color:var(--cg-ink);background:rgba(11,16,32,.72);transition:transform .55s cubic-bezier(.2,.8,.2,1),color .3s,opacity .4s}
-.cg-label i{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--c);margin-right:5px;vertical-align:1px}
+.cg-label i{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--c);margin-right:7px;vertical-align:2px}
 .cg-node.speaking .cg-label{color:var(--cg-speak)}
 .cg-node.speaking .cg-label,.cg-node.listening .cg-label,.cg-node.listening-soft .cg-label{--drop-on:var(--drop)}
 .cg-node:is(.speaking,.listening,.listening-soft) .cg-badge{--by:var(--by-on)}
-.cg-node:is(.speaking,.listening,.listening-soft) .cg-typing{--ty:var(--ty-on)}
+.cg-node:is(.speaking,.listening,.listening-soft) .cg-typing{--ty:var(--ty-on);--tx:var(--tx-on)}
 .cg.tight .cg-node:not(.speaking):not(.listening) .cg-label{opacity:0}
 .cg.tight .cg-node .cg-label{max-width:none!important;z-index:2}
 .cg-node.listening .cg-label,.cg-node.listening-soft .cg-label{color:var(--cg-listen)}
@@ -97,17 +97,17 @@
 .cg-node.speaking .cg-dir{--k:var(--cg-speak);opacity:1}
 .cg-node.speaking .cg-dir svg{transform:rotate(var(--a,0deg))}
 .cg-node.listening .cg-dir{opacity:1}.cg-node.listening-soft .cg-dir{opacity:.6}
-.cg-badge{position:absolute;left:0;top:0;min-width:22px;height:22px;padding:0 6px;border-radius:11px;display:grid;place-items:center;
-  font-size:12px;font-weight:700;color:#0b1020;box-shadow:0 2px 8px rgba(0,0,0,.4),0 0 0 2px var(--cg-bg);
+.cg-badge{position:absolute;left:0;top:0;min-width:30px;height:30px;padding:0 8px;border-radius:15px;display:grid;place-items:center;
+  font-size:16px;font-weight:700;color:#0b1020;box-shadow:0 2px 8px rgba(0,0,0,.4),0 0 0 2px var(--cg-bg);
   transition:transform .55s cubic-bezier(.2,.8,.2,1),opacity .3s ease;opacity:0}
 .cg-badge.on{opacity:1}
 .cg-badge>b{display:block;transition:transform .35s cubic-bezier(.3,1.6,.5,1);transform:scale(.4)}
 .cg-badge.on>b{transform:scale(1)}
 .cg-badge.agree{background:#4ade80}.cg-badge.disagree{background:#f87171}
 .cg-badge.vote-a{background:#60a5fa}.cg-badge.vote-b{background:#fbbf24}
-.cg-typing{position:absolute;left:0;top:0;display:flex;gap:4px;padding:6px 9px;border-radius:12px;background:var(--cg-panel);
+.cg-typing{position:absolute;left:0;top:0;display:flex;gap:5px;padding:8px 11px;border-radius:14px;background:var(--cg-panel);
   border:1px solid rgba(34,211,238,.35);box-shadow:0 4px 14px rgba(0,0,0,.4);opacity:0;transition:opacity .3s ease,transform .55s cubic-bezier(.2,.8,.2,1)}
-.cg-typing span{width:6px;height:6px;border-radius:50%;background:var(--cg-speak);animation:cg-dot 1.1s ease-in-out infinite}
+.cg-typing span{width:8px;height:8px;border-radius:50%;background:var(--cg-speak);animation:cg-dot 1.1s ease-in-out infinite}
 .cg-typing span:nth-child(2){animation-delay:.15s}.cg-typing span:nth-child(3){animation-delay:.3s}
 @keyframes cg-dot{0%,80%,100%{opacity:.25;transform:translateY(0)}40%{opacity:1;transform:translateY(-3px)}}
 .cg-node.typing .cg-typing{opacity:1}
@@ -124,26 +124,26 @@
 .cg-hub .hex{fill:var(--cg-panel);stroke:rgba(34,211,238,.55);stroke-width:1.6;transition:stroke .4s}
 .cg-hub.active .hex{stroke:var(--cg-speak)}
 .cg-hub-core{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:transform .3s}
-.cg-hub-label{font-size:21px;font-weight:800;letter-spacing:.14em;margin-right:-.14em;color:var(--cg-ink)}
-.cg-hub-sub{position:absolute;left:50%;top:100%;transform:translate(-50%,10px);font-size:10.5px;font-weight:600;letter-spacing:.06em;
-  text-transform:uppercase;color:var(--cg-muted);max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+.cg-hub-label{font-size:24px;font-weight:800;letter-spacing:.14em;margin-right:-.14em;color:var(--cg-ink)}
+.cg-hub-sub{position:absolute;left:50%;top:100%;transform:translate(-50%,12px);font-size:calc(12.5px / var(--k,1));font-weight:700;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--cg-muted);max-width:calc(220px / var(--k,1));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
   padding:2px 8px;border-radius:9px;background:rgba(11,16,32,.8);border:1px solid var(--cg-line)}
 .cg-hub-sub:empty{display:none}
 .cg-ripple{position:absolute;left:-40px;top:-40px;width:80px;height:80px;border-radius:50%;border:2px solid var(--cg-speak);opacity:0;pointer-events:none}
-.cg-bubble{position:absolute;left:0;top:0;z-index:5;padding:10px 13px 11px;border-radius:10px;background:rgba(18,26,46,.94);
+.cg-bubble{position:absolute;left:0;top:0;z-index:5;padding:14px 18px 16px;border-radius:14px;background:rgba(18,26,46,.97);
   border:1px solid rgba(34,211,238,.4);box-shadow:0 12px 32px rgba(0,0,0,.5),0 0 0 1px rgba(0,0,0,.2),0 0 24px rgba(34,211,238,.12);
-  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);opacity:0;transform:translate(var(--x),var(--y)) scale(.9);
+  opacity:0;transform:translate(var(--x),var(--y)) scale(.9);
   transform-origin:var(--ox) var(--oy);transition:opacity .28s ease,transform .38s cubic-bezier(.2,1.2,.4,1);pointer-events:none}
 .cg-bubble.in{opacity:1;transform:translate(var(--x),var(--y)) scale(1)}
 .cg-bubble.out{opacity:0;transform:translate(var(--x),var(--y)) scale(.96);transition-duration:.25s}
 .cg-bubble-tail{position:absolute;width:12px;height:12px;background:inherit;border:inherit;border-width:0 0 1px 1px;transform:rotate(45deg)}
-.cg-bubble-head{display:flex;align-items:baseline;gap:6px;font-size:11.5px;font-weight:700;margin-bottom:4px;white-space:nowrap;overflow:hidden}
+.cg-bubble-head{display:flex;align-items:baseline;gap:7px;font-size:clamp(15px,.8vw,19px);font-weight:800;margin-bottom:6px;white-space:nowrap;overflow:hidden}
 .cg-bubble-head .who{color:var(--cg-speak)}
 .cg-bubble-head .to{color:var(--cg-listen);overflow:hidden;text-overflow:ellipsis;font-weight:600}
 .cg-bubble-head .arrow{color:var(--cg-muted);font-weight:500}
 .cg-bubble.narrow .cg-bubble-head .meta{display:none}
 .cg-bubble-head .meta{color:var(--cg-muted);font-weight:500;margin-left:auto;padding-left:8px;flex:none}
-.cg-bubble-text{font-size:13.5px;line-height:1.42;color:var(--cg-ink);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.cg-bubble-text{font-size:clamp(19px,1.1vw,26px);font-weight:500;line-height:1.38;color:var(--cg-ink);display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden}
 @media (prefers-reduced-motion:reduce){.cg *{animation:none!important;transition-duration:.01ms!important}}`;
 
   let root, svg, gSpokes, gPackets, gRelations, layer, hubEl, hubBody, hubLabel, hubSub, ripple, bubble;
@@ -182,7 +182,7 @@
         <circle class="orbit2" cx="50" cy="50" r="66" fill="none" stroke="var(--cg-listen)" stroke-width="1" stroke-dasharray="18 10 2 10"/>
         <path class="hex" d="${hexPath(50, 50, 46, 9)}"/>
       </svg>
-      <div class="cg-hub-core"><div class="cg-hub-label">SLIM</div><div class="cg-hub-sub">message bus</div></div></div>`);
+      <div class="cg-hub-core"><div class="cg-hub-label"></div><div class="cg-hub-sub"></div></div></div>`);
     ripple = el("div", "cg-ripple"); hubEl.appendChild(ripple);
     hubBody = hubEl.querySelector(".cg-hub-body");
     hubLabel = hubEl.querySelector(".cg-hub-label"); hubSub = hubEl.querySelector(".cg-hub-sub");
@@ -191,8 +191,9 @@
     root.append(svg, layer);
     container.appendChild(root);
     nodes.clear(); order = [];
-    new ResizeObserver(() => { const r = root.getBoundingClientRect(); if (r.width !== W || r.height !== H) { W = r.width; H = r.height; layout(); } }).observe(root);
-    const r = root.getBoundingClientRect(); W = r.width; H = r.height; layout(true);
+    // Layout sizes, not getBoundingClientRect: the page may be CSS-zoomed on big screens.
+    new ResizeObserver(() => { if (root.clientWidth !== W || root.clientHeight !== H) { W = root.clientWidth; H = root.clientHeight; layout(); } }).observe(root);
+    W = root.clientWidth; H = root.clientHeight; layout(true);
   }
 
   // Rounded hexagon (pointy top) as a path.
@@ -277,31 +278,39 @@
   // speaking) must stay GAP away from the hub's orbit (r .66) and its scaled sub-label (~.8).
   // A spoke leaving straight down puts the direction chip on the label: an active node drops its label below it.
   const chipDrop = s => Math.max(0, s * .56 + 4 + 13 - (s / 2 + 11));
-  const ryNeed = (s, hub) => Math.max(s / 2 + 29 + chipDrop(s), s * .56 + 6) + GAP + hub * .8;
-  const hubFor = (s, minDim) => clamp(Math.min(s * .95, minDim * .16), 44, 108);
+  const ryNeed = (s, hub) => Math.max(s / 2 + 37 + chipDrop(s), s * .56 + 6) + GAP + hub * .8;
+  const hubFor = (s, minDim) => clamp(Math.min(s * .85, minDim * .17), 44, 128);
 
   function layout(instant) {
     if (!root || !W || !H) return;
-    cx = W / 2; cy = H / 2; hx = cx; hy = cy;
-    const n = order.length, minDim = Math.min(W, H);
-    let s = Math.min(n <= 5 ? 124 : 124 - (n - 5) * 4, minDim * (n <= 5 ? .16 : .13)), hub, pts;
+    // Fit the whole ring inside the map's meeting square, including portraits and
+    // labels. The map spans the council panel; the graph occupies its middle row.
+    const map = document.getElementById("cityMap"), container = root.parentElement;
+    const left = map ? Math.max(0, map.clientWidth * .255 - container.offsetLeft) : 0;
+    const right = map ? Math.min(W, map.clientWidth * .745 - container.offsetLeft) : W;
+    const top = map ? Math.max(0, map.clientHeight * .195 - container.offsetTop) : 0;
+    const bottom = map ? Math.min(H, map.clientHeight * .73 - container.offsetTop) : H;
+    const ringW = Math.max(80, right - left), ringH = Math.max(80, bottom - top);
+    cx = (left + right) / 2; cy = (top + bottom) / 2; hx = cx; hy = cy;
+    const n = order.length, minDim = Math.min(ringW, ringH);
+    let s = Math.min(n <= 5 ? 172 : 172 - (n - 5) * 6, minDim * (n <= 5 ? .24 : .16)), hub, pts;
     if (n === 1) {
       // A lone advisor and the hub stack as a centered vertical pair.
-      s = Math.min(124, minDim * .22);
+      s = Math.min(172, minDim * .26);
       let d, span;
       for (let it = 0; it < 12; it++) {
-        hub = hubFor(s, minDim); d = s / 2 + 29 + chipDrop(s) + GAP + hub * .66; span = s * .56 + 6 + d + hub * .8;
-        if (span <= H - 2 * PAD || s <= MIN_S) break;
+        hub = hubFor(s, minDim); d = s / 2 + 37 + chipDrop(s) + GAP + hub * .66; span = s * .56 + 6 + d + hub * .8;
+        if (span <= ringH - 2 * PAD || s <= MIN_S) break;
         s = Math.max(MIN_S, s * .92);
       }
       const ny = cy - span / 2 + s * .56 + 6;
-      hy = ny + d; pts = [[0, ny - cy]]; labelW = 150;
+      hy = ny + d; pts = [[0, ny - cy]]; labelW = 190;
     } else {
       let rx, ry, gap = 0;
       for (let it = 0; it < 16; it++) {
         hub = hubFor(s, minDim);
-        ry = Math.max(20, H / 2 - PAD - s / 2 - 29);
-        rx = Math.max(20, Math.min(W / 2 - PAD - s / 2 - 40, ry * 1.5));
+        ry = Math.max(20, ringH / 2 - PAD - s / 2 - 37);
+        rx = Math.max(20, Math.min(ringW / 2 - PAD - s / 2 - 40, ry * 1.5));
         const e = ellipsePoints(Math.max(n, 1), rx, ry); pts = e.pts; gap = e.P / Math.max(n, 1);
         // Every node (not only the axis ones) must clear the hub's orbit by GAP.
         const vFit = ry >= ryNeed(s, hub) && pts.every(([x, y]) => Math.hypot(x, y) - s * .56 - 6 >= hub * .7 + GAP);
@@ -309,10 +318,10 @@
         if ((vFit && aFit) || s <= MIN_S) break;
         s = Math.max(MIN_S, Math.min(vFit ? s : s * .92, aFit ? s : gap / 1.35));
       }
-      labelW = clamp(gap - 10, s, 150);
+      labelW = clamp(gap - 10, s, 190);
     }
     size = s; hubSize = hub;
-    root.classList.toggle("tight", labelW < 56); // too crowded for every name: label only the active nodes
+    root.classList.toggle("tight", labelW < 84); // too crowded for every name: label only the active nodes
     hubEl.style.transform = `translate(${hx}px,${hy}px)`;
     hubBody.style.setProperty("--k", hubSize / HUB_BASE);
     const k = s / BASE;
@@ -331,9 +340,12 @@
       const cxp = rc * dx / L, cyp = rc * dy / L, by = -s * .5 - 2, ty = -s * .5 - 6, low = `${s * .5 - 24}px`;
       nd.el.style.setProperty("--by", `${by}px`); nd.el.style.setProperty("--ty", `${ty}px`);
       nd.el.style.setProperty("--by-on", Math.hypot(cxp - (s * .3 + 11), cyp - (by + 11)) < 32 ? low : `${by}px`);
-      nd.el.style.setProperty("--ty-on", Math.hypot(cxp - (-s * .5 - 8), cyp - (ty + 11)) < 34 ? low : `${ty}px`);
+      // The typing dots step out to the node's left side (not onto the name label below it).
+      const tyHit = Math.hypot(cxp - (-s * .5 - 8), cyp - (ty + 11)) < 34;
+      nd.el.style.setProperty("--ty-on", tyHit ? "-16px" : `${ty}px`);
+      nd.el.style.setProperty("--tx-on", tyHit ? "-28px" : "0px");
       nd.badgeEl.style.transform = `translate(${s * .3}px,var(--by))`;
-      nd.typ.style.transform = `translate(${-s * .5 - 30}px,var(--ty))`;
+      nd.typ.style.transform = `translate(calc(${-s * .5 - 30}px + var(--tx,0px)),var(--ty))`;
     });
     const dur = instant || RM() || document.hidden ? 0 : 650;
     tween = { t0: performance.now(), dur, list: order.map(id => nodes.get(id)).filter(Boolean).map(nd => ({ nd, fx: nd.x, fy: nd.y })) };
@@ -455,7 +467,7 @@
   }
 
   /* ---------------- speech bubble ---------------- */
-  function trimText(t, max = 230) {
+  function trimText(t, max = 210) {
     t = String(t || "").replace(/\s+/g, " ").trim();
     if (t.length <= max) return t;
     const cut = t.slice(0, max), sp = cut.lastIndexOf(" ");
@@ -470,9 +482,9 @@
     const b = el("div", "cg-bubble", `<div class="cg-bubble-tail"></div>
       <div class="cg-bubble-head"><span class="who">${esc(sp.a.short || sp.id)}</span>${names ? `<span class="arrow">to</span><span class="to">${esc(names)}</span>` : ""}${meta ? `<span class="meta">${esc(meta)}</span>` : ""}</div>
       <div class="cg-bubble-text">${esc(body)}</div>`);
-    const bw = Math.round(clamp(W * .28, Math.min(210, W - 28), 300));
+    const bw = Math.round(clamp(W * .34, Math.min(260, W - 28), 540));
     b.style.width = `${bw}px`;
-    if (bw < 240) b.classList.add("narrow"); // too tight for the round tag: keep the names readable
+    if (bw < 320) b.classList.add("narrow"); // too tight for the round tag: keep the names readable
     layer.appendChild(b);
     bubble = b;
     placeBubble(b, sp.id);
@@ -513,7 +525,7 @@
       const rect = { x: px, y: py, w: bw, h: bh };
       const turn = Math.abs(Math.atan2(Math.sin(a - out), Math.cos(a - out)));
       let cost = turn * 900 + Math.abs(dy) * 300 + (Math.abs(px - c.x) + Math.abs(py - c.y)) + overlap(rect, hubR) * 8;
-      for (const o of others) cost += overlap(rect, o) * (o.self ? 12 : 2);
+      for (const o of others) cost += overlap(rect, o) * (o.self ? 12 : 5);
       for (const [qx, qy] of spoke) if (qx > px - 4 && qx < px + bw + 4 && qy > py - 4 && qy < py + bh + 4) cost += 2500;
       if (!best || cost < best.cost) best = { cost, x: px, y: py };
     }
@@ -604,7 +616,7 @@
 
   function setHub({ label, sub } = {}) {
     if (!root) return;
-    if (label != null) hubLabel.textContent = label || "SLIM";
+    if (label != null) hubLabel.textContent = label;
     if (sub != null) { hubSub.textContent = sub; hubSub.title = sub; }
   }
 

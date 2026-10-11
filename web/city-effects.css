@@ -1,0 +1,37 @@
+/* Notes are trimmed while the visual theme stays the same as main. */
+.top .phase { font-size: 1rem; font-weight: 600; border-left: 1px solid var(--line-2); padding-left: 10px; }
+.year-heading { flex-wrap: wrap; justify-content: center; }
+.stage:has(.runoff.hidden) { display: none; }
+.city-event-overlay { position: fixed; inset: 0; width: 100vw; height: 100dvh; z-index: 70; pointer-events: none; overflow: hidden; shape-rendering: crispEdges; }
+.city-traveler { animation: city-migrate var(--duration) linear var(--delay) both; }
+.city-sprite { animation: city-scurry .1s steps(2,end) infinite; }
+.bacterium .city-sprite { animation: bacteria-wriggle .35s steps(3,end) infinite; }
+@keyframes city-migrate {
+  0% { opacity: 0; transform: translate(var(--sx),var(--sy)); }
+  4% { opacity: 1; }
+  50% { transform: translate(var(--mx),var(--my)); }
+  90% { opacity: 1; }
+  100% { opacity: 0; transform: translate(var(--tx),var(--ty)); }
+}
+@keyframes city-scurry { from { transform: translateY(-2px); } to { transform: translateY(2px); } }
+@keyframes bacteria-wriggle { from { transform: rotate(-12deg); } to { transform: rotate(12deg); } }
+.plague-person { transform-box: fill-box; transform-origin: bottom center; }
+.plague-person.falls { animation: plague-fall 2.3s steps(4,end) var(--delay) both; }
+.plague-person.survives { animation: plague-shiver 2.3s steps(2,end) var(--delay) both; }
+.plague-mark { animation: plague-cross 2.6s steps(2,end) var(--delay) both; }
+@keyframes plague-fall {
+  0%,25% { transform: rotate(0); opacity: 1; }
+  45%,85% { transform: rotate(90deg); opacity: 1; }
+  100% { transform: rotate(90deg); opacity: 0; }
+}
+@keyframes plague-shiver { 0%,100% { transform: translateX(0); } 25%,65% { transform: translateX(-3px); } 45%,85% { transform: translateX(3px); } }
+@keyframes plague-cross { 0%,15% { opacity: 0; } 30%,85% { opacity: 1; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .city-traveler { animation: none !important; transform: translate(var(--tx),var(--ty)); }
+  .city-sprite, .plague-person, .plague-mark { animation: none !important; }
+  .plague-person.falls { transform: rotate(90deg); }
+}
+@media (max-width:900px) { .convene { padding: 7px 8px; font-size: .8rem; } }
+.resource-scale { display: none; }
+.top .convene { font-size: .9rem; padding: 7px 13px; margin-left: 0; border-radius: var(--radius); }
+@media (max-width:900px) { .top .convene { font-size: .8rem; padding: 7px 8px; } }

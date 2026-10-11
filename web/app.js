@@ -8,7 +8,9 @@ const MIN_GAP = 800;         // ms between visible messages (matches the server 
 const READ_MIN = 2000, READ_MAX = 4200, READ_PER_CHAR = 14; // ms a speech holds the graph
 const CATCH_UP = 6;          // queued turns beyond this shorten the hold to READ_MIN
 const MIN_TYPING = 500;      // ms the "is typing" indicator shows before a speech
-const HOLD_AFTER_YEAR = 3000; // ms to let the year summary sit before the next year starts
+const HOLD_AFTER_YEAR = 6000; // ms to let the year summary sit before the next year starts
+const FLASH_YEAR = 1900;     // ms the big "Year N" interstitial holds the stage
+const AUTO_CONTINUE = 12;    // s before an untouched scout prompt lets the vote stand
 const REPLAY_QUIET = 150;    // ms of silence that ends a backlog replay burst
 const REPLAY_CAP = 2000;     // replay mode never lasts longer than this after connecting
 
@@ -34,6 +36,7 @@ const S = {
   hist: [],           // hist[x] = state after x completed years (x = 0 is the start)
   roundBase: {},      // year -> 1 if rounds are 0-based, else 0
   plans: {},          // plan id -> author id
+  lastPlain: {},      // advisor -> plan text last shown in the transcript this year
   runoff: null,       // {a, b, votes: {advisor: planId}, decided}
   stance: {},         // advisor -> "agree" | "disagree" | "vote-a" | "vote-b"
   running: false,
@@ -113,6 +116,8 @@ function planText(p) {
   return cap(parts.join(", "));
 }
 const stripSafe = t => cap(String(t || "").replace(/^play it safe:\s*/i, ""));
+// The narrator opens with "Year N." for listeners; on screen the card already says which year.
+const stripYear = t => String(t || "").replace(/^Year \d+\.\s*/, "");
 function dispRound(year, round) {
   if (!(year in S.roundBase)) S.roundBase[year] = round === 0 ? 1 : 0;
   return (round ?? 0) + S.roundBase[year];
@@ -160,8 +165,8 @@ const G = (() => {
   };
 })();
 // Keep transport details available under the hood; the main view is the city council.
-const hubLabel = () => S.hood ? (S.meta?.transport === "inproc" ? "LOCAL" : "SLIM") : "Council";
-function setHubSub(sub = "city square") { G.setHub({ label: hubLabel(), sub }); }
+const hubLabel = () => "";
+function setHubSub() { G.setHub({ label: "", sub: "" }); }
 const STANCE = {
   agree: ["agree", "✓", "Agrees with the leading plan"],
   disagree: ["disagree", "✕", "Does not back the leading plan"],
@@ -188,12 +193,15 @@ function renderYear() {
   }
   $("#yearSteps").innerHTML = steps.join("");
   $("#yearLabel").textContent = !S.year ? (S.running ? "Convening" : "Ready") : S.completed >= S.years ? `All ${S.years} years done` : `Year ${S.year} of ${S.years}`;
-  $("#roundLabel").classList.toggle("hidden", !S.round);
+  $("#roundLabel").classList.toggle("hidden", !S.round || S.completed >= S.years);
   $("#roundLabel").textContent = S.round ? `Round ${S.round.number}${S.round.limit && S.round.number <= S.round.limit ? ` of ${S.round.limit}` : ""}` : "";
 }
-function setPhase(title, sub = "") {
-  $("#phase").textContent = title;
-  $("#phaseSub").innerHTML = sub;
+function setPhase(title) {
+  const phase = /ready|gathers|conven|no king/i.test(title) ? "Ready"
+    : /reign complete/i.test(title) ? "End"
+    : /runoff|re-vote|voting|your move/i.test(title) ? "Voting"
+    : /debate|discuss|year .* begins/i.test(title) ? "Discussion" : title;
+  $("#phase").textContent = phase;
 }
 function voteDots(accept = []) {
   return `<span class="dots">${S.advisors.map(a => {
@@ -202,14 +210,45 @@ function voteDots(accept = []) {
   }).join("")}</span>`;
 }
 
+/* ---------------- spotlight: center-stage cards ---------------- */
+let spotT = 0, spotKind = "";
+function spotlight(kind, html, { cls = "", ms = 0, flash = false } = {}) {
+  const el = $("#spot");
+  clearTimeout(spotT);
+  spotKind = kind;
+  el.className = `spot${flash ? " flash" : ""}`;
+  el.innerHTML = flash ? html : `<div class="spot-card ${cls}">${html}</div>`;
+  void el.offsetWidth;
+  el.classList.add("in");
+  if (ms) spotT = setTimeout(() => hideSpot(kind), ms);
+  return el;
+}
+function hideSpot(kind) {
+  if (kind && kind !== spotKind) return;
+  stopCountdown();
+  const el = $("#spot");
+  clearTimeout(spotT);
+  spotKind = "";
+  el.classList.remove("in");
+  spotT = setTimeout(() => { if (!spotKind) { el.classList.add("hidden"); el.innerHTML = ""; } }, 350);
+}
+function deltaOf(cur, prev, dir) {
+  if (cur == null || prev == null) return ["", ""];
+  const diff = cur - prev;
+  if (!diff) return ["no change", "flat"];
+  return [`${diff > 0 ? "▲" : "▼"} ${fmt(Math.abs(diff))}`, dir === 0 ? "flat" : (diff > 0) === (dir > 0) ? "good" : "bad"];
+}
+function spotNums(list) {
+  return `<div class="spot-nums">${list.map(([k, v, d = ["", ""]]) => `<div class="spot-num"><div class="k">${esc(k)}</div><div class="v">${fmt(v)}</div><div class="d ${d[1]}">${esc(d[0])}</div></div>`).join("")}</div>`;
+}
+
 /* ---------------- typing indicator ---------------- */
 function typing(html) { $("#typing").innerHTML = html || ""; }
 const bounce = `<span class="bounce" aria-hidden="true"><i></i><i></i><i></i></span>`;
 function typingFor(id) { typing(`${avatar(id, "mini")}<span><b>${esc(adv(id).short)}</b> is typing</span>${bounce}`); }
 function idleTyping() {
   if (S.paused) typing(`<span>The council is paused</span>`);
-  else if (S.scoutRequest) typing(`<span>Choose a scout event or skip</span>`);
-  else if (S.waitingHuman) typing(`<span>Waiting for <b>your decision</b></span>`);
+  else if (S.scoutRequest || S.waitingHuman) typing("");
   else if (narrating) typing(`<span>🔊 The narrator is speaking</span>`);
   else if (S.running) typing(`<span>The council is thinking</span>${bounce}`);
   else typing("");
@@ -257,15 +296,13 @@ function scrollBottom(instant) {
   cancelAnimationFrame(scrollRaf);
   if (!smooth) scrollRaf = requestAnimationFrame(() => { if (stick) f.scrollTop = f.scrollHeight; });
 }
+// Before a run: the transcript introduces each advisor and its goal in one line.
+const shortMandate = a => PERSONA_MANDATES[a.persona] || String(a.mandate || "").replace(/\s+/g, " ").trim().slice(0, 90);
 function welcome() {
   feed().innerHTML = `<div class="welcome">
-    <div class="welcome-kicker">Ready to convene</div>
-    <h1>${N()} advisor${N() === 1 ? "" : "s"}. One city. No king.</h1>
-    <p>Each advisor is an AI agent with its own goal. They argue over the SLIM message bus, vote, and run ancient Sumer for five years. When they are stuck, you decide.</p>
-    <div class="welcome-actions"><button class="btn primary" id="welcomeStart" type="button">Convene the council</button>
-    <button class="btn" id="welcomeSetup" type="button">Choose voters</button></div></div>`;
-  $("#welcomeStart").onclick = start;
-  $("#welcomeSetup").onclick = () => openDrawer(true);
+    <div class="welcome-kicker">Meet the council</div>
+    <div class="meet">${S.advisors.map(a => `<div class="meet-row">${avatar(a.id)}<div><b style="--c:${a.color}">${esc(a.short)}</b><span>${esc(shortMandate(a) || "Custom agent")}</span></div></div>`).join("")}</div>
+    <p class="welcome-foot">Every advisor is its own AI agent. They debate over SLIM and vote. When they deadlock, you decide.</p></div>`;
   syncSetupLock();
 }
 
@@ -297,12 +334,13 @@ function turnRelations(d) {
 
 function renderTurn(d, instant) {
   const a = adv(d.advisor);
+  if (!instant && spotKind === "year") hideSpot("year");
   const addressed = (d.addressed || []).filter(x => x !== d.advisor);
   // Backing someone else’s plan must retain its original author.
   for (const row of d.support || []) if (row.id && row.author) S.plans[row.id] = row.author;
   if (d.plan_id && !S.plans[d.plan_id]) S.plans[d.plan_id] = planAuthor(d.plan_id, d.advisor);
   const meta = d.phase === "runoff" ? "Runoff" : d.round != null ? `Round ${dispRound(d.year, d.round)}` : "";
-  G.speak({ speaker: d.advisor, to: addressed, text: d.speech || "", meta }, instant);
+  G.speak({ speaker: d.advisor, to: addressed, text: d.speech || "" }, instant);
   G.relations(turnRelations(d), instant);
   const foot = [];
   if (d.phase === "runoff" || d.runoff_vote) {
@@ -310,25 +348,24 @@ function renderTurn(d, instant) {
     const pid = d.runoff_vote;
     if (pid) foot.push(`<span class="vote-chip runoff-pick" style="--k:var(--vote-${side})">Votes for ${side.toUpperCase()}: ${avatar(planAuthor(pid), "mini")}<b>${esc(planName(pid))}</b></span>`);
   } else {
+    // A plan chip only when this advisor's plan is new or changed this year; repeats add noise.
     const plain = d.plain || planText(d.proposal);
-    if (plain) foot.push(`<span class="plan-chip"><span class="emoji">📜</span><span>${esc(plain)}</span></span>`);
+    const fresh = plain && S.lastPlain[d.advisor] !== plain;
+    if (plain) S.lastPlain[d.advisor] = plain;
+    if (fresh) foot.push(`<span class="plan-chip"><span class="emoji">📜</span><span>${esc(plain)}</span></span>`);
     const acc = [...new Set((d.accept || []).map(id => planAuthor(id)).filter(Boolean))];
-    if (acc.length) foot.push(`<span class="vote-chip" title="Plans ${esc(a.short)} would accept">👍 ${acc.map(x => x === d.advisor ? "own" : `${esc(adv(x).short)}'s`).join(", ")} plan${acc.length > 1 ? "s" : ""}</span>`);
+    if (acc.length) foot.push(`<span class="vote-chip hood-only" title="Plans ${esc(a.short)} would accept">👍 ${acc.map(x => x === d.advisor ? "own" : `${esc(adv(x).short)}'s`).join(", ")} plan${acc.length > 1 ? "s" : ""}</span>`);
   }
-  const src = d.source ? `<span class="tag hood-only">${esc(d.source === "llm" ? "LLM" : d.source)}</span>` : "";
-  const think = d.thought ? `<button class="think-btn" type="button" aria-expanded="${S.hood}" title="What ${esc(a.short)} privately thought">💭</button>` : "";
   const trace = d.trace && Object.keys(d.trace).length ? `<pre class="trace hood-only">${esc(traceText(d.trace))}</pre>` : "";
-  const el = append(`${avatar(d.advisor)}
+  append(`${avatar(d.advisor)}
     <div class="msg-body">
       <div class="msg-head"><span class="msg-name" style="--c:${a.color}">${esc(a.short)}</span>
-        ${addressed.length ? `<span class="msg-to">to ${esc(nameList(addressed))}</span>` : ""}${src}${think}<span class="msg-meta">${esc(meta)}</span></div>
+        ${addressed.length ? `<span class="msg-to">to ${esc(nameList(addressed))}</span>` : ""}<span class="msg-meta hood-only">${esc(meta)}</span></div>
       <div class="speech">${esc(d.speech || "...")}</div>
       ${foot.length ? `<div class="msg-foot">${foot.join("")}</div>` : ""}
-      ${d.thought ? `<div class="thought"${S.hood ? "" : " hidden"}>💭 ${esc(d.thought)}</div>` : ""}
+      ${d.thought ? `<div class="thought hood-only">💭 ${esc(d.thought)}</div>` : ""}
       ${trace}
     </div>`, "msg", { instant, latest: true });
-  const btn = $(".think-btn", el);
-  if (btn) btn.onclick = () => { const t = $(".thought", el); t.hidden = !t.hidden; btn.setAttribute("aria-expanded", String(!t.hidden)); };
   if (d.runoff_vote) addRunoffVote(d.advisor, d.runoff_vote, instant);
 }
 
@@ -358,7 +395,7 @@ function renderPoll(d, instant) {
       <span class="poll-count">${r.accept?.length || 0} of ${N()} agree</span></div>`;
   }).join("");
   const label = d.phase === "runoff" ? "Runoff count" : `Where the votes stand after round ${dispRound(d.year, d.round)}`;
-  append(`<div class="poll-title">${esc(label)}</div>${body}`, "poll", { instant });
+  append(`<div class="poll-title">${esc(label)}</div>${body}`, "poll hood-only", { instant });
 }
 
 const OUTCOME = {
@@ -375,37 +412,28 @@ function outcomeBadge(d) {
 }
 
 function renderYear_(d, instant) {
-  const r = d.report || d.state?.last_report || {};
   const author = d.adopted === "safe" ? null : planAuthor(d.adopted);
   const plain = stripSafe(d.plain || planText(d.plan));
   const pname = d.adopted === "safe" ? "The safe plan" : author ? `${adv(author).short}'s plan` : "The plan";
-  const summary = d.summary || `The council adopted ${pname.toLowerCase().replace(/^the /, "the ")}.`;
-  const nums = [
-    ["People now", d.state?.population],
-    ["Harvest", r.harvest, "bushels"],
-    ["Starved", r.starved ?? starvedOf(d.state)],
-    ["Plague deaths", r.plague_deaths || null],
-    ["Rats ate", r.rats, "bushels"],
-    ["Newcomers", r.immigrants],
-  ].filter(x => x[1] != null).slice(0, 5);
+  const summary = stripYear(d.summary) || `The council adopted ${pname.toLowerCase().replace(/^the /, "the ")}.`;
   const sat = d.satisfaction && Object.keys(d.satisfaction).length
     ? `<div class="hood-only trace">How satisfied each advisor is (0 to 1):\n${Object.entries(d.satisfaction).map(([k, v]) => `  ${esc(adv(k).short)}: ${typeof v === "number" ? v.toFixed(2) : esc(v)}`).join("\n")}\nRounds this year: ${esc(d.rounds ?? "-")}</div>` : "";
   append(`<div class="card-kicker"><span>Year ${esc(d.year)} decision</span>${outcomeBadge(d)}</div>
     <div class="card-summary">${esc(summary)}</div>
     ${plain || author ? `<div class="card-plan"><span class="plan-chip">${author ? avatar(author, "mini") : `<span class="emoji">🛟</span>`}<span><b>${esc(pname)}:</b> ${esc(plain)}</span></span></div>` : ""}
-    <div class="nums">${nums.map(([k, v, u]) => `<div class="num"><div class="k">${esc(k)}</div><div class="v">${fmt(v)}</div>${nums.some(x => x[2]) ? `<div class="k u">${esc(u || "")}</div>` : ""}</div>`).join("")}</div>
     ${sat}`, `card k-${esc(d.outcome)}`, { instant });
 }
 
+const VERDICT = {
+  Jefferson: ["A golden reign", "🏆"],
+  fair: ["A fair reign", "🌤️"],
+  "Henry VIII": ["A good reign, could be better", "🌥️"],
+  Nero: ["A disastrous reign", "🔥"],
+};
+const endTitle = r => r.impeached ? ["The people overthrew the council", "🔥"] : VERDICT[r.verdict] || [r.verdict ? `Verdict: ${r.verdict}` : "The reign is over", "🏛️"];
 function renderEnd(d, instant) {
   const r = d.rating || {};
-  const V = {
-    Jefferson: ["A golden reign", "🏆"],
-    fair: ["A fair reign", "🌤️"],
-    "Henry VIII": ["A good reign that could have been better", "🌥️"],
-    Nero: ["A disastrous reign", "🔥"],
-  };
-  const [title, ic] = r.impeached ? ["The people overthrew the council", "🔥"] : V[r.verdict] || [r.verdict ? `Verdict: ${r.verdict}` : "The reign is over", "🏛️"];
+  const [title, ic] = endTitle(r);
   const oc = d.outcomes || {};
   const words = { consensus: "decided together", majority: "by majority", runoff: "by runoff", escalated: "by you" };
   const tally = Object.entries(oc).filter(([, v]) => v).map(([k, v]) => `<span class="outcome o-${esc(k)}">${esc(v)} ${esc(words[k] || k)}</span>`).join("");
@@ -419,9 +447,68 @@ function renderEnd(d, instant) {
   "card end", { instant });
 }
 
+function showYearSpot(d) {
+  const author = d.adopted === "safe" ? null : planAuthor(d.adopted);
+  const pname = d.adopted === "safe" ? "The safe plan" : author ? `${adv(author).short}'s plan` : "The plan";
+  const plain = stripSafe(d.plain || planText(d.plan));
+  const [ic, label] = OUTCOME[d.outcome] || ["📜", cap(d.outcome || "Decided")];
+  const cur = d.state || {}, prev = S.hist[d.year - 1] || {}, r = d.report || {};
+  const starved = r.starved ?? starvedOf(cur);
+  spotlight("year", `<div class="spot-kicker">Year ${esc(d.year)} of ${esc(S.years)}</div>
+    <div class="spot-title"><span class="emoji">${ic}</span>${esc(label)}</div>
+    ${d.summary ? `<p class="spot-sub">${esc(stripYear(d.summary))}</p>` : ""}
+    <div class="spot-plan">${author ? avatar(author) : `<span class="av safe-av">🛟</span>`}<span><b>${esc(pname)}</b><span>${esc(plain)}</span></span></div>
+    ${spotNums([
+      ["People", cur.population, deltaOf(cur.population, prev.population, 1)],
+      ["Grain", cur.grain, deltaOf(cur.grain, prev.grain, 1)],
+      ["Land", cur.acres, deltaOf(cur.acres, prev.acres, 1)],
+      ["Starved", starved, starved ? ["this year", "bad"] : ["nobody", "good"]],
+    ])}`, { cls: `k-${esc(d.outcome)}` });
+}
+
+function showEndSpot(d) {
+  const r = d.rating || {};
+  const [title, ic] = endTitle(r);
+  const oc = d.outcomes || {};
+  const words = { consensus: "together", majority: "by majority", runoff: "by runoff", escalated: "by you" };
+  const tally = Object.entries(oc).filter(([, v]) => v).map(([k, v]) => `<span class="outcome o-${esc(k)}"><span class="emoji">${OUTCOME[k]?.[0] || "📜"}</span>${esc(v)} ${esc(words[k] || k)}</span>`).join("");
+  const first = S.hist[0] || {};
+  spotlight("end", `<div class="spot-kicker">The reign is over</div>
+    <div class="spot-title"><span class="emoji">${ic}</span>${esc(title)}</div>
+    ${r.verdict_reason ? `<p class="spot-sub">${esc(cap(r.verdict_reason))}.</p>` : ""}
+    ${spotNums([
+      ["People", r.population, deltaOf(r.population, first.population, 1)],
+      ["Land", r.acres, deltaOf(r.acres, first.acres, 1)],
+      ["Grain", r.grain, deltaOf(r.grain, first.grain, 1)],
+      ["Starved", r.starved_total, r.starved_total ? ["in total", "bad"] : ["nobody", "good"]],
+    ].filter(x => x[1] != null))}
+    ${tally ? `<div class="spot-tally">${tally}</div>` : ""}
+    <div class="spot-actions"><button class="btn primary" type="button" data-act="again">Convene a new council</button><button class="btn" type="button" data-act="close">Close</button></div>`);
+  if (["Jefferson", "fair"].includes(r.verdict) && !r.impeached) confetti();
+  $('#spot [data-act="again"]').onclick = () => { hideSpot("end"); start(); };
+  $('#spot [data-act="close"]').onclick = () => hideSpot("end");
+}
+
+// A short burst over the end card for a good reign; skipped for reduced motion.
+function confetti() {
+  if (reduced.matches) return;
+  const box = $("#spot"), colors = S.advisors.map(a => a.color).concat(["#22d3ee", "#fbbf24", "#4ade80"]);
+  for (let i = 0; i < 70; i++) {
+    const p = document.createElement("i");
+    p.className = "confetti";
+    p.style.cssText = `left:${Math.random() * 100}%;background:${colors[i % colors.length]};--dx:${(Math.random() - .5) * 240}px;--r:${Math.random() * 720 - 360}deg;animation-delay:${Math.random() * .6}s;animation-duration:${2.4 + Math.random() * 1.6}s`;
+    box.appendChild(p);
+    setTimeout(() => p.remove(), 4800);
+  }
+}
+
 function renderNews(d, instant) {
   const mine = d.injected;
-  append(`<span class="emoji">📯</span><div><b>${mine ? "Your scout reports" : "Scout report"}</b>${esc(d.text || d.kind)}</div>`, `note${mine ? " you" : ""}`, { instant });
+  if (mine) {
+    const labels = { plague: "Plague", rats: "Rats", good_harvest: "Good harvest", bad_harvest: "Bad harvest", low_price: "Cheap land", high_price: "Costly land" };
+    append(`<div><b>${esc(labels[d.kind] || cap(d.kind || "Omen"))}</b></div>`, "note you", { instant });
+    if (!instant) window.CityEffects?.effect(d.kind);
+  } else append(`<span class="emoji">📯</span><div><b>Scout report</b>${esc(d.text || d.kind)}</div>`, "note", { instant });
 }
 
 /* ---------------- runoff ---------------- */
@@ -442,7 +529,7 @@ function showRunoff(d, instant) {
   const el = $("#runoff");
   el.className = "runoff";
   el.innerHTML = `${side(a, "a")}<div class="ro-vs">vs</div>${side(b, "b")}`;
-  setPhase("Runoff vote", `<span>${esc(planName(a.id, a.author))} <b>vs</b> ${esc(planName(b.id, b.author))}</span>${d.reason ? `<span class="hood-only tag">${esc(d.reason)}</span>` : ""}`);
+  setPhase("Runoff vote", `<span>Every advisor picks <b>A</b> or <b>B</b></span>`);
   append(`<span class="emoji">⚖️</span><div><b>Runoff</b>No plan won a majority. Each advisor now votes for ${esc(planName(a.id, a.author))} or ${esc(planName(b.id, b.author))}.</div>`, "note", { instant });
 }
 function addRunoffVote(advisor, pid, instant) {
@@ -484,7 +571,7 @@ function showEscalation(d) {
   const opts = (d.options || []).slice();
   if (!opts.some(o => o.id === "safe")) opts.push({ id: "safe", plain: "Play it safe: feed everyone and plant as much as we can", accept: [], note: "Agreed in advance as the fallback" });
   $("#escReason").textContent = d.reason || "No plan has enough support.";
-  $("#escOptions").innerHTML = opts.map(o => {
+  $("#escOptions").innerHTML = opts.map((o, i) => {
     const safe = o.id === "safe";
     const au = safe ? null : planAuthor(o.id, o.author);
     const why = [];
@@ -493,7 +580,7 @@ function showEscalation(d) {
     return `<button class="esc-opt${safe ? " safe" : ""}" type="button" data-choice="${esc(o.id)}">
       ${safe ? `<span class="av safe-av">🛟</span>` : avatar(au)}
       <span><span class="who">${esc(safe ? "Play it safe" : planName(o.id, au))}</span><br><span class="what">${esc(stripSafe(o.plain || planText(o.plan)))}</span></span>
-      ${why.length ? `<span class="why">${why.join("")}</span>` : ""}</button>`;
+      ${why.length ? `<span class="why">${why.join("")}</span>` : ""}<kbd>${i + 1}</kbd></button>`;
   }).join("");
   $("#escPositions").innerHTML = (d.positions || []).map(p => {
     const id = p.advisor || p.id;
@@ -538,10 +625,10 @@ const STATS = [
   { key: "starved", label: "Starved", unit: "last year", color: "#f87171", dir: -1, get: starvedOf },
 ];
 function buildStats() {
-  $("#stats").innerHTML = STATS.map(st => `<div class="stat" id="stat-${st.key}" style="--sc:${st.color}" aria-expanded="false">
-    <button class="stat-btn" type="button" aria-controls="chart-${st.key}">
-      <span class="stat-top"><span class="stat-k">${esc(st.label)}</span><span class="chev" aria-hidden="true">▾</span></span>
-      <span class="stat-main"><span class="stat-v">-</span>${st.unit ? `<span class="stat-unit">${esc(st.unit)}</span>` : ""}<span class="delta"></span></span>
+  $("#stats").innerHTML = STATS.map(st => `<div class="stat" id="stat-${st.key}" style="--sc:${st.color}">
+    <button class="stat-btn" type="button" aria-controls="chart-${st.key}" aria-expanded="false">
+      <span class="stat-top"><span class="stat-k">${esc(st.label)}</span><span class="delta"></span><span class="chev" aria-hidden="true">▾</span></span>
+      <span class="stat-main"><span class="stat-v">-</span>${st.unit ? `<span class="stat-unit">${esc(st.unit)}</span>` : ""}</span>
     </button>
     <div class="chart hidden" id="chart-${st.key}"></div></div>`).join("");
   $$("#stats .stat-btn").forEach(b => b.onclick = () => toggleStat(b.parentElement.id.slice(5)));
@@ -555,6 +642,7 @@ function renderStats() {
   const last = S.hist.length - 1;
   window.CityView?.render(S.hist[last] || null);
   $("#cityWhen").textContent = last <= 0 ? "at the start" : `after year ${last}`;
+  $("#side").classList.toggle("no-city", !S.hist.length);
   for (const st of STATS) {
     const el = $(`#stat-${st.key}`);
     const pts = points(st);
@@ -565,7 +653,7 @@ function renderStats() {
     else {
       const diff = cur[1] - prev[1];
       const good = st.dir === 0 || diff === 0 ? "flat" : (diff > 0) === (st.dir > 0) ? "good" : "bad";
-      d.textContent = diff === 0 ? "= same" : `${diff > 0 ? "▲" : "▼"} ${fmt(Math.abs(diff))}`;
+      d.textContent = diff === 0 ? "" : `${diff > 0 ? "▲" : "▼"} ${fmt(Math.abs(diff))}`;
       d.className = `delta ${good}`;
       d.title = "Change since last year";
     }
@@ -577,7 +665,8 @@ function toggleStat(key) {
   for (const st of STATS) {
     const el = $(`#stat-${st.key}`);
     const open = S.expanded === st.key;
-    el.setAttribute("aria-expanded", String(open));
+    el.classList.toggle("open", open);
+    $(".stat-btn", el).setAttribute("aria-expanded", String(open));
     $(".chart", el).classList.toggle("hidden", !open);
     if (open) {
       drawChart(st);
@@ -757,10 +846,12 @@ function readHold(text) {
 }
 function resetGame(d) {
   stopNarration();
+  hideSpot();
   closeEscalation();
   S.scoutRequest = null; S.compareVote = null;
+  window.CityEffects?.clear();
   hideRunoff();
-  Object.assign(S, { leadHtml: "", year: 0, round: null, completed: 0, hist: [], roundBase: {}, plans: {}, stance: {}, running: true, waitingHuman: false });
+  Object.assign(S, { leadHtml: "", cmpHtml: "", year: 0, round: null, completed: 0, hist: [], roundBase: {}, plans: {}, lastPlain: {}, stance: {}, running: true, waitingHuman: false });
   S.years = d.years || S.meta?.years || 5;
   if (d.advisors) setAdvisors(d.advisors);
   else renderStances();
@@ -773,26 +864,36 @@ function resetGame(d) {
   syncSetupLock();
 }
 
+// Runs that end early: plain words for the audience; the journal keeps the details.
+const HALTED = {
+  technical_failure: ["The council went quiet", "An advisor's model call failed. Convene to start again."],
+  deadlock: ["Deadlock unresolved", "No decision was recorded for this year."],
+  stopped: ["Council stopped", ""],
+  lost: ["Council stopped", "The chamber restarted. Convene to start again."],
+};
 function render(kind, d, instant) {
   switch (kind) {
     case "game":
       resetGame(d);
-      setPhase("The council gathers", `<span>${N()} advisors, ${S.years} years, no king to break ties.</span>`);
-      append(`<span class="emoji">🏛️</span><div><b>The council convenes</b>${N()} advisors will run the city for ${S.years} years. Each has a different goal. They must agree, or ask you.</div>`, "note", { instant });
+      setPhase("The council gathers", `<span>${N()} advisors · ${S.years} years · no king</span>`);
       break;
     case "year_start":
-      S.year = d.year; S.round = null; S.stance = {}; S.plans = {}; S.leadHtml = ""; renderStances(); hideRunoff();
+      S.year = d.year; S.round = null; S.stance = {}; S.plans = {}; S.leadHtml = ""; S.cmpHtml = ""; S.lastPlain = {}; renderStances(); hideRunoff();
       if (d.state) recordState(d.year - 1, d.state);
       renderYear();
-      setPhase(`Year ${d.year} begins`, `<span>The council is discussing</span>`);
-      setHubSub(`year ${d.year}`);
+      setPhase("The council debates", "");
+      if (!instant) {
+        spotlight("flash", `<div class="flash-year"><div class="big">Year ${esc(d.year)}</div><div class="of">of ${esc(S.years)}</div></div>`, { flash: true, ms: FLASH_YEAR });
+        holdUntil = Math.max(holdUntil, now() + FLASH_YEAR);
+      }
+      setHubSub();
       { const s = d.state || S.hist[d.year - 1] || {};
         append(`Year ${esc(d.year)}<small>${fmt(s.population)} people · ${fmt(s.grain)} bushels · ${fmt(s.acres)} acres</small>`, "divider year", { instant }); }
       break;
     case "round": {
       if (d.year) S.year = d.year;
       const r = dispRound(d.year, d.round);
-      setHubSub(`year ${S.year} · round ${r}`);
+      setHubSub();
       const max = d.max_rounds || S.meta?.max_rounds;
       S.round = { number: r, limit: max };
       renderYear();
@@ -807,8 +908,8 @@ function render(kind, d, instant) {
           }
           S.stance = {}; renderStances();
         }
-        setPhase(d.revote ? "Runoff re-vote" : "Runoff vote", `<span>The top two plans go head to head</span>`); break; }
-      setPhase(d.revote ? "Re-vote after scout" : "Discussing", S.leadHtml || "<span>The council is discussing</span>");
+        setPhase(d.revote ? "Runoff re-vote" : "Runoff vote", `<span>Every advisor picks <b>A</b> or <b>B</b></span>`); break; }
+      setPhase(d.revote ? "Re-vote after the scout" : "The council debates", S.leadHtml || "");
       append(d.revote ? `Re-vote after scout · round ${r}` : `Round ${r}${max ? ` of ${max}` : ""}`, "divider", { instant });
       break;
     }
@@ -821,14 +922,10 @@ function render(kind, d, instant) {
       append(`<span class="emoji">⏭</span><div><b>${esc(adv(d.advisor).short)} skipped this turn</b>Two attempts failed. The remaining advisors continue.</div>`, "note", { instant });
       break;
     case "tally": renderPoll(d, instant); compareVotes(d.rows, instant); break;
-    case "scout_request": showScout(d, instant); break;
+    case "scout_request": showScout(d); break;
     case "scout_choice":
-      if (S.scoutRequest?.request_id === d.request_id) S.scoutRequest = null;
+      if (S.scoutRequest?.request_id === d.request_id) { S.scoutRequest = null; hideSpot("scout"); }
       if (d.choice !== "skip") S.compareVote = d.rows;
-      $$("[data-scout-request]").filter(el => el.dataset.scoutRequest === d.request_id).forEach(el => {
-        $$("button", el).forEach(b => b.disabled = true);
-        $(".scout-status", el).textContent = d.choice === "skip" ? "Skipped · council continues" : "Scout sent · the council will re-vote";
-      });
       break;
     case "news": renderNews(d, instant); break;
     case "wire":
@@ -853,28 +950,33 @@ function render(kind, d, instant) {
       S.year = d.year; S.completed = Math.max(S.completed, d.year);
       if (d.state) recordState(d.year, d.state);
       renderYear();
-      G.idle(instant); setHubSub(`year ${d.year} decided`);
+      G.idle(instant); setHubSub();
       setPhase("Decision", outcomeBadge(d));
       renderYear_(d, instant);
-      if (!instant) narrate(d.narration_url);
+      if (!instant) {
+        const report = d.report || d.state?.last_report || {};
+        const effects = [];
+        if (report.plague_deaths > 0) effects.push("plague");
+        if (report.rats > 0) effects.push("rats");
+        window.CityEffects?.effect(effects);
+        showYearSpot(d); narrate(d.narration_url);
+      }
       hideRunoff();
       break;
     case "end":
       setup.liveRunId = "";
-      $$("[data-scout-request]").filter(el => el.dataset.scoutRequest === S.scoutRequest?.request_id)
-        .forEach(el => $(".scout-status", el).textContent = "Run ended");
-      S.scoutRequest = null; setPaused(false);
-      $$("[data-scout-request] button").forEach(button => button.disabled = true);
+      S.scoutRequest = null; hideSpot(); setPaused(false);
       S.running = false; S.round = null; S.completed = d.years?.length || 0; renderYear(); syncSetupLock();
       closeEscalation(); G.idle(instant);
-      setHubSub(d.status && d.status !== "completed" ? d.status.replaceAll("_", " ") : "reign complete");
+      setHubSub(HALTED[d.status] ? "stopped" : d.status && d.status !== "completed" ? d.status.replaceAll("_", " ") : "reign complete");
       if (d.status && !["completed", "overthrown", "depopulated"].includes(d.status)) {
-        setPhase(cap(d.status.replaceAll("_", " ")), "<span>The run retains its recorded city and decisions.</span>");
-        append(`<div class="card-kicker">${esc(d.status.replaceAll("_", " "))}</div>`, "card", { instant });
+        const [title, sub] = HALTED[d.status] || [cap(d.status.replaceAll("_", " ")), ""];
+        setPhase(title, sub ? `<span>${esc(sub)}</span>` : "");
         break;
       }
-      setPhase("Reign complete", `<span>${esc(d.rating?.verdict_reason ? cap(d.rating.verdict_reason) : "The council has finished its rule.")}</span>`);
+      setPhase("Reign complete", `<span>${esc(endTitle(d.rating || {})[0])}</span>`);
       renderEnd(d, instant);
+      showEndSpot(d);
       break;
     case "observability_error":
     case "technical_failure":
@@ -889,8 +991,27 @@ function render(kind, d, instant) {
   }
 }
 
+// Clear the stage when a run ends without its "end" event (Stop, or a restarted server).
+function haltRun(status) {
+  stopNarration();
+  setup.liveRunId = "";
+  S.running = false;
+  S.scoutRequest = null;
+  Q.length = 0; gen++; wake?.(); // drop speeches still queued for display
+  setPaused(false);
+  closeEscalation();
+  hideSpot();
+  hideRunoff();
+  G.idle();
+  S.stance = {}; renderStances();
+  S.year = 0; S.round = null; renderYear();
+  const [title, sub] = HALTED[status];
+  setPhase(title, sub ? `<span>${esc(sub)}</span>` : "");
+  syncSetupLock(); idleTyping();
+}
+
 /* ---------------- SSE ---------------- */
-let es;
+let es, connLost = false;
 function armReplay() {
   clearTimeout(replayQuiet);
   replayQuiet = setTimeout(() => { replay = false; }, REPLAY_QUIET);
@@ -913,51 +1034,127 @@ function connect(id) {
     if (replay) armReplay();
     try { const ev = JSON.parse(m.data); onEvent(ev); if (ev.kind === "end") es.close(); } catch (e) { console.error("bad event", e); }
   };
-  es.onerror = () => { es.close(); setTimeout(() => connect(id), 1500); };
+  es.onopen = () => {
+    if (!connLost) return;
+    connLost = false;
+    // A restarted server has forgotten the live run: show it as stopped rather than waiting forever.
+    api("/api/meta").then(m => {
+      if (S.runId !== id || m.active_run === id) return toast("Reconnected to the chamber", true);
+      es.close(); haltRun("lost");
+    }).catch(() => {});
+  };
+  es.onerror = () => {
+    es.close();
+    if (!connLost && S.running) { connLost = true; toast("Lost the connection to the chamber. Reconnecting…"); }
+    setTimeout(() => connect(id), 1500);
+  };
 }
 
 function voteSummary(rows) {
   return [...(rows || [])].sort((a, b) => (b.accept?.length || 0) - (a.accept?.length || 0))
-    .map(row => `<div class="vote-summary-row"><span>${esc(planName(row.id, row.author))}</span><b>${row.accept?.length || 0} of ${N()}</b></div>`).join("") || "No votes";
+    .filter(row => row.accept?.length).slice(0, 3)
+    .map(row => `<div class="cmp-row"><span>${esc(planName(row.id, row.author))}</span><b>${row.accept.length} of ${N()}</b></div>`).join("") || "No votes";
 }
 function compareVotes(rows, instant) {
   if (!S.compareVote) return;
   const before = S.compareVote;
+  // Plan ids change every round: compare whose plans each advisor backs.
   const votes = values => Object.fromEntries(S.advisors.map(a => [
-    a.id, values.filter(row => row.accept?.includes(a.id)).map(row => row.id).sort(),
+    a.id, values.filter(row => row.accept?.includes(a.id)).map(row => planAuthor(row.id, row.author)).sort(),
   ]));
   const oldVotes = votes(before), newVotes = votes(rows);
-  const changed = S.advisors.filter(a => JSON.stringify(oldVotes[a.id]) !== JSON.stringify(newVotes[a.id])).map(a => a.short);
-  append(`<div class="card-kicker">Re-vote comparison</div><p>${changed.length ? `${esc(changed.join(", "))} changed their votes.` : "Every agent kept the same votes."}</p>
-    <div class="vote-comparison"><div><b>Before the scout</b>${voteSummary(before)}</div><div><b>After the scout</b>${voteSummary(rows)}</div></div>`, "card", { instant });
+  const changed = S.advisors.filter(a => JSON.stringify(oldVotes[a.id]) !== JSON.stringify(newVotes[a.id])).map(a => a.id);
+  const verdict = changed.length ? `<b>${esc(nameList(changed))}</b> changed ${changed.length === 1 ? "their vote" : "votes"}.` : "Nobody changed their vote.";
+  S.cmpHtml = `<p class="spot-sub cmp-verdict">${verdict}</p>
+    <div class="cmp"><div class="cmp-col"><h4>Before the scout</h4>${voteSummary(before)}</div><div class="cmp-arrow">→</div><div class="cmp-col"><h4>After</h4>${voteSummary(rows)}</div></div>`;
+  append(`<span class="emoji">🔁</span><div><b>Re-vote</b>${changed.length ? `${esc(nameList(changed))} changed their votes.` : "Nobody changed their vote."}</div>`, "note", { instant });
   S.compareVote = null;
 }
-function showScout(d, instant) {
+const SCOUT_ICON = { plague: "🦠", rats: "🐀", good_harvest: "🌾", bad_harvest: "🥀", low_price: "📉", high_price: "📈" };
+function scoutPlans(rows) {
+  if (!rows.length) return "";
+  const most = rows[0].accept?.length || 0;
+  const leaders = rows.filter(row => (row.accept?.length || 0) === most);
+  return `<div class="scout-plans" aria-label="Plans the council voted on">
+    <div class="scout-plan-heading">${leaders.length > 1 ? "Plans tied for most support" : "Plan with most support"}</div>
+    ${leaders.map(row => {
+      const author = planAuthor(row.id, row.author);
+      return `<div class="spot-plan">${author ? avatar(author) : ""}<span>
+        <b>${esc(planName(row.id, author))}</b>
+        <span>${esc(stripSafe(row.plain || (row.plan ? planText(row.plan) : "")))}</span>
+        <small class="scout-plan-support">${most} of ${N()} councilors support this plan</small>
+      </span></div>`;
+    }).join("")}
+  </div>`;
+}
+function showScout(d) {
   S.scoutRequest = d;
-  const card = append(`<div class="card-kicker">The votes are in</div><h3>Send a scout, or keep this vote?</h3>
-    <p>Choose an event to change the conditions and let every agent vote again.</p>
-    ${voteSummary(d.rows)}
-    <div class="scout-options">${d.options.map(option => `<button class="btn scout-option${option.id === "skip" ? " primary" : ""}" type="button" data-scout="${esc(option.id)}"><b>${esc(option.label)}</b><small>${esc(option.detail)}</small></button>`).join("")}</div>
-    <p class="scout-status" role="status">Waiting for your choice</p>`, "card scout-card", { instant });
-  card.dataset.scoutRequest = d.request_id;
-  $$("[data-scout]", card).forEach(button => button.onclick = async () => {
-    $$("button", card).forEach(b => b.disabled = true);
-    try { await api("/api/scout", { run_id: S.runId, request_id: d.request_id, choice: button.dataset.scout }); }
-    catch (e) { toast(e.message); $$("button", card).forEach(b => b.disabled = S.paused); }
+  const rows = [...(d.rows || [])].sort((x, y) => (y.accept?.length || 0) - (x.accept?.length || 0));
+  rows.forEach(r => { if (r.id && r.author) S.plans[r.id] = r.author; });
+  const events = (d.options || []).filter(o => o.id !== "skip");
+  S.cmpHtml = "";
+  const labels = { plague: "Plague", rats: "Rats", good_harvest: "Good harvest", bad_harvest: "Bad harvest", low_price: "Cheap land", high_price: "Costly land" };
+  spotlight("scout", `<div class="spot-kicker">Omens</div>
+    ${scoutPlans(rows)}
+    <div class="scout-grid">${events.map((o, i) => `<button class="scout-ev" type="button" data-scout="${esc(o.id)}"><span class="emoji">${SCOUT_ICON[o.id] || "📯"}</span><b>${esc(labels[o.id] || o.label)}</b><kbd>${i + 1}</kbd></button>`).join("")}</div>
+    <div class="spot-actions"><button class="btn primary" type="button" data-scout="skip">Leave be</button></div>`, { cls: "scout" });
+  const btns = $$("#spot [data-scout]");
+  btns.forEach(b => {
+    b.disabled = S.paused;
+    b.onclick = async () => {
+      btns.forEach(x => x.disabled = true);
+      try {
+        await api("/api/scout", { run_id: S.runId, request_id: d.request_id, choice: b.dataset.scout });
+        if (S.scoutRequest?.request_id === d.request_id) hideSpot("scout");
+      } catch (e) {
+        // Another open tab may have answered first; an automatic skip losing that race is not an error.
+        if (b.dataset.auto) { hideSpot("scout"); return; }
+        toast(e.message); btns.forEach(x => x.disabled = S.paused);
+      }
+    };
   });
-  setPhase("Voting complete", "<span>Choose a scout event for a re-vote, or skip.</span>");
+  setPhase("Voting");
   idleTyping();
+  startCountdown();
+}
+// A hands-free demo keeps moving: an untouched scout prompt lets the vote stand after
+// AUTO_CONTINUE seconds. Any hover, key, or pause hands control back to the presenter.
+let countT = 0;
+function startCountdown() {
+  stopCountdown();
+  const skip = $('#spot [data-scout="skip"]');
+  if (!skip || S.paused || !$("#autoContinue").checked) return;
+  let left = AUTO_CONTINUE;
+  const label = skip.textContent;
+  const tick = () => { skip.textContent = `${label} · ${left}`; };
+  skip.style.setProperty("--count", `${AUTO_CONTINUE}s`);
+  skip.classList.add("counting");
+  tick();
+  countT = setInterval(() => {
+    if (--left > 0) return tick();
+    stopCountdown();
+    if (!skip.disabled) { skip.dataset.auto = "1"; skip.click(); }
+  }, 1000);
+  stopCountdown.reset = () => { skip.textContent = label; skip.classList.remove("counting"); };
+  $("#spot .spot-card").addEventListener("pointerenter", stopCountdown, { once: true });
+}
+function stopCountdown() {
+  clearInterval(countT); countT = 0;
+  stopCountdown.reset?.(); stopCountdown.reset = null;
 }
 function setPaused(paused) {
   S.paused = paused;
   const button = $("#pauseBtn");
   button.textContent = paused ? "Resume" : "Pause";
+  document.body.classList.toggle("paused", paused);
   button.setAttribute("aria-pressed", String(paused));
   $$("#escOptions button").forEach(b => b.disabled = paused);
   if (paused) { narrator.pause(); wake?.(); }
   else { if (narrating && !muted) narrator.play().catch(() => {}); pump(); }
-  $$("[data-scout-request]").filter(el => el.dataset.scoutRequest === S.scoutRequest?.request_id)
-    .forEach(el => $$("button", el).forEach(b => b.disabled = paused));
+  if (spotKind === "scout") {
+    $$("#spot [data-scout]").forEach(b => b.disabled = paused);
+    if (paused) stopCountdown();
+  }
   idleTyping();
 }
 
@@ -976,11 +1173,12 @@ function setupError(message = "") {
 function syncSetupLock() {
   const locked = setup.starting || setup.stopping || !!setup.liveRunId;
   $("#councilSetup").disabled = locked || !setup.ready;
-  for (const id of ["seed", "rounds", "startBtn", "welcomeStart"]) {
+  for (const id of ["seed", "rounds", "startBtn", "conveneBtn"]) {
     const el = document.getElementById(id);
     if (el) el.disabled = locked || !setup.ready;
   }
   $("#setupLocked").classList.toggle("hidden", !locked);
+  $("#conveneBtn").classList.toggle("hidden", locked || !setup.ready);
   $("#pauseBtn").disabled = !setup.liveRunId;
   $("#stopBtn").disabled = !setup.liveRunId || setup.stopping;
 }
@@ -988,19 +1186,18 @@ function renderVoters() {
   const n = setup.seats.length, rules = votingThresholds(n);
   const roster = configuredAdvisors();
   $("#agentCount").value = n;
-  $("#votingRules").textContent = `${n} voters · majority: ${rules.majority} · strong majority: ${rules.strong} · runoff eligibility: ${rules.runoff}`;
+  $("#votingRules").textContent = `Majority: ${rules.majority} of ${n}`;
+  previewCouncil();
   $("#voterList").innerHTML = setup.seats.map((seat, i) => {
     const custom = seat.preset === "custom", a = setup.templates.find(a => a.id === seat.preset);
-    return `<section class="voter-card" data-slot="${i}" aria-labelledby="voter-${i}">
-      <h3 id="voter-${i}">Voter ${i + 1} · ${esc(roster[i].short || (custom ? "Custom agent" : a?.short))}</h3>
-      <label class="field"><span>Agent</span><select data-voter="preset">${setup.templates.map(a => `<option value="${esc(a.id)}"${a.id === seat.preset ? " selected" : ""}>${esc(a.short)}</option>`).join("")}<option value="custom"${custom ? " selected" : ""}>Custom agent</option></select></label>
-      <label class="field"><span>Bias · 0 flexible, 1 strongly resists compromise</span><input type="number" data-voter="bias" min="0" max="1" step="0.05" value="${esc(seat.bias ?? a?.bias ?? 0)}" required></label>
-      ${custom ? `<label class="field"><span>Name</span><input type="text" data-voter="short" value="${esc(seat.custom.short)}" maxlength="60" required placeholder="e.g. Canal Keeper"></label>
-      <label class="field"><span>Instructions / mandate</span><textarea data-voter="mandate" rows="3" maxlength="2000" required placeholder="What should this agent advocate for?">${esc(seat.custom.mandate)}</textarea></label>` : ""}
+    return `<section class="voter-card" data-slot="${i}">
+      <div class="voter-row">${avatar(roster[i].id)}<select data-voter="preset" aria-label="Voter ${i + 1}">${setup.templates.map(a => `<option value="${esc(a.id)}"${a.id === seat.preset ? " selected" : ""}>${esc(a.short)}</option>`).join("")}<option value="custom"${custom ? " selected" : ""}>Custom agent</option></select></div>
+      <label class="voter-bias"><span>Bias · 0 flexible, 1 resists compromise</span><input type="number" data-voter="bias" min="0" max="1" step="0.05" value="${esc(seat.bias ?? a?.bias ?? 0)}" required aria-label="Voter ${i + 1} bias"></label>
+      ${custom ? `<input type="text" data-voter="short" value="${esc(seat.custom.short)}" maxlength="60" required placeholder="Name, e.g. Canal Keeper" aria-label="Voter ${i + 1} name">
+      <textarea data-voter="mandate" rows="2" maxlength="2000" required placeholder="What does this agent want?" aria-label="Voter ${i + 1} mandate">${esc(seat.custom.mandate)}</textarea>` : ""}
     </section>`;
   }).join("");
   syncSetupLock();
-  previewCouncil();
 }
 function configuredAdvisors() {
   const totals = {}, seenRoles = {};
@@ -1027,7 +1224,7 @@ function previewCouncil() {
     const template = seat.preset === "custom" ? {} : setup.templates.find(t => t.id === seat.preset);
     return { ...template, ...a, short: a.short || (seat.preset === "custom" ? "Custom" : template?.short), title: a.title || a.short || template?.title || "Custom agent" };
   }));
-  setPhase("Ready to convene", `<span>${N()} advisor${N() === 1 ? "" : "s"} with different goals will run the city.</span>`);
+  setPhase(`${N()} advisor${N() === 1 ? "" : "s"}. One city. No king.`, "");
   setHubSub();
   welcome();
 }
@@ -1063,6 +1260,7 @@ function validateVoters() {
 function openDrawer(open) {
   $("#drawer").classList.toggle("open", open);
   $("#drawer").setAttribute("aria-hidden", String(!open));
+  $("#drawer").inert = !open;
   $("#drawerBack").classList.toggle("hidden", !open);
   $("#setupBtn").setAttribute("aria-expanded", String(open));
   if (open) $("#seed").focus({ preventScroll: true });
@@ -1090,11 +1288,6 @@ function setHood(on) {
   document.body.classList.toggle("hood", on);
   G.setHub({ label: hubLabel() });
   $("#hoodToggle").setAttribute("aria-pressed", String(on));
-  $$(".msg").forEach(m => {
-    const t = $(".thought", m), b = $(".think-btn", m);
-    if (t) t.hidden = !on;
-    if (b) b.setAttribute("aria-expanded", String(on));
-  });
   try { localStorage.setItem("sumer-hood", on ? "1" : "0"); } catch { /* storage blocked */ }
 }
 async function openEvidence() {
@@ -1137,6 +1330,7 @@ function wire() {
   $("#drawerClose").onclick = () => openDrawer(false);
   $("#drawerBack").onclick = () => openDrawer(false);
   $("#startBtn").onclick = start;
+  $("#conveneBtn").onclick = start;
   $("#stopBtn").onclick = async () => {
     if (!setup.liveRunId || setup.stopping) return;
     setup.stopping = true;
@@ -1144,11 +1338,7 @@ function wire() {
     syncSetupLock();
     try {
       await api("/api/stop", {});
-      stopNarration();
-      setup.liveRunId = "";
-      S.running = false;
-      setPaused(false);
-      closeEscalation();
+      haltRun("stopped");
     } catch (e) { toast(e.message); }
     finally {
       setup.stopping = false;
@@ -1165,6 +1355,10 @@ function wire() {
     finally { syncSetupLock(); }
   };
   $("#hoodToggle").onclick = () => setHood(!S.hood);
+  $("#autoContinue").onchange = e => {
+    try { localStorage.setItem("sumer-auto", e.target.checked ? "1" : "0"); } catch { /* storage blocked */ }
+    if (!e.target.checked) stopCountdown();
+  };
   $("#muteBtn").onclick = () => {
     muted = !muted;
     if (muted) stopNarration();
@@ -1190,24 +1384,62 @@ function wire() {
     paceT = setTimeout(() => api("/api/pace", { pace_s: +e.target.value }).catch(err => toast(err.message)), 200);
   };
   addEventListener("keydown", e => {
-    if (e.key !== "Escape") return;
-    openDrawer(false);
-    $("#evidence").classList.add("hidden");
+    if (e.key === "Escape") {
+      openDrawer(false);
+      $("#evidence").classList.add("hidden");
+      if (spotKind === "year" || spotKind === "end") hideSpot();
+      return;
+    }
+    // Presenter keys work from anywhere except text fields.
+    if (e.metaKey || e.ctrlKey || e.altKey || e.target.closest?.("input, textarea, select")) return;
+    const key = e.key.toLowerCase();
+    if (key === " ") {
+      if (e.target.closest?.("button, summary, a")) return; // Space presses the focused control
+      e.preventDefault(); if (!$("#pauseBtn").disabled) $("#pauseBtn").click(); return;
+    }
+    if (key === "m") return $("#muteBtn").click();
+    if (key === "h") return $("#hoodToggle").click();
+    if (key === "f") return (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.())?.catch(() => {});
+    if (S.waitingHuman && /^[1-9]$/.test(e.key)) {
+      const b = $$("#escOptions .esc-opt")[+e.key - 1];
+      if (b && !b.disabled) { e.preventDefault(); b.click(); }
+      return;
+    }
+    // The presenter drives scout choices from the keyboard: 1-6 send a scout, Enter continues.
+    if (spotKind !== "scout" || e.target.closest?.(".drawer") || ["Shift", "Control", "Alt", "Meta"].includes(e.key)) return;
+    stopCountdown();
+    if (e.key === "Enter" && e.target.closest?.("#spot button")) return;
+    const b = e.key === "Enter" ? $('#spot [data-scout="skip"]') : /^[1-9]$/.test(e.key) ? $$("#spot .scout-ev")[+e.key - 1] : null;
+    if (b && !b.disabled) { e.preventDefault(); b.click(); }
   });
+  $("#spot").addEventListener("click", e => { if (spotKind === "year" && !e.target.closest("button")) hideSpot("year"); });
   // Browsers block audio until a user gesture: any click unlocks the narrator.
   addEventListener("pointerdown", unlockAudio, { once: true, capture: true });
 }
+
+// Screens larger than 1080p at 1x (4K TVs, 1440p projectors) show the 1080p layout scaled up,
+// so faces and text keep their size relative to the room.
+function fitZoom() {
+  const z = Math.min(innerWidth / 1920, innerHeight / 1080);
+  const zoom = z > 1.1 ? +z.toFixed(3) : 1;
+  document.documentElement.style.zoom = zoom === 1 ? "" : zoom;
+  document.documentElement.style.setProperty("--z", zoom);
+}
+fitZoom();
+addEventListener("resize", fitZoom);
 
 (async function init() {
   window.CityView?.mount();
   G.mount($("#graph"));
   wire();
   buildStats();
+  renderStats();
   renderMute();
   renderYear();
   welcome();
   try { if (localStorage.getItem("sumer-hood") === "1") setHood(true); } catch { /* storage blocked */ }
   try { if (localStorage.getItem("sumer-tx") === "0") setTranscript(false); } catch { /* storage blocked */ }
+  try { $("#autoContinue").checked = localStorage.getItem("sumer-auto") !== "0"; } catch { /* storage blocked */ }
   try {
     S.meta = await api("/api/meta");
   } catch (e) {
@@ -1218,14 +1450,13 @@ function wire() {
   setup.templates = (m.advisors?.length ? m.advisors : Object.keys(FALLBACK_EMOJI).map(id => ({ id, mandate: PERSONA_MANDATES[id] }))).map(normAdvisor);
   setup.max = Number.isInteger(m.max_advisors) ? Math.min(21, Math.max(1, m.max_advisors)) : 21;
   $("#agentCount").max = setup.max;
-  $("#voterHelp").textContent = `Choose 1-${setup.max} voters. Use a default advisor or create your own. Agents can support multiple plans.`;
   setup.seats = setup.templates.slice(0, setup.max).map((_, i) => newVoter(i));
   setup.ready = true;
   setup.liveRunId = m.active_run || "";
   renderVoters();
   $("#chipTransport").textContent = m.transport === "slim" ? "AGNTCY SLIM" : m.transport ? String(m.transport) : "-";
   if (!S.runId) setHubSub();
-  $("#chipLlm").textContent = m.llm === "bayleaf" || m.llm === "llm" ? String(m.model || "LLM").split("/").pop() : m.llm ? "LLM unavailable" : "-";
+  $("#chipLlm").textContent = m.llm === "bayleaf" || m.llm === "llm" ? String(m.model || "LLM").split("/").pop() : m.llm ? String(m.llm) : "-";
   if (m.max_rounds) {
     const sel = $("#rounds");
     if (![...sel.options].some(o => +o.value === +m.max_rounds)) sel.insertAdjacentHTML("beforeend", `<option>${m.max_rounds}</option>`);
@@ -1233,4 +1464,6 @@ function wire() {
   }
   setPaused(!!m.active_run && !!m.paused);
   if (m.active_run) connect(m.active_run);
+  // Evidence appears only when a benchmark for the current rules exists.
+  api("/api/bench").then(b => $("#evidenceBtn").classList.toggle("hidden", !b?.rows?.length)).catch(() => {});
 })();

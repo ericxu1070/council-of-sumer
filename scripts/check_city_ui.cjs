@@ -8,7 +8,7 @@ const os = require('node:os');
 // Optional browser smoke check: install Playwright separately, then run this file
 // with its package on NODE_PATH. Uses local fixtures, with no model or API calls.
 (async () => {
-  const files = new Set(['index.html','app.css','app.js','graph.js','faces.js','city.js']);
+  const files = new Set(['index.html','app.css','app.js','graph.js','faces.js','city.js','city-effects.js','city-effects.css']);
   const server = http.createServer(async (req, res) => {
     const file = req.url === '/' ? 'index.html' : req.url.slice(1);
     if (!files.has(file)) { res.writeHead(404).end(); return; }
@@ -32,11 +32,23 @@ const os = require('node:os');
       {id:'provider',short:'Provider',color:'#5f8f3a',emoji:'🍞'},
       {id:'farmer',short:'Farmer',color:'#7a4fa3',emoji:'🌾'},
       {id:'merchant',short:'Merchant',color:'#a33a32',emoji:'⚖️'},
-      {id:'profiteer',short:'Profiteer',color:'#b5862a',emoji:'💰'},
-      {id:'imposter',short:'Imposter',color:'#b2622f',emoji:'🎭'},
+      {id:'priest',short:'Priest',color:'#b5862a',emoji:'🏺'},
+      {id:'villager',short:'Villager',color:'#b2622f',emoji:'🧑'},
     ]}}));
     await page.goto(url);
     await page.waitForFunction(()=>document.querySelectorAll('.cg-node').length===5);
+    const checkSeatsClearResources = async () => {
+      const overlaps = await page.evaluate(() => {
+        const areas = ['city-acres','city-population','city-grain'].map(id=>document.getElementById(id).getBoundingClientRect());
+        return [...document.querySelectorAll('.cg-node:not(.leave) .cg-face, .cg-node:not(.leave) .cg-label')]
+          .filter(el=>getComputedStyle(el).opacity!=='0')
+          .filter(el=>{
+            const r=el.getBoundingClientRect();
+            return areas.some(a=>r.left<a.right && r.right>a.left && r.top<a.bottom && r.bottom>a.top);
+          }).map(el=>el.closest('.cg-node').title);
+      });
+      assert.deepEqual(overlaps,[], 'Council portraits and names must clear city resources');
+    };
     assert.equal(await page.locator('#city-value-acres').textContent(),'—');
     await page.evaluate(()=>recordState(0,{population:100,grain:2800,acres:1000}));
     assert.equal(await page.locator('#city-value-acres').textContent(),'1,000 acres');
@@ -45,6 +57,9 @@ const os = require('node:os');
     assert.equal(await page.locator('#city-acres use[opacity="1"]').count(),10);
     assert.equal(await page.locator('#city-grain use[opacity="1"]').count(),14);
     await page.waitForTimeout(800);
+    await checkSeatsClearResources();
+    assert.equal(await page.locator('.cg-spoke').first().evaluate(el=>getComputedStyle(el).display),'none');
+    assert.equal(await page.locator('#cityMap text').allTextContents().then(text=>text.includes('N')),false);
     await page.evaluate(()=>{
       render("game",{advisors:S.advisors,years:5,state:{population:100,grain:2800,acres:1000}},false);
       render("year_start",{year:1,state:{population:100,grain:2800,acres:1000}},false);
@@ -56,6 +71,7 @@ const os = require('node:os');
     assert.equal(await page.evaluate(()=>planAuthor('farmer-y1-r1')),'farmer');
     assert.match(await page.locator('.cg-relation.agree title').textContent(),/Provider backs Farmer/);
     await page.waitForTimeout(200);
+    await checkSeatsClearResources();
     await page.screenshot({path:path.join(output,'desktop.png')});
     await page.waitForTimeout(1250);
     assert.equal(await page.locator('.cg-relation').count(),0);
@@ -88,16 +104,46 @@ const os = require('node:os');
     await page.waitForTimeout(1250);
     assert.equal(await page.locator('.cg-relation').count(),0);
     await page.evaluate(()=>{S.runoff=null; recordState(1,{population:104,grain:2950,acres:1030});});
+    const scout = {request_id:'preview',rows:[
+      {id:'farmer-y1-r1',author:'farmer',plan:{land_delta:0,feed:2000,plant:800},accept:['provider','farmer','villager']},
+      {id:'merchant-y1-r1',author:'merchant',plain:'Buy 20 acres, feed 1,800 bushels, plant 700 acres',accept:['merchant']},
+    ],options:['plague','rats','good_harvest','bad_harvest','low_price','high_price','skip'].map(id=>({id,label:id}))};
+    await page.evaluate(scout=>showScout(scout),scout);
+    assert.equal(await page.locator('.scout-plans .spot-plan').count(),1);
+    assert.match(await page.locator('.scout-plans').textContent(),/Farmer's plan/);
+    assert.match(await page.locator('.scout-plans').textContent(),/plant 800 acres/);
+    assert.match(await page.locator('.scout-plan-support').textContent(),/3 of 5/);
+    assert.equal(await page.locator('#spot [data-scout]').count(),7);
+    await page.waitForTimeout(500);
+    await page.screenshot({path:path.join(output,'omens-desktop.png')});
+    await page.setViewportSize({width:390,height:844});
+    await page.waitForTimeout(700);
+    await page.screenshot({path:path.join(output,'omens-mobile.png'),fullPage:true});
+    assert.equal(await page.locator('[data-scout="skip"]').isVisible(),true);
+    assert.equal(await page.locator('[data-scout="high_price"]').evaluate(el=>{
+      const r=el.getBoundingClientRect();
+      return el.contains(document.elementFromPoint(r.left+r.width/2,r.top+r.height/2));
+    }),true, 'Omen choices must remain above the mobile transcript');
+    await page.evaluate(scout=>showScout({...scout,phase:'runoff',rows:scout.rows.map(row=>({...row,accept:['farmer','merchant']}))}),scout);
+    assert.equal(await page.locator('.scout-plans .spot-plan').count(),2);
+    assert.match(await page.locator('.scout-plan-heading').textContent(),/tied/);
+    await page.evaluate(()=>showScout({request_id:'empty',rows:[],options:[]}));
+    assert.equal(await page.locator('.scout-plans').count(),0);
+    await page.evaluate(()=>{hideSpot('scout');S.scoutRequest=null;});
     await page.setViewportSize({width:390,height:844});
     await page.evaluate(()=>CouncilGraph.idle());
+    await page.waitForTimeout(700);
+    await checkSeatsClearResources();
     await page.screenshot({path:path.join(output,'mobile.png'),fullPage:true});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
     for (const count of [1,21]) {
       await page.evaluate(count=>setAdvisors(Array.from({length:count},(_,i)=>({id:`custom-person-${i}`,short:`Agent ${i+1}`,color:'#5f8f3a'}))),count);
       assert.equal(await page.locator('.cg-node:not(.leave)').count(),count);
+      await page.waitForTimeout(700);
+      await checkSeatsClearResources();
     }
     assert.deepEqual(errors,[]);
-    console.log('PASS: resource units, partial/zero/overflow totals, original plan ownership, green/red direct links, expiry, replay suppression, runoff votes, reduced motion, mobile overflow, 1/5/21 advisor rosters, no browser errors.');
+    console.log('PASS: city resources, clear council seats, removed map decorations, vote links, omen plan details and ties, mobile omen controls, reduced motion, 1/5/21 advisor rosters, no browser errors.');
   } finally {
     await browser?.close();
     await new Promise(resolve => server.close(resolve));
