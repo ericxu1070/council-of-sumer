@@ -69,7 +69,14 @@ class Hub:
                  "data": {k: v for k, v in data.items() if not k.startswith("_")}}
         for rid, q in list(self.subscribers):
             if rid == event["run_id"]:
-                q.put_nowait(event)
+                try:
+                    q.put_nowait(event)
+                except asyncio.QueueFull:
+                    # Reconnect from Last-Event-ID; durable events are in the journal.
+                    self.subscribers.discard((rid, q))
+                    while not q.empty():
+                        q.get_nowait()
+                    q.put_nowait(None)
 
 
 hub = Hub()
@@ -419,7 +426,7 @@ async def events(request: Request, run_id: str):
             after = int(last_id.split(":")[-1])
         except ValueError:
             pass
-    q: asyncio.Queue = asyncio.Queue()
+    q: asyncio.Queue = asyncio.Queue(maxsize=256)
     subscription = (run_id, q)
     hub.subscribers.add(subscription)
     backlog = store.events(run_id, after=after)
@@ -437,6 +444,8 @@ async def events(request: Request, run_id: str):
                     break
                 try:
                     event = await asyncio.wait_for(q.get(), 15)
+                    if event is None:
+                        break
                     if event["sequence"] > cursor:
                         cursor = event["sequence"]
                         yield frame(event)
