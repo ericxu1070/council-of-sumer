@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
-from sumer.storage import Store
+
 from sumer import web
+from sumer.storage import Store
 
 
 def test_startup_recovers_old_active_runs(monkeypatch):
