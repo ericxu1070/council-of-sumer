@@ -1,13 +1,16 @@
-"""Same advisor code, called directly. Used by tests and fast benchmarks."""
-
+"""The same signed phase contracts, called directly for tests and offline fixtures."""
 from __future__ import annotations
 
 import asyncio
 
-from sumer.advisors import ADVISOR_IDS
 from sumer.agent import decide
-from sumer.protocol import Ballot, Brief
+from sumer.protocol import Brief, Delivery, endpoint
 
 
-async def gather(brief: Brief) -> list[Ballot]:
-    return list(await asyncio.gather(*(decide(a, brief) for a in ADVISOR_IDS)))
+async def gather(brief: Brief) -> list[Delivery]:
+    async def one(peer: str):
+        try:
+            return Delivery(peer, endpoint(peer), reply=await decide(peer, brief))
+        except Exception as exc:  # noqa: BLE001 - transport boundary returns failures to the clerk
+            return Delivery(peer, endpoint(peer), error=f"{type(exc).__name__}: {exc}")
+    return list(await asyncio.gather(*(one(peer) for peer in brief.targets)))

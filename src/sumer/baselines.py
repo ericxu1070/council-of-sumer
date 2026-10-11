@@ -1,4 +1,4 @@
-"""Simpler deciders to compare the council against. All see the same news."""
+"""Existing offline comparison policies. None supplies live council guidance."""
 
 from __future__ import annotations
 

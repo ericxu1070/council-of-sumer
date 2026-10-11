@@ -1,42 +1,50 @@
-# Running the live demo
+# Council of Sumer demo
 
-## Setup (~2 min, before judges arrive)
+## Prepare
 
-1. Start everything:
-   ```bash
-   cd ~/Projects/council-of-sumer && uv run sumer up
-   ```
-   Wait for `Council of Sumer: open http://localhost:8000`.
-2. Open **http://localhost:8000** in a full-screen browser.
-3. Check the header chips: **via AGNTCY SLIM** and **deepseek-v4.1-flash**.
-4. In the left sidebar set **Seed 7**, **Rounds 5**, **Scouts Report**, **Pace ~1.2**.
-   Seed, Rounds, and Scouts must match the rehearsal or the replay misses the cache.
+```bash
+uv sync
+cp .env.example .env
+# Fill in BAYLEAF_API_KEY for live mode; use LLM_MODE=mock for an offline rehearsal.
+uv run pytest
+uv run sumer up
+```
 
-## During the pitch (~3 min)
+Open http://localhost:8000. The launcher starts the SLIM node, four advisors,
+and web chamber.
+Keep the existing Bayleaf model and spend settings. There is no automatic offline fallback
+when a live model call fails.
 
-1. Click **Convene**. Messages and polls stream in, about 6 s per year at pace 1.2.
-2. Click any **💭 Thinking** bar to show one advisor's private reasoning and scores.
-3. Flip **Glass box** (top right): every thought expands and the SLIM wire messages appear.
-4. Year 1 scout report (locusts): point at how the next round's proposals shift.
-5. **Years 9 and 10** deadlock and the red bar appears. Click **🛟 Safe fallback** both times.
-6. At the end card, open the **📊 evidence** channel for the baseline comparison.
+## Show the negotiation
 
-Stop with `Ctrl+C`.
+1. Select seed 7 and convene. The current land quote is visible in the city report.
+2. Show all four independent openings, including the assumed quote and arithmetic.
+3. Follow the separate objection and revision phases. Expand **Glass box** to see each
+   model's submitted explanations, assumptions, and expected effects.
+4. Show a frozen candidate's four explicit YES/NO ballots and reasons. Three YES adopt as
+   soon as all four valid ballots are received. A NO remains on the record.
+5. If the negotiation limit is reached, show the failed ballots and all four latest valid
+   proposals. Choose one to continue. Its outcome is **human resolution**, and the run is
+   marked human-assisted. A deadlock is not guaranteed for a particular seed or live model.
+6. If a technical failure occurs, show the recorded first failure and retry, then the
+   stopped technical-failure status. The UI never presents that as a political deadlock.
 
-## Notes
+The main accounting rules are whole-number budgets, rejection of overspending, rats before
+the new harvest, immigration despite partial starvation, and floor-rounded plague survivors.
+Future events remain unknown to the advisors; no scouting controls disclose them.
 
-- **Pace slider**: drag to 0 to fast-forward, up to 3 or 4 to slow down while talking.
-- **Off-script deadlock choice**: any other choice still works, but the years after it make live
-  LLM calls (about 1.5 min and a few cents per year).
-- **No Wi-Fi needed**: the cached replay and SLIM both run locally.
-- **Cache is local**: replies live in `.cache/llm/` (git-ignored). Demo from the laptop that ran the
-  rehearsal, or copy that folder. To re-rehearse a seed, play it once with `LLM_MODE=bayleaf`.
+## Show evidence
 
-## If something breaks
+- Use year channels to inspect proposals, objections, completed failed ballots, dissent, and
+  the committed year's harvest, rats, starvation, immigration, and plague deaths.
+The existing offline benchmark command is `uv run sumer bench --seeds 30`. Historical
+checked-in results are labeled as such until regenerated. Deadlocks remain paused in a
+benchmark without a human; do not describe them as completed autonomous reigns.
 
-| Problem | Fix |
-|---|---|
-| `Address already in use` on start | `pkill -f "python -m sumer.cli"`, then start again |
-| Header says "offline policy" | `.env` has `LLM_MODE=mock`; set it to `bayleaf` and restart |
-| Years are slow (~1.5 min each) | Cache missed: check Seed 7, Rounds 5, Scouts Report |
-| Anything else at the venue | `LLM_MODE=mock uv run sumer up`: same UI, no API needed |
+## Verified implementation checks
+
+The automated suite checks integer accounting, invalid budget rejection, three-of-four
+adoption with all four ballots, signatures and identity, stale/wrong candidate rejection,
+one retry, genuine deadlock selection, certificate verification, exactly-once commitment,
+and retained model usage. Mock mode exercises the transport
+without requiring paid model calls.
