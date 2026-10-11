@@ -22,6 +22,15 @@ async def test_agent_preserves_the_models_legal_proposal(llm_reply):
     assert ballot.source == "llm"
 
 
+async def test_merchant_accepts_proposal_keys_with_nonbreaking_spaces(llm_reply):
+    llm_reply["proposal"] = {"land_delta": 30, "feed\u00a0": 1800, "plant\u00a0": 0}
+    brief = brief_for("merchant")
+    ballot = await agent.decide("merchant", brief)
+    assert validate_reply(ballot, brief) is ballot
+    assert ballot.proposal.model_dump() == {"land_delta": 30, "feed": 1800, "plant": 0}
+    assert ballot.source == "llm" and ballot.error is None
+
+
 async def test_model_alone_selects_accepts_and_backed_plan(llm_reply):
     proposal = Plan(land_delta=0, feed=0, plant=500)
     tabled = TabledProposal(id="profiteer-plan", author="profiteer", plan=proposal)
@@ -51,6 +60,10 @@ async def test_agent_preserves_the_models_runoff_choice(llm_reply):
 @pytest.mark.parametrize("changes", [
     {"proposal": {"land_delta": 0, "feed": 100000, "plant": 0}},
     {"proposal": {"land_delta": 0, "feed": 2000.5, "plant": 0}},
+    {"proposal": {"land_delta": 0, "feed\u00a0": 100000, "plant\u00a0": 0}},
+    {"proposal": {"land_delta": 0, "feed\u00a0": True, "plant\u00a0": 0}},
+    {"proposal": {"land_delta": 0, "feed\u00a0": 2000, "plant\u00a0": 0, "extra ": 1}},
+    {"proposal": {"land_delta": 0, "feed": 2000, "feed\u00a0": 1800, "plant": 0}},
     {"accept": ["missing-plan"]},
     {"back": "missing-plan"},
 ])
