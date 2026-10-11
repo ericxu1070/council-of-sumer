@@ -35,6 +35,7 @@ from sumer.clamor import router as clamor_router
 from sumer.config import CACHE_DIR, RESULTS_DIR, ROOT, settings
 from sumer.game import YEARS
 from sumer.protocol import Ballot, Brief, Delivery, uid
+from sumer.rulebooks import EXAMPLE_RULEBOOKS
 from sumer.scouts import SCOUT_IDS, SCOUT_OPTIONS
 from sumer.storage import Store
 
@@ -345,6 +346,7 @@ async def meta():
     return {
         "active_run": live.run_id if live.task and not live.task.done() else "",
         "advisors": [a.public() for a in ADVISORS.values()],
+        "example_rulebooks": EXAMPLE_RULEBOOKS,
         "max_advisors": MAX_ADVISORS,
         "years": YEARS,
         "pace_s": live.pace_s,
@@ -408,6 +410,12 @@ async def run_details(run_id: str):
 async def recorded_events(run_id: str, year: int | None = None, after: int = 0):
     require_run(run_id)
     return store.events(run_id, after=after, year=year)
+
+
+@app.get("/api/runs/{run_id}/beliefs")
+async def private_beliefs(run_id: str):
+    require_run(run_id)
+    return store.private_beliefs(run_id)
 
 
 @app.get("/api/runs/{run_id}/export")

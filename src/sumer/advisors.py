@@ -28,11 +28,10 @@ VILLAGER_MANDATE = (
     "Maximize the expected final numeric score over the whole reign: "
     "10 * surviving people + (remaining bushels + 20 * final acres) / 100 "
     "- 15 * total people starved - (2000 if overthrown else 0). "
-    "Balance all five terms and future consequences, "
-    "including workers, immigration, harvests, rats, and plague. You are willing to let "
+    "Balance all five terms and future consequences using the information available to you. "
+    "You are willing to let "
     "people die when the expected score gain outweighs the loss of survivors and the "
-    "starvation penalty. More than 45% starvation in one year ends the reign immediately; "
-    "account for the overthrow penalty and lost future opportunities. Favor neither "
+    "starvation penalty. Account for possible overthrow and lost future opportunities. Favor neither "
     "starvation nor survival for its own sake. The narrative verdict is separate from "
     "your numeric-score objective."
 )
@@ -120,9 +119,10 @@ class Advisor:
     voice: str  # how the advisor talks, used by the LLM
     color: str
     emoji: str
-    bias: float = 0.0  # preference intensity and resistance to concessions, from 0 to 1
+    bias: float = 0.0  # preferences, resistance to concessions, and rulebook conviction (0 to 1)
     aliases: tuple[str, ...] = field(default_factory=tuple)  # other names that address it
     tts_voice: str = ""  # the text-to-speech voice key it speaks in (see sumer.voice)
+    rulebook: str = ""  # User-supplied starting beliefs; only the owner's LLM sees this text.
 
     def public(self) -> dict:
         return {
@@ -135,6 +135,7 @@ class Advisor:
             "voice": self.voice,
             "bias": self.bias,
             "tts_voice": self.tts_voice,
+            "rulebook": self.rulebook,
         }
 
     def beliefs_for(self, b: Beliefs) -> Beliefs:
@@ -193,7 +194,7 @@ ADVISORS: dict[str, Advisor] = {
             id="priest", title="Priest", short="Priest", bias=0.25,
             mandate=VILLAGER_MANDATE + " Your specialty is maximizing bushels remaining at "
             "the end and keeping grain in store for emergencies. Favor reserves against "
-            "famine, poor harvests, and rats, while recognizing stores can be lost to rats. "
+            "possible shortages and losses. "
             "Negotiate how much to release for meals, seed, or land when that improves "
             "the whole-reign score; hoarding is a preference, not an absolute rule.",
             voice="calm, prudent, persuasive; bargains for emergency stores and future security",
@@ -230,6 +231,7 @@ class CouncilSeat(BaseModel):
     color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
     emoji: str | None = Field(default=None, min_length=1, max_length=12)
     tts_voice: str | None = Field(default=None, max_length=32)
+    rulebook: str = Field(default="", max_length=8000)
 
     @model_validator(mode="after")
     def custom_identity(self):
@@ -265,6 +267,7 @@ def resolve_council(seats: list[dict | CouncilSeat] | None = None) -> dict[str, 
                 color=seat.color or base.color,
                 emoji=seat.emoji or base.emoji,
                 tts_voice=seat.tts_voice or base.tts_voice,
+                rulebook=seat.rulebook,
             )
         else:
             roster[seat.id] = Advisor(
@@ -277,6 +280,7 @@ def resolve_council(seats: list[dict | CouncilSeat] | None = None) -> dict[str, 
                 color=seat.color or "#607d8b",
                 emoji=seat.emoji or "🗣️",
                 tts_voice=seat.tts_voice or custom_voice_for(seat.id),
+                rulebook=seat.rulebook,
             )
     counts = Counter(a.short.casefold() for a in roster.values())
     occurrences: Counter[str] = Counter()

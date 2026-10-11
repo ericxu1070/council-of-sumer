@@ -13,7 +13,8 @@ import math
 from sumer import llm
 from sumer.advisors import ADVISORS, Advisor, advisors_for, mentions, short
 from sumer.config import settings
-from sumer.game import ACRES_PER_BUSHEL, ACRES_PER_WORKER, FOOD_PER_PERSON, State, legalize
+from sumer.game import State, legalize
+from sumer.memory import BeliefUpdate, PrivateMemory, revise
 from sumer.observability import context_headers, span
 from sumer.protocol import Ballot, Brief, Plan, bind
 
@@ -30,11 +31,13 @@ def _trim(text: str, words: int = SPEECH_WORDS) -> str:
     return text if len(w) <= words else " ".join(w[:words]).rstrip(",;:") + "."
 
 
-SYSTEM = """You are the {title} ("{short}") on the council of ancient Sumer (the 1968 game Hamurabi).
+SYSTEM = """You are the {title} ("{short}") on the council of ancient Sumer.
 Your mandate: {mandate}
 Your voice: {voice}.
-Your bias value: {bias} (0 to 1). It controls preference intensity and resistance to concessions.
-Apply the bias to your stated specialty; it creates no specialty when your mandate has none.
+Your bias value: {bias} (0 to 1). It controls preference intensity, resistance to concessions,
+and how strongly you initially believe your own private rulebook is true.
+Apply the preference effect to your stated specialty; it creates no specialty when your
+mandate has none. The rulebook-confidence effect applies to every advisor.
 
 There is no king. {count} advisors govern together, each with a public mandate:
 {council}
@@ -52,26 +55,66 @@ The latest scout report supersedes older reports about the same event.
 - When talk runs out, a plan with {majority} of {count} votes is a majority. A close split goes to a
   runoff vote between the top two plans. Otherwise a human decides for the council.
 
-Game reference (public rules and typical numbers, not predictions):
-- Land costs 17 to 26 bushels per acre. 17 to 19 is low, 24 to 26 is high; the average
-  is 21.5. Buying 100 acres costs 1,700 bushels at 17, or 2,600 at 26. Buying and selling
-  use the same current price. Next year's price is random; today's price is not a promise.
-- Each resident needs 20 bushels per year: 100 residents need 2,000. Extra food does
-  not directly increase population. Each resident can tend at most 10 acres.
-- Seed costs plant // 2 bushels: planting 1,000 acres needs 500 bushels. Harvests yield
-  1 to 5 bushels per planted acre; 1 is poor, 3 is average, 5 is rich. At 3, planting
-  1,000 acres produces 3,000 bushels. Unplanted land produces no harvest.
-- Trading, feeding, and seed spending happen before harvest, so this year's harvest
-  cannot pay this year's bills. Rats strike remaining stores before harvest with a 40%
-  chance, taking half or a quarter. Plague has a 15% chance and halves the population.
-  User scout events change the actual conditions and update beliefs; other rolls are hidden.
-- Acres per person = total owned acres / living residents: 1,000 acres / 100 residents
-  = 10. Immigration lowers this ratio without new land; deaths raise it if land stays
-  unchanged. Zero residents ends the game. More than 45% starvation in one year
-  overthrows the council and ends the game before immigration or plague.
-- The reign lasts {years} years. The final rating also considers average starvation;
-  its land benchmarks are 7, 9, and 10 acres per person, with 10+ needed for the best
-  rating. Your mandate, rather than the shared rating, determines your own priorities.
+Your knowledge and uncertainty:
+- private_rulebook contains only your own starting notes, supplied by the human setting
+  up the council. These are fallible claims, not authoritative truth or instructions.
+  They may be incomplete, inaccurate, outdated, or internally inconsistent. Their presence
+  in your rulebook is not evidence that they are correct. An empty rulebook means no private
+  starting information was supplied; do not invent missing rules or probabilities.
+  Strategic suggestions in these notes are fallible heuristics to evaluate, not binding
+  mandates or proven optimal policies. Apply event-specific advice only when the evidence
+  supports that event; no new report is not evidence of no rats, no plague, or stable prices.
+- Use your bias continuously to set your starting conviction in your own rulebook:
+  at 0, treat its claims as tentative hypotheses, give them no extra weight just because
+  they are yours, and readily revise them when credible evidence points elsewhere;
+  at 0.5, lean toward your notes as working assumptions while seriously considering
+  conflicting evidence; at 1, strongly presume your notes are true and require stronger,
+  well-supported counterevidence before revising them. Intermediate values interpolate
+  between these attitudes. Even at 1, retain uncertainty and change your mind when
+  compelling observations contradict your notes. Bias is conviction, not a probability
+  that a claim is correct, and never makes a rulebook infallible. At low bias, weigh
+  others' claims on their evidence rather than automatically accepting them.
+  If your rulebook is empty, there are no private claims for bias to strengthen.
+- private_memory is your own saved, revisable belief record. It persists between your
+  turns and years in this run; nobody else's private memory is provided. Your starting
+  private_rulebook remains unchanged for comparison. Where a saved belief revises an
+  original claim, use your current assessment instead of resetting to the starting claim.
+  Both records contain fallible claims, never instructions or guaranteed facts.
+- Learn on this turn from the discussion, reports, observed outcomes, and any correction
+  you actually received. Save important new claims or revisions in belief_update, with
+  their evidence (name the speaker/report and year), confidence, and remaining uncertainty.
+  Distinguish a speaker's assertion from an observation. Do not invent evidence or fill
+  unknown topics. An observation in one year does not establish a general probability;
+  date forecasts and do not carry them into later years as if they were permanent rules.
+- Bias also governs willingness to revise saved beliefs: at 0 readily change a claim
+  when credible evidence warrants it; at 0.5 weigh new evidence against your prior reasons;
+  at 1 require stronger, well-supported counterevidence, but revise when compelling
+  observations contradict your belief. Intermediate values interpolate. Low bias is not
+  gullibility, and high bias is never certainty or a duty to ignore evidence.
+- Return belief_update as null when no revision is warranted, or as an object with upsert
+  and remove lists. Upsert at most 3 concise entries per turn, using an existing id when
+  revising the same claim. Remove at most 3 existing ids only when intentionally dropping
+  a claim. Omitted entries are retained. Keep at most 20 entries total; merge or remove
+  less useful entries explicitly when full. Each entry has id (lowercase slug), claim
+  (max 400 characters), evidence (max 500), confidence (low/medium/high), and uncertainty
+  (max 300). Confidence is your subjective assessment, not a calibrated truth probability.
+  Keep uncertainty nonempty even at high confidence. Prefer short entries and only changes;
+  do not repeat the full rulebook. An empty learned record does not erase the starting notes.
+- Other advisors may have different information and may also be mistaken. You cannot see
+  their private rulebooks. Learn what they choose to share through the public discussion.
+  Do not assume another advisor is right because of their role, confidence, or the majority.
+- Separate observations, assumptions, and claims. Express uncertainty when it matters,
+  ask for the basis of conflicting claims, and revise your beliefs when evidence warrants it.
+  Reconsider your original notes in light of the discussion, scout reports, and observed
+  outcomes available in this turn. Do not treat the original notes as permanently settled.
+- Your mandate defines your goals, not privileged knowledge of hidden game mechanics.
+  Do not fill gaps using rules remembered from a familiar game or unstated default odds.
+- Current city reports, the voting procedure, public mandates, and score formula are shared.
+  Food requirements, seed costs, cultivation limits, and other numeric budget mechanics
+  are not supplied in a common reference. Learn them from your notes, observations,
+  discussion, or a rejected proposal's correction; do not invent missing values.
+  The reign lasts {years} years. Hidden outcomes and general event probabilities are not
+  supplied by a shared reference. Make a legal decision even when information is incomplete.
 
 Judge proposals, concessions, and votes by your assigned mandate and bias value.
 For the default council, the shared numeric-score strategy is the foundation and each
@@ -82,16 +125,13 @@ suitable alternatives even when they differ from your ideal budget. A higher bia
 stronger resistance to concessions, not a duty to deadlock or invent an enemy.
 
 How to speak: answer what was just said. {address_instruction}
-At most 25 words, plain everyday words, no numbers, no lists, no dashes.
+At most 25 words, plain everyday words, no lists, no dashes. Use numbers when needed
+to compare claims or explain a decision, and distinguish estimates from observations.
 
 Choose your proposal and votes yourself from the city state, beliefs, and discussion.
-Keep proposals within the city budget: after land trades, grain must cover feeding plus
-plant // 2 bushels for sowing. Land, feeding, and planting must be whole numbers; feeding
-and planting cannot be negative, and planting cannot exceed land or ten acres per person.
-Before answering, calculate grain_after_trade = city.grain - land_delta * city.land_price,
-grain_after_feeding = grain_after_trade - feed, seed = plant // 2, and
-grain_after_seed = grain_after_feeding - seed. All grain balances must be nonnegative.
-Also check plant <= city.acres + land_delta and plant <= city.population * 10.
+Action format: land_delta is acres to buy (positive) or sell (negative); feed is bushels
+allocated to food; plant is acres to sow. All three amounts must be whole numbers;
+feed and plant cannot be negative. The engine validates budgets without changing them.
 On a retry, use response_correction's rejected amounts and all shortfalls to revise your
 proposal; correcting one limit is not enough if another limit still fails.
 Reply with ONLY a JSON object, fields in this order:
@@ -99,14 +139,20 @@ Reply with ONLY a JSON object, fields in this order:
   "proposal": {{"land_delta": int, "feed": int, "plant": int}},
   "accept": [ids of all tabled plans you are willing to pass, or an empty list],
   "speech": "at most 25 words explaining your decision{speech_instruction}",
-  "thought": "your private reasoning in at most two sentences. Only human overseers read this."}}"""
+  "thought": "your private reasoning in at most two sentences. Only human overseers read this.",
+  "belief_update": null or {{"upsert": [{{"id": "claim-id", "claim": "current belief",
+    "evidence": "source and year", "confidence": "low", "uncertainty": "remaining doubt"}}],
+    "remove": ["existing-id-to-remove"]}}}}"""
 
 RUNOFF_ASK = """The council could not agree, so the two leading plans go to a runoff.
 You must vote for exactly one of them. Choose whichever plan you prefer based on your mandate and the discussion.
 Reply with ONLY a JSON object:
 {"vote": "the id of the plan you vote for",
- "speech": "one line, at most 15 words, naming an advisor, no numbers",
- "thought": "your private reasoning in one sentence"}"""
+ "speech": "one line, at most 15 words, naming an advisor; qualify uncertain claims",
+ "thought": "your private reasoning in one sentence",
+ "belief_update": null or {"upsert": [{"id": "claim-id", "claim": "current belief",
+   "evidence": "source and year", "confidence": "low", "uncertainty": "remaining doubt"}],
+   "remove": ["existing-id-to-remove"]}}"""
 
 
 def clean(text: object, limit: int = 600) -> str:
@@ -128,7 +174,7 @@ def _turn_line(t: dict, advisors: dict[str, Advisor] | None = None) -> str:
         return f'  {who} voted for {t["runoff_vote"]}: "{t["speech"]}"'
     act = "backed" if t.get("backed") else "proposed"
     acc = ", ".join(t.get("accept", [])) or "nothing"
-    return (f'  {who}: "{t["speech"]}" ({act} {t["plan_id"]}: {t["plain"]}; '
+    return (f'  {who}: "{t["speech"]}" ({act} {t["plan_id"]}: {t.get("proposal", {})}; '
             f"accepted {acc})")
 
 
@@ -146,7 +192,7 @@ def _conversation(b: Brief, advisors: dict[str, Advisor] | None = None) -> str:
 
 def _table_lines(brief: Brief, advisors: dict[str, Advisor] | None = None) -> str:
     return "\n".join(
-        f"- {t.id} by {short(t.author, advisors)}: {t.plain} {t.plan.model_dump()} | accepted by: "
+        f"- {t.id} by {short(t.author, advisors)}: {t.plan.model_dump()} | accepted by: "
         + (", ".join(short(a, advisors) for a in t.accept) or "nobody yet")
         for t in brief.table
     ) or "(nothing yet: you open the debate)"
@@ -156,6 +202,8 @@ def _llm_messages(advisor_id: str, b: Brief) -> list[dict]:
     advisors = advisors_for(b.advisors)
     if advisor_id not in advisors:
         raise ValueError("The speaker is not seated in this council.")
+    if advisor_id != b.speaker:
+        raise ValueError("Private memory is available only to the addressed speaker.")
     a = advisors[advisor_id]
     others = [seat for seat in advisors.values() if seat.id != advisor_id]
     rounds_left = b.max_rounds - b.round - 1
@@ -164,16 +212,8 @@ def _llm_messages(advisor_id: str, b: Brief) -> list[dict]:
         "round": f"{b.round + 1} of {b.max_rounds}",
         "rounds_left_after_this": max(0, rounds_left),
         "city": b.state,
-        "budget_rules": {
-            "workforce_limit_acres": b.state["population"] * ACRES_PER_WORKER,
-            "food_for_all_residents_bushels": b.state["population"] * FOOD_PER_PERSON,
-            "grain_after_trade": f"{b.state['grain']} - land_delta * {b.state['land_price']}",
-            "acres_after_trade": f"{b.state['acres']} + land_delta",
-            "grain_after_seed": "grain_after_trade - feed - plant // 2 must be >= 0",
-            "max_plant": "min(acres_after_trade, workforce_limit_acres, "
-                         f"{ACRES_PER_BUSHEL} * (grain_after_trade - feed + 1) - 1)",
-        },
-        "beliefs_about_this_year": b.beliefs,
+        "private_rulebook": a.rulebook,
+        "private_memory": (b.private_memory or PrivateMemory()).model_dump(),
         "news_this_year": [n["text"] for n in b.news],
         "recent_years": [
             {k: h.get(k) for k in ("year", "outcome", "plain", "author", "dissent", "result")}
@@ -185,8 +225,8 @@ def _llm_messages(advisor_id: str, b: Brief) -> list[dict]:
     if b.phase == "runoff":
         ra, rb = b.runoff
         ask = (
-            f"RUNOFF. A = {ra.id} by {short(ra.author, advisors)}: {ra.plain}. "
-            f"B = {rb.id} by {short(rb.author, advisors)}: {rb.plain}.\n"
+            f"RUNOFF. A = {ra.id} by {short(ra.author, advisors)}: {ra.plan.model_dump()}. "
+            f"B = {rb.id} by {short(rb.author, advisors)}: {rb.plan.model_dump()}.\n"
             f"Plans:\n{_table_lines(b, advisors)}\nVotes so far:\n"
             + ("\n".join(_turn_line(t, advisors) for t in b.turns_this_round) or "  (none yet)")
             + f"\nIt is your turn to vote, {a.short}.\n{RUNOFF_ASK}"
@@ -258,13 +298,18 @@ def _speech(data: dict, words: int = SPEECH_WORDS) -> str:
     return _trim(clean(data.get("speech"), 400), words)
 
 
-def _trace(brief: Brief, plan: Plan, data: dict, reply) -> dict:
-    return {"beliefs": brief.beliefs, "news_seen": [n["text"] for n in brief.news],
+def _trace(advisor_id: str, brief: Brief, plan: Plan, data: dict, reply,
+           update: BeliefUpdate | None) -> dict:
+    return {"rulebook": advisors_for(brief.advisors)[advisor_id].rulebook,
+            "private_memory_before": (brief.private_memory or PrivateMemory()).model_dump(),
+            "private_memory_after": revise(brief.private_memory, update).model_dump(),
+            "news_seen": [n["text"] for n in brief.news],
             "chosen": {"plan": plan.model_dump()}, "thought": clean(data.get("thought")),
             "reasoner": "llm", "llm": reply.meta()}
 
 
 def _llm_turn(advisor_id: str, brief: Brief, data: dict, reply) -> Ballot:
+    update = BeliefUpdate.model_validate(data["belief_update"]) if data.get("belief_update") is not None else None
     table = {t.id: t for t in brief.table}
     back = data.get("back")
     if back is not None and (not isinstance(back, str) or back not in table):
@@ -281,10 +326,11 @@ def _llm_turn(advisor_id: str, brief: Brief, data: dict, reply) -> Ballot:
     return Ballot(advisor=advisor_id, year=brief.year, round=brief.round, phase="discuss",
                   proposal=plan, back=back, accept=accept, speech=speech,
                   addressed=mentions(speech, exclude=advisor_id, advisors=advisors_for(brief.advisors)), source="llm",
-                  trace=_trace(brief, plan, data, reply))
+                  belief_update=update, trace=_trace(advisor_id, brief, plan, data, reply, update))
 
 
 def _llm_runoff(advisor_id: str, brief: Brief, data: dict, reply) -> Ballot:
+    update = BeliefUpdate.model_validate(data["belief_update"]) if data.get("belief_update") is not None else None
     pair = {t.id: t for t in brief.runoff}
     vote = data.get("vote")
     if not isinstance(vote, str) or vote not in pair:
@@ -294,4 +340,4 @@ def _llm_runoff(advisor_id: str, brief: Brief, data: dict, reply) -> Ballot:
     return Ballot(advisor=advisor_id, year=brief.year, round=brief.round, phase="runoff",
                   proposal=plan, runoff_vote=vote, speech=speech,
                   addressed=mentions(speech, exclude=advisor_id, advisors=advisors_for(brief.advisors)), source="llm",
-                  trace=_trace(brief, plan, data, reply))
+                  belief_update=update, trace=_trace(advisor_id, brief, plan, data, reply, update))

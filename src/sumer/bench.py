@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import statistics as st
 import time
+from copy import deepcopy
 from datetime import datetime
 
 from sumer.advisors import ADVISOR_IDS, ADVISORS
@@ -69,17 +70,21 @@ async def _counterfactual_info(seeds: list[int], ask) -> dict:
     for seed in seeds:
         state, rolls = new_game(seed)
         history: list[dict] = []
+        private_memories = {}
         while not state.over:
             news = scheduled_news(seed, state.year, rolls, True)
             kw = {"seed": seed, "state": state, "ask": ask, "history": history,
                   "max_rounds": settings.max_rounds}
             try:
-                with_news = await deliberate_year(**kw, scheduled_news=news)
+                before_memories = deepcopy(private_memories)
+                with_news = await deliberate_year(**kw, scheduled_news=news,
+                                                  private_memories=private_memories)
             except (Deadlock, TechnicalFailure):
                 break
             if news:
                 try:
-                    without = await deliberate_year(**kw, scheduled_news=None)
+                    without = await deliberate_year(**kw, scheduled_news=None,
+                                                    private_memories=before_memories)
                 except (Deadlock, TechnicalFailure):
                     break
                 news_years += 1

@@ -27,7 +27,10 @@ Score: `10 * population + (grain + 20 * acres) / 100 - 15 * starved_total - (200
 These preferences collide: grain spent on people is not spent on seed or land.
 
 **Bias** (0 to 1, set per seat in Setup or the API) says how hard an advisor resists
-compromise. 0 bargains freely; 1 holds out. The LLM interprets it; no code enforces a veto.
+compromise. 0 bargains freely; 1 holds out. Bias also controls trust in private starting
+notes and resistance to revising learned beliefs: 0 treats claims as tentative, 0.5
+uses them as working assumptions, and 1 requires stronger counterevidence. Even high
+bias retains uncertainty. The LLM interprets it; no code enforces a veto.
 
 ## Quick start
 
@@ -129,6 +132,75 @@ POST /api/game
 {"seed": 7, "advisors": [{"id": "provider"}, {"id": "farmer"},
   {"id": "custom-scribe", "short": "Scribe", "mandate": "Keep everyone fed."}]}
 ```
+
+## Private rulebooks
+
+Every seat in **Setup** has an optional **Private rulebook** text block (up to 8,000
+characters), including repeated presets and custom voters. No content is preselected.
+An empty block supplies no private starting information and does not restore the old
+shared reference. Changing a seat's role keeps that seat's notes; populating fresh default
+voters creates fresh blank rulebooks.
+
+**Load example rulebooks** fills only empty preset seats with editable, role-specific
+estimates and strategic notes; it keeps existing notes and custom advisors. Duplicate
+preset seats get independent copies. Provider knows rationing and planning without plague;
+Farmer knows seed/workforce estimates and harvest strategies; Merchant knows prices and
+land trades; Priest knows plague, rats, and storage strategies; Villager knows migration,
+unrest, and balanced planning without new information. The fictional source records use
+the current engine's numbers as fallible starting estimates, not guaranteed knowledge.
+Conditional advice may be questioned or revised, and never becomes a coded voting policy.
+No report does not establish that rats/plague are absent or prices unchanged.
+
+Current city data, public goals/score, reign length, voting rules, and public reports
+remain shared. Numeric budget mechanics are no longer supplied in a common prompt.
+Advisors must learn food requirements, seed costs, and cultivation limits from their
+private notes, public discussion, outcomes, or a rejected proposal's correction. The
+engine still enforces exactly the same legal budgets. Corrections provide detailed
+shortfalls to the attempted proposal's owner and therefore are a source of new evidence.
+
+The equivalent API field is `"rulebook": "..."` on each advisor in `POST /api/game`.
+Omitted fields default to the empty string. Only the addressed advisor's notes are
+included in its model prompt, in both discussion and runoff. Notes are saved in the
+run roster and journal for human inspection and replay; they are not secrets from the
+application or human operator. Other models learn claims only when an advisor shares
+them in public speech. Public mandates can also reveal information, so put private
+claims in the rulebook rather than a mandate.
+
+Bias steers confidence qualitatively; it is not a calibrated probability of truth.
+Uncertainty is a model instruction, not a numeric confidence assignment or a guarantee
+that a pretrained model forgets facts. The model is told not to import familiar game
+rules, to distinguish claims from observations, and to revise assumptions when evidence
+warrants it. Starting notes remain recorded verbatim except surrounding whitespace.
+
+Each advisor also has a **private learned-belief record** that persists between turns,
+runoffs, and years in the same run. It starts empty; no extra claims are initialized.
+On its normal decision call, the advisor can add or revise up to three claims and remove
+up to three existing claims. Each entry records a claim, evidence/source, subjective
+confidence (low/medium/high), and remaining uncertainty. Unmentioned claims survive.
+The record holds up to 20 claims, with explicit consolidation/removal when full. It is
+not a verbatim transcript. The unchanged starting rulebook remains available alongside
+it, and revised assessments take precedence over superseded starting claims.
+
+Bias governs willingness to revise both starting and learned beliefs: low bias readily
+responds to credible evidence; high bias requires stronger counterevidence but still
+allows correction. These are model instructions, not guaranteed or calibrated Bayesian
+updates. Claims and evidence are authored by the advisor, not verified facts. New
+discussion, scout reports, and outcomes are considered on the advisor's next turn; no
+extra reflection call runs after the final outcome or after an advisor stops speaking.
+
+Only accepted, validated responses update memory. A missing/null update keeps it intact;
+rejected, stale, or skipped turns cannot overwrite it. Each request includes only its
+speaker's learned record, and private revisions never enter another advisor's public
+conversation. Each new run starts a fresh learned record, including repeated seeds and
+duplicate roles. Worker restarts do not erase it because it travels with the request.
+
+Turn snapshots appear under **Under the hood → Private beliefs**, alongside the preserved
+starting notes. Accepted updates persist in the SQLite journal and replay without model
+calls; `GET /api/runs/{run_id}/beliefs` and the export's `private-beliefs.json` show the
+latest saved records. These are private between advisors, not secret from the human
+operator. A server restart still ends an interrupted run; it retains the saved history
+for inspection rather than resuming gameplay. Older saved runs retain their historical
+prompts and evidence.
 
 ## Game rules
 

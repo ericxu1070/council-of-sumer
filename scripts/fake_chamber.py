@@ -34,6 +34,7 @@ from pydantic import BaseModel
 
 from sumer.advisors import ADVISORS as PRESETS
 from sumer.advisors import MAX_ADVISORS
+from sumer.rulebooks import EXAMPLE_RULEBOOKS
 from sumer.scouts import SCOUT_IDS, SCOUT_OPTIONS
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -467,7 +468,7 @@ async def pace(req: PaceReq):
 
 @app.get("/api/meta")
 async def meta():
-    return {"advisors": ADVISORS, "max_advisors": MAX_ADVISORS, "years": 5,
+    return {"advisors": ADVISORS, "example_rulebooks": EXAMPLE_RULEBOOKS, "max_advisors": MAX_ADVISORS, "years": 5,
             "active_run": live.run_id if live.task and not live.task.done() else "",
             "transport": "scripted preview", "llm": "scripted", "model": "UI fixture",
             "voice": NARRATION is not None, "max_rounds": 4, "escalation_timeout_s": 0, "budget_usd": 3.0,

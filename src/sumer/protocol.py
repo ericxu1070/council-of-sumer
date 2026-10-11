@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
 
 from sumer.game import Decision, State, legalize
+from sumer.memory import BeliefUpdate, PrivateMemory, revise
 from sumer.observability import span
 
 
@@ -85,6 +86,7 @@ class Brief(BaseModel):
     earlier_turns: list[dict] = Field(default_factory=list)  # earlier rounds this year
     runoff: list[TabledProposal] = Field(default_factory=list)  # [A, B] in a runoff
     history: list[dict] = Field(default_factory=list)
+    private_memory: PrivateMemory | None = None  # only the addressed advisor's learned beliefs
 
 
     @model_validator(mode="after")
@@ -114,14 +116,22 @@ class Ballot(BaseModel):
     speech: str = ""  # public: the other advisors hear this
     addressed: list[str] = Field(default_factory=list)  # advisors the speech names
     source: str = "llm"
+    belief_update: BeliefUpdate | None = None  # private; never added to public conversation
     # Glass box: private reasoning. Humans see it; the other advisors never do.
     trace: dict = Field(default_factory=dict)
+
+
+def request_digest(brief: Brief) -> str:
+    data = brief.model_dump()
+    if brief.private_memory is None:
+        data.pop("private_memory")  # keep bindings for historical requests valid
+    return digest(data)
 
 
 def bind(ballot: Ballot, brief: Brief) -> Ballot:
     return ballot.model_copy(update={"run_id": brief.run_id, "state_hash": brief.state_hash,
                                      "reply_to": brief.message_id,
-                                     "request_hash": digest(brief.model_dump())})
+                                     "request_hash": request_digest(brief)})
 
 
 def matches_request(ballot: Ballot, brief: Brief) -> bool:
@@ -129,7 +139,7 @@ def matches_request(ballot: Ballot, brief: Brief) -> bool:
     return (ballot.advisor, ballot.run_id, ballot.year, ballot.round, ballot.phase,
             ballot.state_hash, ballot.reply_to, ballot.request_hash) == (
         brief.speaker, brief.run_id, brief.year, brief.round, brief.phase,
-        brief.state_hash, brief.message_id, digest(brief.model_dump()))
+        brief.state_hash, brief.message_id, request_digest(brief))
 
 
 @dataclass
@@ -171,6 +181,7 @@ def validate_reply(delivery: Delivery | Ballot | None, brief: Brief) -> Ballot:
                 raise ValueError("Runoff vote must bind to the selected frozen finalist.")
         elif ballot.runoff_vote is not None:
             raise ValueError("Discussion cannot cast a runoff ballot.")
+        revise(brief.private_memory, ballot.belief_update)
         return ballot
 
 

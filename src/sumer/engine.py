@@ -22,6 +22,8 @@ def commit(store: Store, run_id: str, state: State, result: YearResult,
     with span("engine.commit", run_id=run_id, year=state.year, candidate_id=result.adopted_id):
         with span("certificate.verify", run_id=run_id, year=state.year, candidate_id=result.adopted_id):
             manifest = store.run(run_id)["manifest"]
+            if manifest.get("private_memory_version") == 1:
+                store.private_memories(run_id, verify=True)
             advisors = resolve_council(manifest.get("advisors"))
             advisor_ids = list(advisors)
             n_advisors = len(advisors)

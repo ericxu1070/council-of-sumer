@@ -354,6 +354,21 @@ function traceText(obj, depth = 0) {
   }).join("\n");
 }
 
+function renderPrivateBeliefs(trace) {
+  const memory = trace?.private_memory_after;
+  if (!memory) return "";
+  const before = trace.private_memory_before?.revision ?? 0;
+  const status = memory.revision > before ? "updated" : "unchanged";
+  const entries = (memory.beliefs || []).map(b => `<li>
+    <b>${esc(b.claim)}</b><span class="belief-confidence">Confidence: ${esc(b.confidence)}</span>
+    <p>Evidence: ${esc(b.evidence)}</p><p>Uncertainty: ${esc(b.uncertainty)}</p></li>`).join("");
+  return `<details class="private-beliefs hood-only"><summary>Private beliefs · revision ${esc(memory.revision)} · ${status}</summary>
+    <p class="rulebook-note">Only this advisor receives these beliefs. Visible here for your inspection.</p>
+    ${entries ? `<ul>${entries}</ul>` : `<p>No learned claims saved yet.</p>`}
+    <details><summary>Starting rulebook · preserved</summary><pre>${esc(trace.rulebook || "No private starting information.")}</pre></details>
+    </details>`;
+}
+
 function turnRelations(d) {
   const accepted = new Set(d.accept || []);
   if (d.runoff_vote && S.runoff) {
@@ -402,6 +417,7 @@ function renderTurn(d, instant) {
       <div class="speech">${esc(d.speech || "...")}</div>
       ${foot.length ? `<div class="msg-foot">${foot.join("")}</div>` : ""}
       ${d.thought ? `<div class="thought hood-only">💭 ${esc(d.thought)}</div>` : ""}
+      ${renderPrivateBeliefs(d.trace)}
       ${trace}
     </div>`, "msg", { instant, latest: true });
   if (d.runoff_vote) addRunoffVote(d.advisor, d.runoff_vote, instant);
@@ -1247,11 +1263,31 @@ function drawCouncilName() {
 }
 function newVoter(i) {
   const serial = ++setup.serial, voice = setup.voices[(serial - 1) % setup.voices.length]?.id;
-  return { name: drawCouncilName(), preset: setup.templates[i % setup.templates.length]?.id || "provider", custom: { id: `custom-${serial}`, short: "", mandate: "", ...(voice ? { tts_voice: voice } : {}) } };
+  return { rulebook: "", name: drawCouncilName(), preset: setup.templates[i % setup.templates.length]?.id || "provider", custom: { id: `custom-${serial}`, short: "", mandate: "", ...(voice ? { tts_voice: voice } : {}) } };
 }
 function votingThresholds(n) {
   const majority = Math.floor(n / 2) + 1;
   return { majority, strong: Math.max(majority, Math.ceil(2 * n / 3)), runoff: Math.max(1, majority - 1) };
+}
+function loadExampleRulebooks() {
+  if (!setup.ready || setup.starting || setup.stopping || setup.liveRunId) return;
+  if (!S.meta?.example_rulebooks) {
+    $("#exampleRulebookStatus").textContent = "Examples are unavailable. Reload after the server is ready.";
+    return;
+  }
+  if (!resizeVoters()) return;
+  let loaded = 0;
+  for (const seat of setup.seats) {
+    const example = S.meta?.example_rulebooks?.[seat.preset];
+    if (seat.preset !== "custom" && !seat.rulebook?.trim() && typeof example === "string") {
+      seat.rulebook = example;
+      loaded++;
+    }
+  }
+  renderVoters();
+  $("#exampleRulebookStatus").textContent = loaded
+    ? `Loaded ${loaded} example rulebook${loaded === 1 ? "" : "s"}. You can edit each one below.`
+    : "No empty preset rulebooks to fill. Existing notes and custom advisors are kept.";
 }
 function setupError(message = "") {
   $("#setupError").textContent = message;
@@ -1280,10 +1316,13 @@ function renderVoters() {
     return `<section class="voter-card" data-slot="${i}">
       <div class="voter-row">${avatar(roster[i].id)}<select data-voter="preset" aria-label="Voter ${i + 1}">${setup.templates.map(a => `<option value="${esc(a.id)}"${a.id === seat.preset ? " selected" : ""}>${esc(a.short)}</option>`).join("")}<option value="custom"${custom ? " selected" : ""}>Custom agent</option></select></div>
       <div class="voter-name">${esc(roster[i].title || roster[i].short)}</div>
-      <label class="voter-bias"><span>Bias · 0 flexible, 1 resists compromise</span><input type="number" data-voter="bias" min="0" max="1" step="0.05" value="${esc(seat.bias ?? a?.bias ?? 0)}" required aria-label="Voter ${i + 1} bias"></label>
+      <label class="voter-bias"><span>Bias · flexibility and belief confidence</span><input type="number" data-voter="bias" min="0" max="1" step="0.05" value="${esc(seat.bias ?? a?.bias ?? 0)}" required aria-label="Voter ${i + 1} bias" aria-describedby="bias-note-${i}"></label>
       ${custom ? `<input type="text" data-voter="short" value="${esc(seat.custom.short)}" maxlength="30" required placeholder="Role, e.g. Canal Keeper" aria-label="Voter ${i + 1} role">
       <textarea data-voter="mandate" rows="2" maxlength="2000" required placeholder="What does this agent want?" aria-label="Voter ${i + 1} mandate">${esc(seat.custom.mandate)}</textarea>
       ${setup.voices.length ? `<label class="voter-voice"><span>Voice</span><select data-voter="tts_voice" aria-label="Voter ${i + 1} voice">${setup.voices.map(v => `<option value="${esc(v.id)}"${v.id === seat.custom.tts_voice ? " selected" : ""}>${esc(v.label)}</option>`).join("")}</select></label>` : ""}` : ""}
+      <p class="rulebook-note" id="bias-note-${i}">0: tentative and flexible. 1: strongly trusts its notes and resists compromise, but can revise with compelling evidence.</p>
+      <label class="field private-rulebook"><span>Private rulebook</span><textarea data-voter="rulebook" rows="4" maxlength="8000" aria-label="Voter ${i + 1} private rulebook" aria-describedby="rulebook-note-${i}" placeholder="Enter this decision maker's starting information (optional)">${esc(seat.rulebook || "")}</textarea></label>
+      <p class="rulebook-note" id="rulebook-note-${i}">These starting notes stay unchanged. This advisor saves its own evolving beliefs as it learns; bias affects willingness to revise them. Blank means no private starting information.</p>
     </section>`;
   }).join("");
   syncSetupLock();
@@ -1291,18 +1330,19 @@ function renderVoters() {
 function configuredAdvisors() {
   const seenRoles = {};
   return setup.seats.map(seat => {
+    const knowledge = { rulebook: seat.rulebook || "" };
     seat.name ||= drawCouncilName();
     if (seat.preset === "custom") {
       const title = `${seat.name} the ${seat.custom.short.trim() || "Councilor"}`;
-      return { ...seat.custom, bias: seat.bias ?? 0, short: seat.name, title, mandate: seat.custom.mandate.trim() };
+      return { ...seat.custom, bias: seat.bias ?? 0, short: seat.name, title, mandate: seat.custom.mandate.trim(), ...knowledge };
     }
     const template = setup.templates.find(a => a.id === seat.preset);
     const bias = seat.bias ?? template.bias ?? 0;
     const number = seenRoles[template.id] = (seenRoles[template.id] || 0) + 1;
     const name = { short: seat.name, title: `${seat.name} the ${template.title || template.short}` };
-    if (number === 1) return { id: template.id, ...name, bias };
+    if (number === 1) return { id: template.id, ...name, bias, ...knowledge };
     // Additional copies are independent voters with the selected persona's mandate.
-    return { id: seat.custom.id, ...name, bias, mandate: template.mandate, voice: template.voice, color: template.color, emoji: template.emoji, tts_voice: template.tts_voice };
+    return { id: seat.custom.id, ...name, bias, mandate: template.mandate, voice: template.voice, color: template.color, emoji: template.emoji, tts_voice: template.tts_voice, ...knowledge };
   });
 }
 function previewCouncil() {
@@ -1398,15 +1438,18 @@ async function openEvidence() {
 
 function wire() {
   $("#agentCount").onchange = resizeVoters;
+  $("#loadExampleRulebooks").onclick = loadExampleRulebooks;
   $("#defaultVoters").onclick = () => {
     if (!resizeVoters()) return;
     setup.seats = setup.seats.map((_, i) => newVoter(i));
     renderVoters();
+    $("#exampleRulebookStatus").textContent = "Rulebooks cleared. Load examples or enter your own notes.";
   };
   $("#voterList").addEventListener("input", e => {
     const key = e.target.dataset.voter, card = e.target.closest("[data-slot]");
     if (!key || !card) return;
     const seat = setup.seats[Number(card.dataset.slot)];
+    if (key === "rulebook") { seat.rulebook = e.target.value; setupError(); return; }
     if (key === "preset") { seat.preset = e.target.value; delete seat.bias; }
     else if (key === "bias") seat.bias = e.target.value === "" ? NaN : Number(e.target.value);
     else seat.custom[key] = e.target.value;

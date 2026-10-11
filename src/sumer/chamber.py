@@ -32,6 +32,7 @@ from sumer.deliberation import (
 )
 from sumer.engine import commit
 from sumer.game import RULE_VERSION, YEARS, advance, new_game, rating
+from sumer.memory import PrivateMemory
 from sumer.narrator import summarize, year_speech
 from sumer.observability import context_headers, flush, span
 from sumer.protocol import uid
@@ -99,6 +100,7 @@ async def play_council(
     store.create_run(run_id, {"rule_version": RULE_VERSION, "seed": seed, "initial_state": state.public(),
         "application_version": version("council-of-sumer"),
         "advisors": public_advisors, "advisor_ids": list(advisors), "rules": rules,
+        "private_memory_version": 1,
         "reign_years": YEARS, "scout_mode": "after_vote" if ask_scout else "legacy",
         "max_rounds": max_rounds or settings.max_rounds, "transport": settings.transport,
         "llm_mode": settings.llm_mode, "model": settings.llm_model,
@@ -114,6 +116,7 @@ async def play_council(
     cancelled = False
     status = "running"
     history: list[dict] = []
+    private_memories: dict[str, PrivateMemory] = {}
     results: list[YearResult] = []
     try:
         await emit("game", {"seed": seed, "years": YEARS, "state": state.public(),
@@ -140,6 +143,7 @@ async def play_council(
                     run_id=run_id,
                     advisors=advisors,
                     after_vote=after_vote if ask_scout else None,
+                    private_memories=private_memories,
                 )
                 preview = advance(state, yr.plan, rolls)
                 yr.summary = summarize(yr, before, preview, advisors=advisors)

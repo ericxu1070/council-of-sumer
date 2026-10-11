@@ -8,7 +8,9 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sumer.protocol import Ballot, Brief, digest, matches_request, state_hash
+from sumer.advisors import resolve_council
+from sumer.memory import PrivateMemory, revise
+from sumer.protocol import Ballot, Brief, digest, matches_request, state_hash, validate_reply
 
 
 def stamp() -> str:
@@ -105,6 +107,40 @@ class Store:
         with self.db:
             self.db.execute("UPDATE runs SET status=?,result=COALESCE(?,result) WHERE id=?",
                             (status, encoded(result) if result is not None else None, run_id))
+
+    def private_memories(self, run_id: str, *, verify: bool = False) -> dict[str, PrivateMemory]:
+        """Restore learned beliefs only from accepted, request-bound receipts."""
+        roster = resolve_council(self.run(run_id)["manifest"].get("advisors"))
+        memories = {who: PrivateMemory() for who in roster}
+        requests = {}
+        seen = set()
+        for event in self.events(run_id):
+            if event["kind"] == "phase" and "brief" in event["data"]:
+                brief = Brief.model_validate(event["data"]["brief"])
+                requests[brief.message_id] = brief
+                if verify and (brief.speaker not in memories or brief.run_id != run_id
+                               or brief.private_memory != memories[brief.speaker]):
+                    raise ValueError("Recorded request does not carry its owner's current private beliefs.")
+            elif event["kind"] == "receipt":
+                for raw in event["data"]["responses"]:
+                    ballot = Ballot.model_validate(raw)
+                    if ballot.message_id in seen:
+                        if verify:
+                            raise ValueError("Repeated private memory receipt.")
+                        continue
+                    seen.add(ballot.message_id)
+                    brief = requests.get(ballot.reply_to)
+                    if brief is None or ballot.run_id != run_id or ballot.advisor not in memories:
+                        raise ValueError("Private belief update has no matching advisor request.")
+                    validate_reply(ballot, brief)
+                    memories[ballot.advisor] = revise(memories[ballot.advisor], ballot.belief_update)
+        return memories
+
+    def private_beliefs(self, run_id: str) -> dict:
+        roster = resolve_council(self.run(run_id)["manifest"].get("advisors"))
+        memories = self.private_memories(run_id)
+        return {who: {"starting_rulebook": advisor.rulebook, **memories[who].model_dump()}
+                for who, advisor in roster.items()}
 
     def _event(self, run_id: str, kind: str, data: dict) -> dict:
         cursor = self.db.execute("INSERT INTO events(run_id,kind,data,created) VALUES(?,?,?,?)",
@@ -222,6 +258,7 @@ class Store:
                                json.dumps(e["data"], indent=2)])
         jsonl = lambda values: "".join(encoded(v) + "\n" for v in values)
         return {"events.jsonl": jsonl(events), "decisions.csv": output.getvalue(),
+                "private-beliefs.json": json.dumps(self.private_beliefs(run_id), indent=2),
                 "summary.json": json.dumps(summary, indent=2),
                 "traces.jsonl": jsonl(self.traces(run_id)), "report.md": "\n\n".join(report) + "\n"}
 

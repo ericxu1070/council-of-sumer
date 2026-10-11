@@ -32,6 +32,7 @@ from sumer.advisors import (
     short,
 )
 from sumer.game import Decision, State, legalize
+from sumer.memory import PrivateMemory, revise
 from sumer.observability import context_headers, span
 from sumer.protocol import (
     Ballot,
@@ -129,6 +130,12 @@ def speaking_order(year: int, rnd: int, advisor_ids: list[str] | None = None) ->
     return ids[k:] + ids[:k]
 
 
+def public_history(history: list[dict]) -> list[dict]:
+    """Keep certificates, other advisors' private records, and hidden rolls out of briefs."""
+    return [{k: h.get(k) for k in ("year", "outcome", "plain", "author", "dissent", "result")}
+            for h in history]
+
+
 class Table:
     """The plans on the table, who backs each, and every advisor's standing votes."""
 
@@ -220,6 +227,7 @@ async def deliberate_year(
     run_id: str | None = None,
     advisors: dict[str, Advisor] | None = None,
     after_vote: AfterVote | None = None,
+    private_memories: dict[str, PrivateMemory] | None = None,
 ) -> YearResult:
     advisors = resolve_council() if advisors is None else dict(advisors)
     advisor_ids = list(advisors)
@@ -231,10 +239,12 @@ async def deliberate_year(
     run_id = run_id or uid()
     transport_ask = ask
     accepted: dict[str, Ballot] = {}
+    private_memories = {} if private_memories is None else private_memories
 
     async def ask(brief):
         with span("council.turn", run_id=run_id, year=state.year, phase=brief.phase, peer=brief.speaker, cycle=brief.round):
-            request = brief.model_copy(update={"run_id": run_id})
+            request = brief.model_copy(update={"run_id": run_id,
+                "private_memory": private_memories.get(brief.speaker, PrivateMemory()).model_copy(deep=True)})
             errors = {}
             for attempt in (1, 2):
                 request = request.model_copy(update={"message_id": uid(), "errors": errors,
@@ -246,7 +256,9 @@ async def deliberate_year(
                 try:
                     response = await asyncio.wait_for(transport_ask(request), timeout=120)
                     ballot = validate_reply(response, request)
+                    memory = revise(request.private_memory, ballot.belief_update)
                     await emit("receipt", {"year": state.year, "responses": [ballot.model_dump()]})
+                    private_memories[request.speaker] = memory
                     accepted[request.speaker] = ballot
                     return ballot
                 except Exception as exc:  # noqa: BLE001 - retry transport/model/validation failures
@@ -312,7 +324,7 @@ async def deliberate_year(
                 seed=seed, year=state.year, round=rnd, max_rounds=max_rounds,
                 state=state.public(), beliefs=beliefs.__dict__, advisors=public_advisors, speaker=who, phase="discuss",
                 turn=i, order=order, news=news, table=table.snapshot(),
-                turns_this_round=this_round, earlier_turns=earlier, history=history,
+                turns_this_round=this_round, earlier_turns=earlier, history=public_history(history),
             )
             ballot = await ask(brief)
             if not _valid(ballot, brief):
@@ -473,7 +485,7 @@ async def _runoff(seed, state, beliefs, ask, emit, table: Table, a_row, b_row, t
                 seed=seed, year=state.year, round=rounds, max_rounds=max_rounds,
                 state=state.public(), beliefs=beliefs.__dict__, advisors=[a.public() for a in advisors.values()], speaker=who, phase="runoff",
                 turn=i, order=order, news=news, table=pair, runoff=pair, turns_this_round=said,
-                history=history,
+                history=public_history(history),
             )
             ballot = await ask(brief)
             if not _valid(ballot, brief) or ballot.runoff_vote not in (a.id, b.id):

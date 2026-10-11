@@ -84,6 +84,9 @@
       <label class="field"><span>Agents <b id="votingRules" aria-live="polite"></b></span><input id="agentCount" type="number" min="1" max="21" step="1" value="5" required aria-describedby="votingRules"></label>
       <button class="btn" id="defaultVoters" type="button">Reset</button>
     </div>
+    <p class="drawer-note">Each advisor has its own fallible starting notes and private learned beliefs. City reports and voting rules are shared; numeric budget rules are learned from notes, discussion, or corrections.</p>
+    <button class="btn" id="loadExampleRulebooks" type="button">Load example rulebooks</button>
+    <p class="rulebook-note" id="exampleRulebookStatus" role="status">Fills empty preset rulebooks with different estimates and strategic notes. Keeps existing notes and custom advisors.</p>
     <div class="voter-list" id="voterList"></div>
   </fieldset>
   <p class="setup-error hidden" id="setupError" role="alert"></p>

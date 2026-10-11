@@ -106,8 +106,7 @@ async def test_budget_retry_receives_rejected_proposal_and_shortfall(monkeypatch
     ballot = await agent.decide("farmer", corrected)
     assert validate_reply(ballot, corrected) is ballot
     user = json.loads(prompts[-1][1]["content"].split("\n\n")[0])
-    assert user["budget_rules"]["workforce_limit_acres"] == 520
-    assert user["budget_rules"]["food_for_all_residents_bushels"] == 1040
+    assert "budget_rules" not in user
     assert user["response_correction"]["farmer"] == rejected.error
     assert ballot.proposal.plant == 220
 
