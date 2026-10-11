@@ -13,6 +13,7 @@ const FLASH_YEAR = 1900;     // ms the big "Year N" interstitial holds the stage
 const AUTO_CONTINUE = 12;    // s before an untouched scout prompt lets the vote stand
 const REPLAY_QUIET = 150;    // ms of silence that ends a backlog replay burst
 const REPLAY_CAP = 2000;     // replay mode never lasts longer than this after connecting
+const START_YEAR_BCE = 4005;
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -192,7 +193,10 @@ function renderYear() {
     steps.push(`<span class="${i <= S.completed ? "done" : i === S.year ? "now" : ""}"></span>`);
   }
   $("#yearSteps").innerHTML = steps.join("");
-  $("#yearLabel").textContent = !S.year ? (S.running ? "Convening" : "Ready") : S.completed >= S.years ? `All ${S.years} years done` : `Year ${S.year} of ${S.years}`;
+  // Each game year advances from the initial city date toward the end of its reign.
+  $("#yearLabel").textContent = !S.year
+    ? `${START_YEAR_BCE} BCE - ${START_YEAR_BCE - S.years} BCE`
+    : `${START_YEAR_BCE - Math.min(S.year, S.years)} BCE`;
   $("#roundLabel").classList.toggle("hidden", !S.round || S.completed >= S.years);
   $("#roundLabel").textContent = S.round ? `Round ${S.round.number}${S.round.limit && S.round.number <= S.round.limit ? ` of ${S.round.limit}` : ""}` : "";
 }
