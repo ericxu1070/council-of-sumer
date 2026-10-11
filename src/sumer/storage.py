@@ -179,6 +179,11 @@ class Store:
             return self._event(run_id, "year", data)
 
 
+    def active_runs(self) -> list[dict]:
+        return [self.run(r["id"]) for r in self.db.execute(
+            "SELECT id FROM runs WHERE status IN ('running','deadlock')"
+        ).fetchall()]
+
     def runs(self) -> list[dict]:
         return [self.run(r["id"]) for r in self.db.execute(
             "SELECT id FROM runs ORDER BY created DESC LIMIT 100").fetchall()]

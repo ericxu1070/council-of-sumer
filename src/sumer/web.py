@@ -42,7 +42,7 @@ store = Store(DEFAULT_DB)
 @asynccontextmanager
 async def lifespan(app):
     # Interrupted turns cannot be resumed without fresh turn responses.
-    for run in store.runs():
+    for run in store.active_runs():
         if run["status"] in ("running", "deadlock"):
             store.append(run["id"], "technical_failure", {"message": "Server restarted before the live run finished."})
             store.status(run["id"], "technical_failure")
