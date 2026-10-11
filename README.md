@@ -230,7 +230,7 @@ regenerated. Paused deadlocks and technical failures do not receive completed-re
 - Every LLM reply is cached in `.cache/llm/` by prompt hash. Rehearse a seed once and the demo
   replays it with no network.
 - `LLM_BUDGET_USD` (default $3.00) is a hard cap tracked from the cost Bayleaf reports per call.
-  Past it, advisors fall back to the offline policy.
+  Past it, advisors record a technical failure after one retry; mock mode must be selected explicitly.
 - A full 5-year LLM game costs a few cents (up to 49 short LLM calls per year).
 
 ## Project layout

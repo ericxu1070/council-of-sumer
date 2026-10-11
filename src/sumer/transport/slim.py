@@ -150,7 +150,7 @@ class SlimCouncil:
             ),
         )
 
-    async def ask(self, brief: Brief) -> Ballot | None:
+    async def ask(self, brief: Brief) -> Delivery:
         from agntcy_app_sdk.semantic.a2a.client.utils import message_translator
 
         if self._client is None:

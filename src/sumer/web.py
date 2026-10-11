@@ -113,7 +113,7 @@ async def _narrate(year: int, text: str) -> str | None:
     return f"/api/narration/{year}?game={live.game_no}"
 
 
-async def _ask(brief: Brief) -> Ballot | None:
+async def _ask(brief: Brief) -> Ballot | Delivery | None:
     """Send one turn's brief to its speaker, over SLIM or in process."""
     live.year = brief.year
     if live.council is None:
