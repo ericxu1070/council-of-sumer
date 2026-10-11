@@ -101,6 +101,11 @@ class Store:
         return data
 
 
+    def active_runs(self) -> list[dict]:
+        return [self.run(r["id"]) for r in self.db.execute(
+            "SELECT id FROM runs WHERE status IN ('running','deadlock')"
+        ).fetchall()]
+
     def status(self, run_id: str, status: str, result: dict | None = None):
         with self.db:
             self.db.execute("UPDATE runs SET status=?,result=COALESCE(?,result) WHERE id=?",
@@ -178,11 +183,6 @@ class Store:
             self.db.execute("UPDATE runs SET status='running' WHERE id=?", (run_id,))
             return self._event(run_id, "year", data)
 
-
-    def active_runs(self) -> list[dict]:
-        return [self.run(r["id"]) for r in self.db.execute(
-            "SELECT id FROM runs WHERE status IN ('running','deadlock')"
-        ).fetchall()]
 
     def runs(self) -> list[dict]:
         return [self.run(r["id"]) for r in self.db.execute(
