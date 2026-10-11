@@ -25,6 +25,9 @@ class Settings:
     llm_api_key: str = os.getenv("BAYLEAF_API_KEY", "")
     llm_model: str = os.getenv("BAYLEAF_MODEL", "")
     llm_timeout_s: float = float(os.getenv("LLM_TIMEOUT_S", "25"))
+    llm_reasoning: bool = _bool("LLM_REASONING", False)
+    llm_reasoning_effort: str = os.getenv("LLM_REASONING_EFFORT", "")
+    llm_max_tokens: int = int(os.getenv("LLM_MAX_TOKENS", "700"))
     llm_cache: bool = _bool("LLM_CACHE", True)
     # Hard cap on real API spend, tracked from the cost Bayleaf reports per call.
     llm_budget_usd: float = float(os.getenv("LLM_BUDGET_USD", "3.00"))
