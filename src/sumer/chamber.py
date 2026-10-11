@@ -61,6 +61,7 @@ class GameResult:
     mean_turns: float = 0.0
     satisfaction: dict[str, float] = field(default_factory=dict)
     info_shifted: int = 0  # years where news changed at least one advisor's proposal
+    llm_fallbacks: int = 0  # lone_llm years decided by the rule-based fallback
 
     def as_dict(self) -> dict:
         return self.__dict__
@@ -195,11 +196,12 @@ async def play_council(
 async def play_simple(seed: int, policy: str, *, reveal_news: bool = True) -> GameResult:
     state, rolls = new_game(seed)
     sats: list[dict] = []
+    stats: dict[str, int] = {}
     while not state.over:
         news = scheduled_news(seed, state.year, rolls, reveal_news)
         beliefs = apply_report(Beliefs(), news)
         if policy == "lone_llm":
-            d = await lone_llm(state, beliefs, [news] if news else [])
+            d = await lone_llm(state, beliefs, [news] if news else [], stats)
         else:
             d = SIMPLE[policy](state, beliefs)
         sc = Scorer(state, beliefs, extra=[d])
@@ -207,6 +209,7 @@ async def play_simple(seed: int, policy: str, *, reveal_news: bool = True) -> Ga
         state = advance(state, d, rolls)
     g = GameResult(seed=seed, policy=policy, rating=rating(state), status=state.status)
     g.satisfaction = {a: round(sum(s[a] for s in sats) / len(sats), 3) for a in ADVISOR_IDS}
+    g.llm_fallbacks = stats.get("fallbacks", 0)
     return g
 
 
