@@ -1,10 +1,12 @@
 /* Council of Sumer - chamber UI.
  * Events arrive over SSE (/api/events) and go through one client-side queue so the
- * chat reads like a group chat: one speaker at a time, at least MIN_GAP ms apart.
- * A replayed backlog (page reload) renders instantly. */
+ * council graph shows one speaker at a time, at least MIN_GAP ms apart; the transcript
+ * keeps the full record. A replayed backlog (page reload) renders instantly. */
 "use strict";
 
 const MIN_GAP = 800;         // ms between visible messages (matches the server pace)
+const READ_MIN = 2000, READ_MAX = 4200, READ_PER_CHAR = 14; // ms a speech holds the graph
+const CATCH_UP = 6;          // queued turns beyond this shorten the hold to READ_MIN
 const MIN_TYPING = 500;      // ms the "is typing" indicator shows before a speech
 const HOLD_AFTER_YEAR = 3000; // ms to let the year summary sit before the next year starts
 const REPLAY_QUIET = 150;    // ms of silence that ends a backlog replay burst
@@ -47,11 +49,17 @@ const setup = { templates: [], seats: [], serial: 0, starting: false, stopping: 
 const PERSONA_MANDATES = { provider: "Feed everyone.", farmer: "Plant as many acres as possible.", merchant: "Maximize acres of land per person.", profiteer: "Deliberately sacrifice lives if it increases wealth.", imposter: "Depopulate and ruin the city." };
 const safeColor = (color, i) => /^#[\da-f]{6}$/i.test(String(color || "")) ? color : FALLBACK_COLORS[i % FALLBACK_COLORS.length];
 
+// Extra copies of a preset (custom-N ids) keep its color and emoji: map them back to the persona face.
+function personaOf(a, id) {
+  if (FALLBACK_EMOJI[id]) return id;
+  if (a.persona) return a.persona;
+  return setup.templates.find(t => FALLBACK_EMOJI[t.id] && t.color === a.color && t.emoji === a.emoji)?.id || "";
+}
 function normAdvisor(a, i) {
   const id = a.id || `advisor${i}`;
   const title = a.title || cap(id);
   return {
-    ...a, id, title,
+    ...a, id, title, persona: personaOf(a, id),
     short: a.short || (FALLBACK_EMOJI[id] ? cap(id) : title.split(" ").slice(-1)[0]),
     emoji: a.emoji || FALLBACK_EMOJI[id] || "👤",
     color: safeColor(a.color, i),
@@ -60,11 +68,26 @@ function normAdvisor(a, i) {
 function setAdvisors(list) {
   if (!Array.isArray(list) || !list.length) return;
   S.advisors = list.map(normAdvisor);
-  buildSeats();
+  G.setAdvisors(S.advisors);
+  renderStances();
 }
 const adv = id => S.advisors.find(a => a.id === id) || normAdvisor({ id: id || "someone" }, 5);
 const N = () => S.advisors.length || 5;
-const avatar = (id, cls = "") => { const a = adv(id); return `<span class="av ${cls}" style="--c:${a.color}" title="${esc(a.title)}">${esc(a.emoji)}</span>`; };
+// Small portraits are static <img> data URIs: no id clashes, no per-face animation cost.
+const FACE_URL = new Map();
+function faceUrl(a) {
+  const key = `${a.id}|${a.color}|${a.persona}`;
+  if (!FACE_URL.has(key)) {
+    let src = "";
+    try { src = window.Faces ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(Faces.svg(a, { title: "" }))}` : ""; } catch (e) { console.warn("face failed", e); }
+    FACE_URL.set(key, src);
+  }
+  return FACE_URL.get(key);
+}
+const avatar = (id, cls = "") => {
+  const a = adv(id), src = faceUrl(a);
+  return `<span class="av ${cls}" style="--c:${a.color}" title="${esc(a.title)}">${src ? `<img src="${src}" alt="" draggable="false">` : esc(a.emoji)}</span>`;
+};
 const nameList = ids => { const n = ids.map(i => adv(i).short); return n.length <= 1 ? n.join("") : `${n.slice(0, -1).join(", ")} and ${n[n.length - 1]}`; };
 
 function planAuthor(id, fallback) {
@@ -115,40 +138,45 @@ function toast(msg, info = false) {
   toast.t = setTimeout(() => t.classList.add("hidden"), info ? 3500 : 6000);
 }
 
-/* ---------------- seats ---------------- */
-function buildSeats() {
-  const el = $("#seats");
-  el.style.setProperty("--n", S.advisors.length);
-  el.innerHTML = S.advisors.map(a => `<div class="seat" id="seat-${esc(a.id)}" style="--c:${a.color}" title="${esc(a.title)}">
-    <span class="to-tag">spoken to</span>
-    <span class="av">${esc(a.emoji)}<span class="badge hidden"></span></span>
-    <span class="seat-name">${esc(a.short)}</span></div>`).join("");
-  renderStances();
-}
-function spotlight(speaker, addressed = []) {
-  const el = $("#seats");
-  el.classList.toggle("active", !!speaker);
-  for (const a of S.advisors) {
-    const s = document.getElementById(`seat-${a.id}`);
-    if (!s) continue;
-    s.classList.toggle("speaking", a.id === speaker);
-    s.classList.toggle("addressed", addressed.includes(a.id) && a.id !== speaker);
-  }
-}
+/* ---------------- council graph ---------------- */
+// Thin wrapper over CouncilGraph. In replay (instant) mode only the last speak/idle of a
+// burst reaches the graph, so a backlog never queues hundreds of bubbles and layouts.
+const G = (() => {
+  const CG = () => window.CouncilGraph;
+  let pending = null, flushT = 0;
+  const flush = () => { flushT = 0; const p = pending; pending = null; if (p) p(); };
+  const defer = fn => { pending = fn; if (!flushT) flushT = setTimeout(flush, 0); };
+  const run = fn => { pending = null; clearTimeout(flushT); flushT = 0; fn(); };
+  return {
+    mount: el => CG()?.mount(el),
+    setAdvisors: list => CG()?.setAdvisors(list),
+    speak: (args, instant) => (instant ? defer : run)(() => CG()?.speak({ ...args, instant })),
+    idle: instant => (instant ? defer : run)(() => CG()?.idle()),
+    typing: id => CG()?.typing(id),
+    setBadge: (id, b) => CG()?.setBadge(id, b),
+    setHub: h => CG()?.setHub(h),
+    pulse: instant => { if (!instant) CG()?.pulseHub(); },
+  };
+})();
+// The hub is the message bus: SLIM, except for the in-process transport used in tests/bench.
+const hubLabel = () => S.meta?.transport === "inproc" ? "LOCAL" : "SLIM";
+function setHubSub(sub = "message bus") { G.setHub({ label: hubLabel(), sub }); }
 const STANCE = {
   agree: ["agree", "✓", "Agrees with the leading plan"],
   disagree: ["disagree", "✕", "Does not back the leading plan"],
   "vote-a": ["vote-a", "A", "Votes for plan A"],
   "vote-b": ["vote-b", "B", "Votes for plan B"],
 };
+let shownStance = {};  // what the graph badges show now, so unchanged badges don't re-pop
 function renderStances() {
+  const next = {};
   for (const a of S.advisors) {
-    const b = document.getElementById(`seat-${a.id}`)?.querySelector(".badge");
-    if (!b) continue;
-    const st = STANCE[S.stance[a.id]];
-    b.classList.toggle("hidden", !st);
-    if (st) { b.className = `badge ${st[0]}`; b.textContent = st[1]; b.title = st[2]; }
+    const k = next[a.id] = S.stance[a.id] || "";
+    if (shownStance[a.id] === k) continue;
+    const st = STANCE[k];
+    G.setBadge(a.id, st ? { cls: st[0], text: st[1], title: st[2] } : null);
   }
+  shownStance = next;
 }
 
 /* ---------------- header + stage ---------------- */
@@ -158,7 +186,7 @@ function renderYear() {
     steps.push(`<span class="${i <= S.completed ? "done" : i === S.year ? "now" : ""}"></span>`);
   }
   $("#yearSteps").innerHTML = steps.join("");
-  $("#yearLabel").textContent = !S.year ? "Ready" : S.completed >= S.years ? `All ${S.years} years done` : `Year ${S.year} of ${S.years}`;
+  $("#yearLabel").textContent = !S.year ? (S.running ? "Convening" : "Ready") : S.completed >= S.years ? `All ${S.years} years done` : `Year ${S.year} of ${S.years}`;
   $("#roundLabel").classList.toggle("hidden", !S.round);
   $("#roundLabel").textContent = S.round ? `Round ${S.round.number}${S.round.limit && S.round.number <= S.round.limit ? ` of ${S.round.limit}` : ""}` : "";
 }
@@ -168,9 +196,8 @@ function setPhase(title, sub = "") {
 }
 function voteDots(accept = []) {
   return `<span class="dots">${S.advisors.map(a => {
-    const cls = accept.includes(a.id) ? "yes" : "";
-    const t = accept.includes(a.id) ? "agrees" : "not yet";
-    return `<span class="dot ${cls}" title="${esc(a.short)}: ${t}">${cls ? esc(a.emoji) : ""}</span>`;
+    const yes = accept.includes(a.id);
+    return `<span class="dot${yes ? " yes" : ""}" style="--c:${a.color}" title="${esc(a.short)}: ${yes ? "agrees" : "not yet"}"></span>`;
   }).join("")}</span>`;
 }
 
@@ -199,24 +226,43 @@ function append(html, cls, { instant = false, latest = false } = {}) {
   el.innerHTML = html;
   if (latest) { $$(".msg.latest", f).forEach(m => m.classList.remove("latest")); el.classList.add("latest"); }
   f.appendChild(el);
+  if (txCollapsed && !instant && !cls.includes("hood-only")) { unread++; renderUnread(); }
   if (stick || instant) scrollBottom(instant);
   else $("#jumpBtn").classList.remove("hidden");
   return el;
 }
+// The transcript can collapse to give the city panel room; it then counts unread items.
+let txCollapsed = false, unread = 0;
+function renderUnread() { $("#txCount").textContent = txCollapsed && unread ? `${unread} new` : ""; }
+function setTranscript(open) {
+  txCollapsed = !open;
+  $("#side").classList.toggle("tx-collapsed", !open);
+  $("#txToggle").setAttribute("aria-expanded", String(open));
+  if (open) { unread = 0; scrollBottom(true); }
+  renderUnread();
+  try { localStorage.setItem("sumer-tx", open ? "1" : "0"); } catch { /* storage blocked */ }
+}
+// Back-to-back appends jump instead of chaining smooth scrolls (a later one can cut an
+// earlier one short); a follow-up frame catches late layout.
+let lastScroll = 0, scrollRaf = 0;
 function scrollBottom(instant) {
-  const f = feed();
-  f.style.scrollBehavior = instant || reduced.matches ? "auto" : "smooth";
+  const f = feed(), t = now();
+  const smooth = !instant && !reduced.matches && !document.hidden && t - lastScroll > 350;
+  lastScroll = t;
+  f.style.scrollBehavior = smooth ? "smooth" : "auto";
   f.scrollTop = f.scrollHeight;
   stick = true;
   $("#jumpBtn").classList.add("hidden");
+  cancelAnimationFrame(scrollRaf);
+  if (!smooth) scrollRaf = requestAnimationFrame(() => { if (stick) f.scrollTop = f.scrollHeight; });
 }
 function welcome() {
   feed().innerHTML = `<div class="welcome">
-    <div class="welcome-mark" aria-hidden="true">🏛️</div>
+    <div class="welcome-kicker">Ready to convene</div>
     <h1>${N()} advisor${N() === 1 ? "" : "s"}. One city. No king.</h1>
-    <p>Choose the size of your council and its voters in Setup. Watch them argue, vote, and decide together how to run ancient Sumer for five years. When they are stuck, you decide.</p>
-    <button class="btn" id="welcomeSetup" type="button">Choose your voters</button>
-    <button class="btn primary big" id="welcomeStart" type="button">Convene the council</button></div>`;
+    <p>Each advisor is an AI agent with its own goal. They argue over the SLIM message bus, vote, and run ancient Sumer for five years. When they are stuck, you decide.</p>
+    <div class="welcome-actions"><button class="btn primary" id="welcomeStart" type="button">Convene the council</button>
+    <button class="btn" id="welcomeSetup" type="button">Choose voters</button></div></div>`;
   $("#welcomeStart").onclick = start;
   $("#welcomeSetup").onclick = () => openDrawer(true);
   syncSetupLock();
@@ -237,18 +283,19 @@ function renderTurn(d, instant) {
   const a = adv(d.advisor);
   const addressed = (d.addressed || []).filter(x => x !== d.advisor);
   if (d.plan_id) S.plans[d.plan_id] = d.advisor;
+  const meta = d.phase === "runoff" ? "Runoff" : d.round != null ? `Round ${dispRound(d.year, d.round)}` : "";
+  G.speak({ speaker: d.advisor, to: addressed, text: d.speech || "", meta }, instant);
   const foot = [];
   if (d.phase === "runoff" || d.runoff_vote) {
     const side = S.runoff && d.runoff_vote === S.runoff.b.id ? "b" : "a";
     const pid = d.runoff_vote;
-    if (pid) foot.push(`<span class="vote-chip runoff-pick" style="--k:var(--${side === "a" ? "lapis" : "clay"})">Votes for ${side.toUpperCase()}: ${avatar(planAuthor(pid), "mini")}<b>${esc(planName(pid))}</b></span>`);
+    if (pid) foot.push(`<span class="vote-chip runoff-pick" style="--k:var(--vote-${side})">Votes for ${side.toUpperCase()}: ${avatar(planAuthor(pid), "mini")}<b>${esc(planName(pid))}</b></span>`);
   } else {
     const plain = d.plain || planText(d.proposal);
     if (plain) foot.push(`<span class="plan-chip"><span class="emoji">📜</span><span>${esc(plain)}</span></span>`);
     const acc = [...new Set((d.accept || []).map(id => planAuthor(id)).filter(Boolean))];
     if (acc.length) foot.push(`<span class="vote-chip" title="Plans ${esc(a.short)} would accept">👍 ${acc.map(x => x === d.advisor ? "own" : `${esc(adv(x).short)}'s`).join(", ")} plan${acc.length > 1 ? "s" : ""}</span>`);
   }
-  const meta = d.phase === "runoff" ? "Runoff" : d.round != null ? `Round ${dispRound(d.year, d.round)}` : "";
   const src = d.source ? `<span class="tag hood-only">${esc(d.source === "llm" ? "LLM" : d.source)}</span>` : "";
   const think = d.thought ? `<button class="think-btn" type="button" aria-expanded="${S.hood}" title="What ${esc(a.short)} privately thought">💭</button>` : "";
   const trace = d.trace && Object.keys(d.trace).length ? `<pre class="trace hood-only">${esc(traceText(d.trace))}</pre>` : "";
@@ -263,7 +310,6 @@ function renderTurn(d, instant) {
     </div>`, "msg", { instant, latest: true });
   const btn = $(".think-btn", el);
   if (btn) btn.onclick = () => { const t = $(".thought", el); t.hidden = !t.hidden; btn.setAttribute("aria-expanded", String(!t.hidden)); };
-  spotlight(d.advisor, addressed);
   if (d.runoff_vote) addRunoffVote(d.advisor, d.runoff_vote, instant);
 }
 
@@ -272,7 +318,8 @@ function renderPoll(d, instant) {
   rows.forEach(r => { if (r.id && r.author) S.plans[r.id] = r.author; });
   rows.sort((x, y) => (y.accept?.length || 0) - (x.accept?.length || 0));
   const lead = rows[0];
-  // seat stances on the leading plan
+  G.pulse(instant);
+  // node stances on the leading plan
   if (lead) {
     S.stance = {};
     for (const a of S.advisors) S.stance[a.id] = lead.accept?.includes(a.id) ? "agree" : "disagree";
@@ -326,7 +373,7 @@ function renderYear_(d, instant) {
   append(`<div class="card-kicker"><span>Year ${esc(d.year)} decision</span>${outcomeBadge(d)}</div>
     <div class="card-summary">${esc(summary)}</div>
     ${plain || author ? `<div class="card-plan"><span class="plan-chip">${author ? avatar(author, "mini") : `<span class="emoji">🛟</span>`}<span><b>${esc(pname)}:</b> ${esc(plain)}</span></span></div>` : ""}
-    <div class="nums">${nums.map(([k, v, u]) => `<div class="num"><div class="k">${esc(k)}</div><div class="v">${fmt(v)}</div>${u ? `<div class="k">${u}</div>` : ""}</div>`).join("")}</div>
+    <div class="nums">${nums.map(([k, v, u]) => `<div class="num"><div class="k">${esc(k)}</div><div class="v">${fmt(v)}</div>${nums.some(x => x[2]) ? `<div class="k u">${esc(u || "")}</div>` : ""}</div>`).join("")}</div>
     ${sat}`, `card k-${esc(d.outcome)}`, { instant });
 }
 
@@ -386,8 +433,7 @@ function addRunoffVote(advisor, pid, instant) {
   R.votes[advisor] = pid;
   const side = $(`#ro-${k}`);
   if (side) {
-    const a = adv(advisor);
-    $(".ro-votes", side).insertAdjacentHTML("beforeend", `<span class="ro-vote" style="${instant ? "animation:none" : ""}" title="${esc(a.short)}">${esc(a.emoji)}</span>`);
+    $(".ro-votes", side).insertAdjacentHTML("beforeend", avatar(advisor, `ro-vote${instant ? " still" : ""}`));
     $(".ro-count", side).textContent = Object.values(R.votes).filter(v => v === pid).length;
   }
   S.stance[advisor] = `vote-${k}`;
@@ -425,7 +471,7 @@ function showEscalation(d) {
     if (!safe) why.push(`${voteDots(o.accept)} <span>${(o.accept || []).length} of ${N()} agree</span>`);
     if (o.note) why.push(`<span>${esc(o.note)}</span>`);
     return `<button class="esc-opt${safe ? " safe" : ""}" type="button" data-choice="${esc(o.id)}">
-      ${safe ? `<span class="av" style="--c:var(--ok)">🛟</span>` : avatar(au)}
+      ${safe ? `<span class="av safe-av">🛟</span>` : avatar(au)}
       <span><span class="who">${esc(safe ? "Play it safe" : planName(o.id, au))}</span><br><span class="what">${esc(stripSafe(o.plain || planText(o.plan)))}</span></span>
       ${why.length ? `<span class="why">${why.join("")}</span>` : ""}</button>`;
   }).join("");
@@ -437,7 +483,7 @@ function showEscalation(d) {
   $$("#escOptions .esc-opt").forEach(btn => btn.onclick = () => choose(btn));
   $("#escalation").classList.remove("hidden");
   setPhase("Your call", `<span>The council is stuck. <b>You decide.</b></span>`);
-  spotlight(null);
+  G.idle(); setHubSub("waiting for you");
   idleTyping();
 }
 async function choose(btn) {
@@ -465,11 +511,11 @@ function closeEscalation() { $("#escalation").classList.add("hidden"); S.waiting
 
 /* ---------------- city stats + charts ---------------- */
 const STATS = [
-  { key: "population", label: "People", color: "#1f4e8c", dir: 1, get: s => s.population },
-  { key: "grain", label: "Grain", unit: "bushels", color: "#9b7015", dir: 1, get: s => s.grain },
-  { key: "acres", label: "Land", unit: "acres", color: "#4c7a2e", dir: 1, get: s => s.acres },
-  { key: "land_price", label: "Land price", unit: "bushels per acre", color: "#b0502a", dir: 0, get: s => s.land_price },
-  { key: "starved", label: "Starved last year", color: "#a3302a", dir: -1, get: starvedOf },
+  { key: "population", label: "People", color: "#60a5fa", dir: 1, get: s => s.population },
+  { key: "grain", label: "Grain", unit: "bushels", color: "#fbbf24", dir: 1, get: s => s.grain },
+  { key: "acres", label: "Land", unit: "acres", color: "#4ade80", dir: 1, get: s => s.acres },
+  { key: "land_price", label: "Land price", unit: "bu / acre", color: "#fb923c", dir: 0, get: s => s.land_price },
+  { key: "starved", label: "Starved", unit: "last year", color: "#f87171", dir: -1, get: starvedOf },
 ];
 function buildStats() {
   $("#stats").innerHTML = STATS.map(st => `<div class="stat" id="stat-${st.key}" style="--sc:${st.color}" aria-expanded="false">
@@ -603,11 +649,20 @@ function playNext() {
   narrating = true;
   idleTyping();
   narrator.src = url;
-  narrator.play().catch(() => { narrating = false; playNext(); });
+  watchNarration();
+  narrator.play().catch(() => { narrating = false; clearTimeout(narrateWatch); playNext(); });
 }
-narrator.addEventListener("ended", () => { narrating = false; idleTyping(); playNext(); });
-narrator.addEventListener("error", () => { if (narrating) { narrating = false; playNext(); } });
-function stopNarration() { N_Q.length = 0; narrator.pause(); narrating = false; }
+// A stalled clip fires neither "ended" nor "error": skip it after NARRATE_STALL ms without progress.
+const NARRATE_STALL = 15000;
+let narrateWatch = 0;
+function watchNarration() {
+  clearTimeout(narrateWatch);
+  if (narrating) narrateWatch = setTimeout(() => { if (!narrating) return; narrator.pause(); narrating = false; idleTyping(); playNext(); }, NARRATE_STALL);
+}
+narrator.addEventListener("timeupdate", watchNarration);
+narrator.addEventListener("ended", () => { narrating = false; clearTimeout(narrateWatch); idleTyping(); playNext(); });
+narrator.addEventListener("error", () => { if (narrating) { narrating = false; clearTimeout(narrateWatch); idleTyping(); playNext(); } });
+function stopNarration() { N_Q.length = 0; narrator.pause(); narrating = false; clearTimeout(narrateWatch); }
 function renderMute() {
   const b = $("#muteBtn");
   b.textContent = muted ? "🔇" : "🔊";
@@ -618,7 +673,7 @@ function renderMute() {
 /* ---------------- event queue ---------------- */
 const PACED = new Set(["turn", "news", "tally", "runoff", "runoff_result", "year", "escalate", "end"]);
 const Q = [];
-let pumping = false, lastShown = 0, holdUntil = 0, gen = 0, wake = null;
+let pumping = false, nextAt = 0, holdUntil = 0, gen = 0, wake = null;
 let replay = false, replayQuiet = 0, replayCapT = 0;
 
 function sleepUntil(t) {
@@ -656,24 +711,29 @@ async function process(ev, g) {
   if (!instant && PACED.has(kind)) {
     if (kind === "turn") {
       typingFor(d.advisor);
-      $("#seats").classList.add("active");
-      spotlight(d.advisor, (d.addressed || []).filter(x => x !== d.advisor));
-      await sleepUntil(Math.max(lastShown + MIN_GAP, holdUntil, now() + MIN_TYPING));
+      G.typing(d.advisor);
+      await sleepUntil(Math.max(nextAt, holdUntil, now() + MIN_TYPING));
     } else {
       if (kind === "escalate" || kind === "year" || kind === "end") typing("");
-      await sleepUntil(Math.max(lastShown + MIN_GAP, holdUntil));
+      await sleepUntil(Math.max(nextAt, holdUntil));
     }
   } else if (!instant && (kind === "year_start" || kind === "round")) {
-    await sleepUntil(holdUntil);
+    await sleepUntil(Math.max(nextAt, holdUntil)); // the last speech finishes before the phase moves on
   }
   if (g !== gen && kind !== "game") return;
   if (S.paused && !instant && kind !== "game") { Q.unshift(ev); return; }
   render(kind, d, instant);
-  if (PACED.has(kind) && !instant) lastShown = now();
+  if (PACED.has(kind) && !instant) nextAt = now() + (kind === "turn" ? readHold(d.speech) : MIN_GAP);
   if (kind === "year" && !instant) holdUntil = now() + HOLD_AFTER_YEAR;
   idleTyping();
 }
 
+// A speech stays on the graph long enough to read (the bubble shows up to ~230 chars);
+// a long backlog falls back to the minimum so the council catches up.
+function readHold(text) {
+  if (Q.filter(e => e.kind === "turn").length > CATCH_UP) return READ_MIN;
+  return Math.min(READ_MAX, Math.max(READ_MIN, 1000 + Math.min(String(text || "").length, 230) * READ_PER_CHAR));
+}
 function resetGame(d) {
   stopNarration();
   closeEscalation();
@@ -683,9 +743,10 @@ function resetGame(d) {
   S.years = d.years || S.meta?.years || 5;
   if (d.advisors) setAdvisors(d.advisors);
   else renderStances();
-  lastShown = 0; holdUntil = 0;
+  nextAt = 0; holdUntil = 0;
   feed().innerHTML = "";
-  spotlight(null);
+  unread = 0; renderUnread();
+  G.idle(); setHubSub();
   recordState(0, d.state);
   renderYear();
   syncSetupLock();
@@ -703,12 +764,14 @@ function render(kind, d, instant) {
       if (d.state) recordState(d.year - 1, d.state);
       renderYear();
       setPhase(`Year ${d.year} begins`, `<span>The council is discussing</span>`);
+      setHubSub(`year ${d.year}`);
       { const s = d.state || S.hist[d.year - 1] || {};
         append(`Year ${esc(d.year)}<small>${fmt(s.population)} people · ${fmt(s.grain)} bushels · ${fmt(s.acres)} acres</small>`, "divider year", { instant }); }
       break;
     case "round": {
       if (d.year) S.year = d.year;
       const r = dispRound(d.year, d.round);
+      setHubSub(`year ${S.year} · round ${r}`);
       const max = d.max_rounds || S.meta?.max_rounds;
       S.round = { number: r, limit: max };
       renderYear();
@@ -741,6 +804,7 @@ function render(kind, d, instant) {
       break;
     case "news": renderNews(d, instant); break;
     case "wire":
+      G.pulse(instant);
       append(`📡 ${esc(d.transport || "wire")}${d.topic ? ` · ${esc(d.topic)}` : ""}${d.recipients ? ` · to ${d.recipients.length} agents` : ""}${d.bytes_out ? ` · ${(d.bytes_out / 1024).toFixed(1)} kB` : ""}${d.replies != null ? ` · ${d.replies} replies` : ""}${d.elapsed_s != null ? ` in ${d.elapsed_s}s` : ""}`, "wire hood-only", { instant: true });
       break;
     case "runoff": showRunoff(d, instant); break;
@@ -761,7 +825,7 @@ function render(kind, d, instant) {
       S.year = d.year; S.completed = Math.max(S.completed, d.year);
       if (d.state) recordState(d.year, d.state);
       renderYear();
-      spotlight(null);
+      G.idle(instant); setHubSub(`year ${d.year} decided`);
       setPhase("Decision", outcomeBadge(d));
       renderYear_(d, instant);
       if (!instant) narrate(d.narration_url);
@@ -774,7 +838,8 @@ function render(kind, d, instant) {
       S.scoutRequest = null; setPaused(false);
       $$("[data-scout-request] button").forEach(button => button.disabled = true);
       S.running = false; S.round = null; S.completed = d.years?.length || 0; renderYear(); syncSetupLock();
-      closeEscalation(); spotlight(null);
+      closeEscalation(); G.idle(instant);
+      setHubSub(d.status && d.status !== "completed" ? d.status.replaceAll("_", " ") : "reign complete");
       if (d.status && !["completed", "overthrown", "depopulated"].includes(d.status)) {
         setPhase(cap(d.status.replaceAll("_", " ")), "<span>The run retains its recorded city and decisions.</span>");
         append(`<div class="card-kicker">${esc(d.status.replaceAll("_", " "))}</div>`, "card", { instant });
@@ -933,6 +998,7 @@ function previewCouncil() {
     return { ...template, ...a, short: a.short || (seat.preset === "custom" ? "Custom" : template?.short), title: a.title || a.short || template?.title || "Custom agent" };
   }));
   setPhase("Ready to convene", `<span>${N()} advisor${N() === 1 ? "" : "s"} with different goals will run the city.</span>`);
+  setHubSub();
   welcome();
 }
 function resizeVoters() {
@@ -1071,7 +1137,10 @@ function wire() {
   $("#evidenceClose").onclick = () => $("#evidence").classList.add("hidden");
   $("#evidence").onclick = e => { if (e.target.id === "evidence") $("#evidence").classList.add("hidden"); };
   $("#jumpBtn").onclick = () => scrollBottom(false);
+  $("#txToggle").onclick = () => setTranscript(txCollapsed);
   for (const t of ["wheel", "touchmove", "keydown"]) feed().addEventListener(t, () => { userScroll = true; }, { passive: true });
+  // Keep following the newest entry when the panel itself changes size.
+  new ResizeObserver(() => { if (stick && !txCollapsed) { feed().style.scrollBehavior = "auto"; feed().scrollTop = feed().scrollHeight; } }).observe(feed());
   feed().addEventListener("scroll", () => {
     if (userScroll) { stick = nearBottom(); userScroll = false; }
     if (nearBottom()) $("#jumpBtn").classList.add("hidden");
@@ -1092,12 +1161,14 @@ function wire() {
 }
 
 (async function init() {
+  G.mount($("#graph"));
   wire();
   buildStats();
   renderMute();
   renderYear();
   welcome();
   try { if (localStorage.getItem("sumer-hood") === "1") setHood(true); } catch { /* storage blocked */ }
+  try { if (localStorage.getItem("sumer-tx") === "0") setTranscript(false); } catch { /* storage blocked */ }
   try {
     S.meta = await api("/api/meta");
   } catch (e) {
@@ -1108,12 +1179,13 @@ function wire() {
   setup.templates = (m.advisors?.length ? m.advisors : Object.keys(FALLBACK_EMOJI).map(id => ({ id, mandate: PERSONA_MANDATES[id] }))).map(normAdvisor);
   setup.max = Number.isInteger(m.max_advisors) ? Math.min(21, Math.max(1, m.max_advisors)) : 21;
   $("#agentCount").max = setup.max;
-  $("#voterHelp").textContent = `Choose 1–${setup.max} voters. Use a default advisor or create your own. Agents can support multiple plans.`;
+  $("#voterHelp").textContent = `Choose 1-${setup.max} voters. Use a default advisor or create your own. Agents can support multiple plans.`;
   setup.seats = setup.templates.slice(0, setup.max).map((_, i) => newVoter(i));
   setup.ready = true;
   setup.liveRunId = m.active_run || "";
   renderVoters();
   $("#chipTransport").textContent = m.transport === "slim" ? "AGNTCY SLIM" : m.transport ? String(m.transport) : "-";
+  if (!S.runId) setHubSub();
   $("#chipLlm").textContent = m.llm === "bayleaf" || m.llm === "llm" ? String(m.model || "LLM").split("/").pop() : m.llm ? "LLM unavailable" : "-";
   if (m.max_rounds) {
     const sel = $("#rounds");
