@@ -43,7 +43,7 @@ const S = {
 const FALLBACK_COLORS = ["#5f8f3a", "#7a4fa3", "#a33a32", "#b5862a", "#b2622f", "#2f8a7c", "#2f5ea8", "#6b5a45"];
 const FALLBACK_EMOJI = { provider: "🍞", farmer: "🌾", merchant: "⚖️", profiteer: "💰", imposter: "🎭" };
 // Setup belongs to the next council; the live council keeps its own roster.
-const setup = { templates: [], seats: [], serial: 0, starting: false, ready: false, max: 21, liveRunId: "" };
+const setup = { templates: [], seats: [], serial: 0, starting: false, stopping: false, ready: false, max: 21, liveRunId: "" };
 const PERSONA_MANDATES = { provider: "Feed everyone.", farmer: "Plant as many acres as possible.", merchant: "Maximize acres of land per person.", profiteer: "Deliberately sacrifice lives if it increases wealth.", imposter: "Depopulate and ruin the city." };
 const safeColor = (color, i) => /^#[\da-f]{6}$/i.test(String(color || "")) ? color : FALLBACK_COLORS[i % FALLBACK_COLORS.length];
 
@@ -635,6 +635,7 @@ function onEvent(ev) {
   if (ev.sequence != null) seen.add(ev.sequence);
   ev.instant = replay;
   if (ev.kind === "pause") { setPaused(ev.data.paused); return; }
+  if (ev.kind === "end") setPaused(false);
   if (ev.kind === "game") { Q.length = 0; gen++; wake?.(); }
   Q.push(ev);
   pump();
@@ -767,7 +768,10 @@ function render(kind, d, instant) {
       break;
     case "end":
       setup.liveRunId = "";
+      $$("[data-scout-request]").filter(el => el.dataset.scoutRequest === S.scoutRequest?.request_id)
+        .forEach(el => $(".scout-status", el).textContent = "Run ended");
       S.scoutRequest = null; setPaused(false);
+      $$("[data-scout-request] button").forEach(button => button.disabled = true);
       S.running = false; S.completed = d.years?.length || 0; renderYear(); syncSetupLock();
       closeEscalation(); spotlight(null);
       if (d.status && !["completed", "overthrown", "depopulated"].includes(d.status)) {
@@ -780,10 +784,12 @@ function render(kind, d, instant) {
       break;
     case "observability_error":
     case "technical_failure":
-    case "stopped":
     case "error":
       append(`<span class="emoji">⚠️</span><div><b>Something went wrong</b>${esc(d.message)}</div>`, "note error", { instant });
       if (!instant) toast(d.message);
+      break;
+    case "stopped":
+      append(`<span class="emoji">⏹</span><div><b>Council stopped</b>${esc(d.message)}</div>`, "note", { instant });
       break;
     default: break;
   }
@@ -872,7 +878,7 @@ function setupError(message = "") {
   $("#setupError").classList.toggle("hidden", !message);
 }
 function syncSetupLock() {
-  const locked = setup.starting || !!setup.liveRunId;
+  const locked = setup.starting || setup.stopping || !!setup.liveRunId;
   $("#councilSetup").disabled = locked || !setup.ready;
   for (const id of ["seed", "rounds", "startBtn", "welcomeStart"]) {
     const el = document.getElementById(id);
@@ -880,6 +886,7 @@ function syncSetupLock() {
   }
   $("#setupLocked").classList.toggle("hidden", !locked);
   $("#pauseBtn").disabled = !setup.liveRunId;
+  $("#stopBtn").disabled = !setup.liveRunId || setup.stopping;
 }
 function renderVoters() {
   const n = setup.seats.length, rules = votingThresholds(n);
@@ -1024,6 +1031,25 @@ function wire() {
   $("#drawerClose").onclick = () => openDrawer(false);
   $("#drawerBack").onclick = () => openDrawer(false);
   $("#startBtn").onclick = start;
+  $("#stopBtn").onclick = async () => {
+    if (!setup.liveRunId || setup.stopping) return;
+    setup.stopping = true;
+    $("#stopBtn").textContent = "Stopping…";
+    syncSetupLock();
+    try {
+      await api("/api/stop", {});
+      stopNarration();
+      setup.liveRunId = "";
+      S.running = false;
+      setPaused(false);
+      closeEscalation();
+    } catch (e) { toast(e.message); }
+    finally {
+      setup.stopping = false;
+      $("#stopBtn").textContent = "Stop";
+      syncSetupLock();
+    }
+  };
   $("#pauseBtn").onclick = async () => {
     const button = $("#pauseBtn"); button.disabled = true;
     try {
@@ -1092,6 +1118,6 @@ function wire() {
     if (![...sel.options].some(o => +o.value === +m.max_rounds)) sel.insertAdjacentHTML("beforeend", `<option>${m.max_rounds}</option>`);
     sel.value = String(m.max_rounds);
   }
-  setPaused(!!m.paused);
+  setPaused(!!m.active_run && !!m.paused);
   if (m.active_run) connect(m.active_run);
 })();

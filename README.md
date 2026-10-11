@@ -275,7 +275,8 @@ request already in flight may finish, but no next turn starts while paused. Refr
 reconnects to the active run, including its pending scout choice. Setup unlocks after
 that council's reign ends.
 
-The UI has no Stop, Saved runs, Show live run, Export run, or Year traces controls.
+Stop sits next to Convene in Setup and ends the current run, including when paused.
+The UI has no Saved runs, Show live run, Export run, or Year traces controls.
 The append-only journal and archival API remain available for diagnostics. Interrupted
 running or deadlocked negotiations retain their evidence as technical failures.
 

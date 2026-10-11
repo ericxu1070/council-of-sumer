@@ -72,14 +72,15 @@
     <div class="voter-list" id="voterList"></div>
   </fieldset>
   <p class="setup-error hidden" id="setupError" role="alert"></p>
-  <p class="drawer-note hidden" id="setupLocked">A council is running. You can change the voters when its reign ends.</p>
+  <p class="drawer-note hidden" id="setupLocked">A council is running. Stop it or wait for its reign to end before changing voters.</p>
   <label class="field"><span>Seed</span><input id="seed" type="number" value="3" min="0"></label>
   <label class="field"><span>Rounds per year</span><select id="rounds"><option>3</option><option>4</option><option selected>5</option><option>6</option></select></label>
   <label class="field"><span>Pace <b id="paceVal">0.8 s</b></span><input id="pace" type="range" min="0" max="4" step="0.2" value="0.8"></label>
   <div class="drawer-actions">
     <button class="btn primary big" id="startBtn" type="button">Convene</button>
+    <button class="btn big" id="stopBtn" type="button" disabled>Stop</button>
   </div>
-  <p class="drawer-note">After each voting round, choose a scout event to change conditions and request a re-vote, or skip to continue. Pause holds the current council until you resume.</p>
+  <p class="drawer-note">After each voting round, choose a scout event to change conditions and request a re-vote, or skip to continue. Pause holds the current council until you resume. Stop ends the current run.</p>
 </aside>
 
 <div class="modal-back hidden" id="escalation" role="dialog" aria-modal="true" aria-labelledby="escTitle">

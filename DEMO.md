@@ -11,6 +11,7 @@
 6. Show the **Before the scout / After the scout** comparison. You can introduce another
    event after the re-vote, or choose **Skip** to continue with the current result.
 7. Use **Pause** in the header to hold the council and narration, then **Resume** to continue.
+   Use **Stop** next to **Convene** in Setup to end the current run.
 8. If the council deadlocks, choose a budget in the human decision dialog.
 
 The narrator reads each year's result. The speaker icon mutes narration, and **Under the hood**
