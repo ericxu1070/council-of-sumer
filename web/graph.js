@@ -312,6 +312,8 @@
       }
       labelW = clamp(gap - 10, s, 190);
     }
+    // Keep the ring positions while shrinking councilors and their connection anchors.
+    s *= .75;
     size = s; hubSize = hub;
     root.classList.toggle("tight", labelW < 84); // too crowded for every name: label only the active nodes
     hubEl.style.transform = `translate(${hx}px,${hy}px)`;
