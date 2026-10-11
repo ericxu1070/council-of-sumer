@@ -46,7 +46,7 @@ def _row(policy: str, games: list) -> dict:
         "policy": LABELS.get(policy, policy),
         "key": policy,
         "score": round(st.mean(g.rating["score"] for g in games), 1),
-        "survived": f"{sum(not g.rating['impeached'] for g in games)}/{n}",
+        "survived": f"{sum(g.status == 'completed' for g in games)}/{n}",
         "starved": round(st.mean(g.rating["starved_total"] for g in games), 1),
         "population": round(st.mean(g.rating["population"] for g in games), 1),
         "fairness": round(min(sat.values()), 3),
