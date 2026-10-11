@@ -16,8 +16,11 @@
     map.innerHTML = `<svg viewBox="0 0 1200 900" preserveAspectRatio="none" aria-hidden="true">
       <defs>
         <pattern id="city-soil" width="28" height="28" patternUnits="userSpaceOnUse"><circle cx="6" cy="8" r="1" fill="#8b8267" opacity=".2"/></pattern>
-        <pattern id="city-field" width="8" height="8" patternUnits="userSpaceOnUse"><path d="M2 0v8" stroke="#abc184" stroke-width="2" opacity=".6"/></pattern>
-        <g id="city-plot"><rect width="32" height="43" rx="3" fill="#597a4c" stroke="#a5b880"/><rect x="4" y="4" width="24" height="35" fill="url(#city-field)"/></g>
+        <pattern id="city-field" width="10" height="16" patternUnits="userSpaceOnUse">
+          <path d="M5 16V4" stroke="#a2aa5b" stroke-width="1.2"/>
+          <path d="M5 11 2 8M5 8 2 5M5 11 8 8M5 8 8 5M5 5V2" fill="none" stroke="#e9c66a" stroke-width="1.8" stroke-linecap="round"/>
+        </pattern>
+        <g id="city-plot"><rect width="32" height="43" rx="3" fill="#6f7540" stroke="#b4a262"/><rect x="4" y="4" width="24" height="35" fill="url(#city-field)"/></g>
         <g id="city-home"><rect x="1" y="3" width="36" height="35" rx="3" fill="#7a715c"/><rect width="34" height="33" rx="2" fill="#c1ab82" stroke="#d8c6a0"/><rect x="7" y="7" width="20" height="19" fill="#8f7b59"/><rect x="12" y="12" width="10" height="9" fill="#b6a381"/><path d="M15 26v7" stroke="#5c513e" stroke-width="5"/></g>
         <g id="city-sack"><path d="M7 1h12l-3 5c7 5 10 15 3 16H7C0 21 3 11 10 6z" fill="#dfb762" stroke="#f0d398"/><path d="M8 6h10M13 11v7" stroke="#a17c35"/></g>
       </defs>
