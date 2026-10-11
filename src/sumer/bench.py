@@ -99,15 +99,23 @@ async def _counterfactual_info(seeds: list[int], ask) -> dict:
 
 async def run(n_seeds: int, transport: str = "inproc") -> dict:
     seeds = list(range(1, n_seeds + 1))
-    if transport == "slim":
-        from sumer.transport.slim import SlimCouncil
+    council = None
+    try:
+        if transport == "slim":
+            from sumer.transport.slim import SlimCouncil
 
-        council = SlimCouncil()
-        await council.connect()
-        ask = council.ask
-    else:
-        ask = inproc.ask
+            council = SlimCouncil()
+            await council.connect()
+            ask = council.ask
+        else:
+            ask = inproc.ask
+        return await _run_benchmark(n_seeds, seeds, transport, ask)
+    finally:
+        if council is not None:
+            await council.close()
 
+
+async def _run_benchmark(n_seeds: int, seeds: list[int], transport: str, ask) -> dict:
     t0 = time.time()
     games: dict[str, list] = {"council": [], "council_silent": []}
     for s in seeds:
