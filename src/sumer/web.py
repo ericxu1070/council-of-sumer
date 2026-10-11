@@ -1,4 +1,12 @@
-"""One live council game with verified, recorded event streams."""
+"""The chamber: runs one live game and streams every message to the browser (SSE).
+
+Pacing: council messages (each turn, news, runoff steps, escalation) go out
+one at a time, and after each one the server sleeps `live.pace_s` seconds
+(default 1 s, POST /api/pace; 0 fast-forwards). After each year's result the
+server waits for the narrator to finish reading the year's summary, plus a
+second, before the next year starts.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -12,16 +20,15 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from pydantic import BaseModel, ConfigDict, Field
 
 from sumer import voice
-from sumer.advisors import ADVISORS
+from sumer.advisors import ADVISORS, REPORT_KINDS, scout_report
 from sumer.chamber import DEFAULT_DB, play_council
 from sumer.config import RESULTS_DIR, ROOT, settings
-from sumer.protocol import Brief, uid
+from sumer.game import YEARS, roll_game
+from sumer.protocol import Ballot, Brief, Delivery, uid
 from sumer.storage import Store
 
 log = logging.getLogger(__name__)
-WEB = ROOT / "web"
 store = Store(DEFAULT_DB)
-
 
 @asynccontextmanager
 async def lifespan(app):
@@ -35,13 +42,14 @@ async def lifespan(app):
 
 
 app = FastAPI(title="Council of Sumer", lifespan=lifespan)
+WEB = ROOT / "web"
 
 
 class Hub:
     def __init__(self):
         self.subscribers: set[tuple[str, asyncio.Queue]] = set()
 
-    async def publish(self, kind: str, data: dict):
+    async def emit(self, kind: str, data: dict):
         event = {"kind": kind, "run_id": data["_run_id"], "sequence": data["_sequence"],
                  "data": {k: v for k, v in data.items() if not k.startswith("_")}}
         for rid, q in list(self.subscribers):
@@ -53,68 +61,136 @@ hub = Hub()
 
 
 class Live:
+    """The single game this server is running."""
+
     def __init__(self):
-        self.task: asyncio.Task | None = None
         self.run_id = ""
-        self.pace_s = 1.2
-        self.pending: asyncio.Future | None = None
         self.options: set[str] = set()
+        self.task: asyncio.Task | None = None
+        self.seed = 0
+        self.year = 1
+        self.pace_s = settings.pace_s
+        self.injected: list[dict] = []
+        self.pending: asyncio.Future | None = None
         self.council = None
+        self.game_no = 0
+        self.narration: dict[int, bytes] = {}
 
 
 live = Live()
 
 
-async def _gather(brief: Brief):
+# Council messages a person reads or hears: each is sent alone, then the
+# server pauses, so the browser receives them one by one, never in a burst.
+PACED = {"turn", "news", "runoff", "runoff_result", "escalate"}
+
+
+async def paced_emit(kind: str, data: dict) -> None:
+    await hub.emit(kind, data)
+    if live.pace_s <= 0:
+        return  # fast-forward
+    if kind in PACED:
+        await asyncio.sleep(live.pace_s)
+    elif kind == "year":
+        # Let the narrator finish reading the year before the next debate starts.
+        text = data.get("summary") or ""
+        await asyncio.sleep(voice.seconds(live.narration.get(data["year"]), text) + 1.0)
+
+
+async def _narrate(year: int, text: str) -> str | None:
+    audio = await voice.narrate(text)
+    if audio is None:
+        live.narration.pop(year, None)
+        return None
+    live.narration[year] = audio
+    return f"/api/narration/{year}?game={live.game_no}"
+
+
+async def _ask(brief: Brief) -> Ballot | None:
+    """Send one turn's brief to its speaker, over SLIM or in process."""
+    live.year = brief.year
     if live.council is None:
         if settings.transport == "slim":
             from sumer.transport.slim import SlimCouncil
+
             live.council = SlimCouncil()
             await live.council.connect()
         else:
             from sumer.transport import inproc
+
             live.council = inproc
     t0 = time.monotonic()
-    deliveries = await live.council.gather(brief)
+    ballot = await live.council.ask(brief)
     wire = dict(getattr(live.council, "last", {}) or {})
     wire.setdefault("transport", "in-process (no network)")
+    wire.setdefault("recipients", [brief.speaker])
     wire.setdefault("elapsed_s", round(time.monotonic() - t0, 2))
-    wire.setdefault("replies", sum(d.reply is not None for d in deliveries))
-    data = {"year": brief.year, "round": brief.round, "phase": brief.phase, **wire}
-    event = store.append(brief.run_id, "wire", data)
-    await hub.publish("wire", {**data, "_sequence": event["sequence"], "_run_id": brief.run_id})
-    await asyncio.sleep(live.pace_s)
-    return deliveries
+    wire.setdefault("replies", int((ballot.reply if isinstance(ballot, Delivery) else ballot) is not None))
+    await journal_emit("wire", {"year": brief.year, "round": brief.round, "phase": brief.phase,
+                               "advisor": brief.speaker, "turn": brief.turn, **wire})
+    return ballot
+
+
+async def journal_emit(kind, data):
+    record = store.append(live.run_id, kind, data)
+    await hub.emit(kind, {**data, "_sequence": record["sequence"], "_run_id": live.run_id})
 
 
 async def _ask_human(options: list[dict], reason: str) -> str | None:
     live.options = {o["id"] for o in options}
     live.pending = asyncio.get_running_loop().create_future()
+    timeout = settings.escalation_timeout_s if settings.escalation_timeout_s > 0 else None
     try:
-        # Deadlock stays paused until an explicit selection or stop, with no timeout adoption.
-        return await live.pending
+        return await asyncio.wait_for(live.pending, timeout)
+    except TimeoutError:
+        await journal_emit("escalation_timeout", {"message": "Human selection timed out; run remains paused."})
+        return None
     finally:
         live.pending = None
         live.options.clear()
 
 
+async def _run(seed: int, reveal: bool, max_rounds: int) -> None:
+    try:
+        await play_council(
+            seed,
+            _ask,
+            reveal_news=reveal,
+            max_rounds=max_rounds,
+            ask_human=_ask_human,
+            emit=paced_emit,
+            injected_news=live.injected,
+            narrate=_narrate,
+            store=store, run_id=live.run_id,
+        )
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:  # surface transport or model failures in the UI
+        log.exception("game failed")
+        await journal_emit("error", {"message": f"{type(e).__name__}: {e}"})
+
+
 class StartReq(BaseModel):
     model_config = ConfigDict(extra="forbid")
     seed: int = 7
+    reveal_news: bool = True
     max_rounds: int | None = Field(default=None, ge=1, le=20)
 
 
 @app.post("/api/game")
 async def start(req: StartReq):
     if live.task and not live.task.done():
-        raise HTTPException(409, "Stop the current run before convening another council.")
+        raise HTTPException(409, "A live run is already active.")
     live.run_id = uid()
-    live.task = asyncio.create_task(play_council(
-        req.seed, _gather, max_rounds=req.max_rounds, ask_human=_ask_human,
-        emit=hub.publish, store=store, run_id=live.run_id))
+    live.injected.clear()
+    live.seed, live.year = req.seed, 1
+    live.game_no += 1
+    live.narration.clear()
+    live.task = asyncio.create_task(
+        _run(req.seed, req.reveal_news, req.max_rounds or settings.max_rounds)
+    )
     await asyncio.sleep(0)
-    if live.task.done() and live.task.exception():
-        raise HTTPException(500, str(live.task.exception()))
+    require_run(live.run_id)
     return {"ok": True, "run_id": live.run_id}
 
 
@@ -129,6 +205,24 @@ async def stop():
     return {"ok": True}
 
 
+class NewsReq(BaseModel):
+    kind: str
+    run_id: str
+
+
+@app.post("/api/news")
+async def news(req: NewsReq):
+    if req.run_id != live.run_id or not live.task or live.task.done():
+        raise HTTPException(409, "No matching live run.")
+    if req.kind not in REPORT_KINDS:
+        raise HTTPException(400, "unknown report kind")
+    rolls = roll_game(live.seed)
+    y = live.year
+    report = scout_report(req.kind, rolls[y - 1], rolls[y] if y < len(rolls) else None)
+    live.injected.append({**report, "injected": True})
+    return {"ok": True, "report": report}
+
+
 class ChoiceReq(BaseModel):
     run_id: str
     choice: str
@@ -137,38 +231,45 @@ class ChoiceReq(BaseModel):
 @app.post("/api/escalation")
 async def choose(req: ChoiceReq):
     if req.run_id != live.run_id or not live.pending or live.pending.done():
-        raise HTTPException(409, "No live human selection is pending for this run.")
+        raise HTTPException(409, "no escalation pending")
     if req.choice not in live.options:
-        raise HTTPException(400, "Choose one of the latest valid advisor proposals.")
+        raise HTTPException(400, "Choose a latest valid option.")
     live.pending.set_result(req.choice)
     return {"ok": True}
 
 
 class PaceReq(BaseModel):
-    pace_s: float = Field(ge=0, le=10)
+    pace_s: float
 
 
 @app.post("/api/pace")
 async def pace(req: PaceReq):
-    live.pace_s = req.pace_s
-    return {"ok": True}
+    live.pace_s = max(0.0, min(10.0, req.pace_s))
+    return {"ok": True, "pace_s": live.pace_s}
 
 
 @app.get("/api/meta")
 async def meta():
     return {
-        "advisors": [a.__dict__ for a in ADVISORS.values()],
-        "transport": settings.transport, "llm": settings.llm_mode,
+        "active_run": live.run_id if live.task and not live.task.done() else "",
+        "advisors": [a.public() for a in ADVISORS.values()],
+        "years": YEARS,
+        "pace_s": live.pace_s,
+        "transport": settings.transport,
+        "llm": settings.llm_mode,
         "model": settings.llm_model if settings.llm_mode == "bayleaf" else "policy",
-        "voice": voice.enabled(), "max_rounds": settings.max_rounds,
+        "voice": voice.enabled(),
+        "max_rounds": settings.max_rounds,
+        "escalation_timeout_s": settings.escalation_timeout_s,
         "budget_usd": settings.llm_budget_usd,
-        "active_run": live.run_id if live.task and not live.task.done() else None,
+        "report_kinds": list(REPORT_KINDS),
     }
 
 
 @app.get("/api/spend")
 async def spend():
     from sumer import llm
+
     return {"spent_usd": llm.spent_usd(), "budget_usd": settings.llm_budget_usd}
 
 
@@ -177,11 +278,6 @@ def require_run(run_id: str):
         return store.run(run_id)
     except KeyError:
         raise HTTPException(404, "Unknown run.") from None
-
-
-
-
-
 
 
 
@@ -224,22 +320,14 @@ async def events(request: Request, run_id: str):
     return StreamingResponse(stream(), media_type="text/event-stream")
 
 
-
-
-
-
-
-
 @app.get("/api/bench")
 async def bench():
-    path = RESULTS_DIR / "bench.json"
-    if not path.exists():
+    p = RESULTS_DIR / "bench.json"
+    if not p.exists():
         return JSONResponse({"missing": True})
-    data = json.loads(path.read_text())
+    data = json.loads(p.read_text())
     if not data.get("rule_version"):
-        return JSONResponse({"historical": True, "message":
-            "The checked-in benchmark predates the revised game and voting rules. "
-            "Run the existing benchmark command to generate current offline results."})
+        return JSONResponse({"historical": True, "message": "Historical benchmark; regenerate for current game rules."})
     return JSONResponse(data)
 
 
@@ -253,6 +341,14 @@ async def speak(advisor: str, text: str):
     return Response(audio, media_type="audio/mpeg")
 
 
+@app.get("/api/narration/{year}")
+async def narration(year: int):
+    audio = live.narration.get(year)
+    if audio is None:
+        raise HTTPException(404, "no narration for that year")
+    return Response(audio, media_type="audio/mpeg", headers={"Cache-Control": "no-store"})
+
+
 @app.get("/")
 async def index():
     return FileResponse(WEB / "index.html")
@@ -260,7 +356,8 @@ async def index():
 
 @app.get("/{name}")
 async def static(name: str):
-    path = (WEB / name).resolve()
-    if path.parent != WEB.resolve() or not path.is_file():
+    p = (WEB / name).resolve()
+    if p.parent != WEB.resolve() or not p.is_file():
         raise HTTPException(404)
-    return FileResponse(path)
+    return FileResponse(p)
+

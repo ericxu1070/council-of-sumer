@@ -2,8 +2,10 @@
 
 - `run_node()` starts a SLIM data-plane node inside Python (no Docker needed).
 - `serve_advisor()` serves one advisor as an A2A agent over SLIM patterns.
-- `SlimCouncil.gather()` sends concurrent A2A requests over addressed SLIM
-  sessions, retaining the destination identity separately from the signed payload.
+- `SlimCouncil.ask()` sends one turn's Brief to the one advisor whose turn it
+  is, over a SLIM point-to-point session to that advisor's own name, and
+  returns its signed Ballot. If unicast fails it falls back to a one-member
+  group session (A2A broadcast).
 """
 
 from __future__ import annotations
@@ -18,7 +20,7 @@ import uuid
 from sumer.advisors import ADVISOR_IDS, ADVISORS
 from sumer.agent import decide
 from sumer.config import settings
-from sumer.protocol import Brief, Delivery, Reply, endpoint
+from sumer.protocol import Ballot, Brief, Delivery, endpoint
 
 log = logging.getLogger(__name__)
 NAMESPACE = "sumer/council"
@@ -42,7 +44,7 @@ def agent_card(advisor_id: str):
         name=advisor_id,
         url="",
         version="1.0.0",
-        description=f"{a.title}. Mandate: {a.mandate} Concerns: {a.red_line}",
+        description=f"{a.title}. Mandate: {a.mandate} Red line: {a.red_line}",
         defaultInputModes=["application/json"],
         defaultOutputModes=["application/json"],
         capabilities=AgentCapabilities(streaming=False),
@@ -50,7 +52,7 @@ def agent_card(advisor_id: str):
             AgentSkill(
                 id="deliberate",
                 name="Deliberate on a council brief",
-                description="Proposes, objects, revises, or returns a signed explicit YES/NO ballot.",
+                description="Reads a council Brief and returns a signed Ballot.",
                 tags=["council", "negotiation", "hamurabi"],
             )
         ],
@@ -84,6 +86,8 @@ def _executor(advisor_id: str):
     class AdvisorExecutor(AgentExecutor):
         async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
             brief = Brief.model_validate_json(context.get_user_input())
+            if brief.speaker and brief.speaker != advisor_id:
+                log.warning("brief for %s delivered to %s", brief.speaker, advisor_id)
             ballot = await decide(advisor_id, brief)
             await event_queue.enqueue_event(new_agent_text_message(ballot.model_dump_json()))
 
@@ -111,7 +115,7 @@ async def serve_advisor(advisor_id: str) -> None:
 
 
 class SlimCouncil:
-    """The clerk retains the addressed peer for each independently signed response."""
+    """The clerk's side: send each turn's Brief to its speaker, collect its Ballot."""
 
     def __init__(self, timeout_s: float = 90.0):
         self.timeout_s = timeout_s
@@ -132,39 +136,64 @@ class SlimCouncil:
         )
         self._client = await AgntcyFactory().a2a(cfg).create(agent_card(ADVISOR_IDS[0]))
 
-    async def gather(self, brief: Brief) -> list[Delivery]:
+    def _request(self, brief: Brief):
         from a2a.types import Message, MessageSendParams, Part, Role, SendMessageRequest, TextPart
+
+        return SendMessageRequest(
+            id=str(uuid.uuid4()),
+            params=MessageSendParams(
+                message=Message(
+                    role=Role.user,
+                    messageId=brief.message_id,
+                    parts=[Part(root=TextPart(text=brief.model_dump_json()))],
+                )
+            ),
+        )
+
+    async def ask(self, brief: Brief) -> Ballot | None:
         from agntcy_app_sdk.semantic.a2a.client.utils import message_translator
 
         if self._client is None:
             await self.connect()
+        speaker = brief.speaker
+        req = self._request(brief)
         t0 = time.monotonic()
-        async def one(peer: str) -> Delivery:
-            try:
-                req = SendMessageRequest(id=str(uuid.uuid4()), params=MessageSendParams(
-                    message=Message(role=Role.user, messageId=brief.message_id,
-                                    parts=[Part(root=TextPart(text=brief.model_dump_json()))])))
-                message = message_translator(request=req.model_dump(mode="json", exclude_none=True))
-                message.headers.update({"sumer-run-id": brief.run_id,
-                                        "sumer-phase": brief.phase})
-                response = await self._client.transport.request(
-                    endpoint(peer), message, timeout=self.timeout_s)
-                if response is None:
-                    raise ValueError("Peer did not respond before the transport deadline.")
-                payload = json.loads(response.payload)
-                if payload.get("id") != req.id:
-                    raise ValueError("Wrong A2A request identifier.")
+        mode = "A2A unicast, SLIM point-to-point session"
+        topic = agent_name(speaker)
+        payload = None
+        try:
+            reply = await self._client.transport.request(
+                topic,
+                message_translator(request=req.model_dump(mode="json", exclude_none=True)),
+                timeout=int(self.timeout_s),
+            )
+            payload = json.loads(reply.payload.decode("utf-8")) if reply else None
+        except Exception as e:  # noqa: BLE001 - any SDK failure falls back to a group session
+            log.warning("unicast to %s failed (%s), falling back to a group session", speaker, e)
+        if payload is None:
+            mode = "A2A broadcast, one-member MLS group session"
+            topic = f"council-y{brief.year}-r{brief.round}-{speaker}-{uuid.uuid4().hex[:8]}"
+            responses = await self._client.broadcast_message(
+                req, broadcast_topic=topic, recipients=[agent_name(speaker)],
+                timeout=self.timeout_s,
+            )
+            payload = responses[0].model_dump(mode="json") if responses else None
+            topic = f"{NAMESPACE}/{topic}"
+        ballot = None
+        try:
+            if payload is not None:
                 result = payload["result"]
-                reply = Reply.model_validate_json(result["parts"][0]["text"])
-                return Delivery(peer, endpoint(peer), reply=reply)
-            except Exception as exc:  # noqa: BLE001 - peer failures are retried by the phase collector
-                return Delivery(peer, endpoint(peer), error=f"{type(exc).__name__}: {exc}")
-        deliveries = list(await asyncio.gather(*(one(p) for p in brief.targets)))
+                ballot = Ballot.model_validate(json.loads(result["parts"][0]["text"]))
+        except (KeyError, IndexError, TypeError, ValueError) as e:
+            log.warning("unreadable ballot from %s: %s", speaker, e)
         self.last = {
-            "transport": "AGNTCY SLIM (addressed A2A sessions)",
-            "recipients": [endpoint(p) for p in brief.targets],
+            "transport": f"AGNTCY SLIM ({mode})",
+            "topic": topic,
+            "recipients": [agent_name(speaker)],
             "bytes_out": len(brief.model_dump_json()),
-            "replies": sum(d.reply is not None for d in deliveries),
+            "replies": int(ballot is not None),
             "elapsed_s": round(time.monotonic() - t0, 2),
         }
-        return deliveries
+        if ballot is None:
+            log.warning("no ballot from %s", speaker)
+        return Delivery(speaker, endpoint(speaker), reply=ballot)

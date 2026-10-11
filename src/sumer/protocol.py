@@ -1,4 +1,16 @@
-"""Immutable phase contracts, independently signed replies, and passing certificates."""
+"""Wire format for the council, carried as JSON inside A2A text messages.
+
+The council talks in turns. For each turn the clerk sends a Brief to exactly
+one advisor (the `speaker`). The Brief carries the table with every plan's
+current support, what the earlier speakers said this round, and earlier
+rounds. The speaker answers with a signed Ballot: a proposal (or the plan it
+backs), accept and veto votes on the tabled plans, a short public speech, and
+a private thought. In a runoff the Ballot carries `runoff_vote` instead.
+
+The clerk only relays and tallies with a public rule; it never chooses a plan
+(see deliberation.py).
+"""
+
 from __future__ import annotations
 
 import base64
@@ -8,18 +20,15 @@ import os
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
-from pydantic import BaseModel, ConfigDict, Field, StrictInt
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
 
 from sumer.advisors import ADVISOR_IDS
 from sumer.config import CACHE_DIR
 from sumer.game import Decision, State, legalize
-
-Phase = Literal["proposal", "objection", "revision", "vote"]
 
 
 def uid() -> str:
@@ -67,97 +76,105 @@ def provision_identities() -> dict[str, str]:
     return public
 
 
-class Contract(BaseModel):
+class Plan(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
-
-
-class Plan(Contract):
     land_delta: StrictInt
     feed: StrictInt
     plant: StrictInt
 
-    def decision(self) -> Decision:
+    def decision(self):
         return Decision(self.land_delta, self.feed, self.plant)
 
 
-class Candidate(Contract):
+class TabledProposal(BaseModel):
     id: str
-    run_id: str
-    year: int
-    revision: int
     author: str
-    state_hash: str
     plan: Plan
-    assumed_price: StrictInt
-    speech: str
-    arithmetic: str = ""
-    assumptions: str = ""
-    expected_effects: str = ""
-    objections_addressed: list[str] = Field(default_factory=list)
-    source_message_id: str
-
-    @property
-    def hash(self) -> str:
-        return digest(self.model_dump())
+    speech: str = ""
+    plain: str = ""
+    accept: list[str] = Field(default_factory=list)  # advisors accepting it right now
+    veto: list[str] = Field(default_factory=list)
+    backers: list[str] = Field(default_factory=list)  # advisors whose proposal this is
 
 
-class Brief(Contract):
+class Brief(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     message_id: str = Field(default_factory=uid)
-    run_id: str
+    run_id: str = Field(default_factory=uid)
+    state_hash: str = ""
+    peer_keys: dict[str, str] = Field(default_factory=provision_identities)
+    errors: dict[str, str] = Field(default_factory=dict)
+    type: str = "brief"
+    seed: int
     year: int
     round: int
     max_rounds: int
-    phase: Phase
     state: dict
-    state_hash: str
-    table: list[Candidate] = Field(default_factory=list)
-    candidate: Candidate | None = None
+    beliefs: dict
+    speaker: str = ""  # the one advisor who must answer this brief
+    phase: str = "discuss"  # "discuss" or "runoff"
+    turn: int = 0  # position of the speaker in this round's order
+    order: list[str] = Field(default_factory=list)  # this round's speaking order
+    news: list[dict] = Field(default_factory=list)
+    table: list[TabledProposal] = Field(default_factory=list)
+    turns_this_round: list[dict] = Field(default_factory=list)
+    earlier_turns: list[dict] = Field(default_factory=list)  # earlier rounds this year
+    runoff: list[TabledProposal] = Field(default_factory=list)  # [A, B] in a runoff
     history: list[dict] = Field(default_factory=list)
-    transcript: list[dict] = Field(default_factory=list)
-    errors: dict[str, str] = Field(default_factory=dict)
-    targets: list[str] = Field(default_factory=lambda: list(ADVISOR_IDS))
-    peer_keys: dict[str, str]
 
 
-class Reply(Contract):
+    @model_validator(mode="after")
+    def bind_state(self):
+        if not self.state_hash:
+            self.state_hash = state_hash(self.state)
+        return self
+
+
+class Ballot(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     message_id: str = Field(default_factory=uid)
-    run_id: str
+    run_id: str = ""
+    state_hash: str = ""
+    reply_to: str = ""
+    request_hash: str = ""
+    error: str | None = None
+    advisor: str
     year: int
     round: int
-    phase: Phase
-    advisor: str
-    state_hash: str
-    reply_to: str
-    candidate_hash: str | None = None
-    proposal: Plan | None = None
-    assumed_price: StrictInt | None = None
-    choice: Literal["YES", "NO"] | None = None
-    speech: str
-    arithmetic: str = ""
-    assumptions: str = ""
-    expected_effects: str = ""
-    objections_addressed: list[str] = Field(default_factory=list)
-    cited_message_ids: list[str] = Field(default_factory=list)
-    source: Literal["llm", "policy"]
+    phase: str = "discuss"
+    proposal: Plan
+    back: str | None = None  # id of a tabled plan this advisor backs as its proposal
+    accept: list[str] = Field(default_factory=list)
+    veto: list[str] = Field(default_factory=list)
+    runoff_vote: str | None = None
+    speech: str = ""  # public: the other advisors hear this
+    addressed: list[str] = Field(default_factory=list)  # advisors the speech names
+    source: str = "policy"  # "llm" or "policy"
+    # Glass box: private reasoning. Humans see it; the other advisors never do.
     trace: dict = Field(default_factory=dict)
-    error: str | None = None
     sig: str = ""
 
     def signing_payload(self) -> bytes:
-        excluded = {"sig"} if self.error is not None else {"sig", "error"}
-        return json.dumps(self.model_dump(exclude=excluded), sort_keys=True).encode()
+        body = self.model_dump(exclude={"sig"})
+        return json.dumps(body, sort_keys=True).encode()
 
 
-def sign(reply: Reply) -> Reply:
-    key = Ed25519PrivateKey.from_private_bytes((identity_dir() / f"{reply.advisor}.key").read_bytes())
-    signature = base64.b64encode(key.sign(reply.signing_payload())).decode()
-    return reply.model_copy(update={"sig": signature})
+def bind(ballot: Ballot, brief: Brief) -> Ballot:
+    return ballot.model_copy(update={"run_id": brief.run_id, "state_hash": brief.state_hash,
+                                     "reply_to": brief.message_id,
+                                     "request_hash": digest(brief.model_dump())})
 
 
-def verify(reply: Reply, keys: dict[str, str]) -> bool:
+def sign(ballot: Ballot) -> Ballot:
+    provision_identities()
+    key = Ed25519PrivateKey.from_private_bytes((identity_dir() / f"{ballot.advisor}.key").read_bytes())
+    return ballot.model_copy(update={"sig": base64.b64encode(key.sign(ballot.signing_payload())).decode()})
+
+
+def verify(ballot: Ballot, keys: dict[str, str] | None = None) -> bool:
     try:
-        key = Ed25519PublicKey.from_public_bytes(base64.b64decode(keys[reply.advisor], validate=True))
-        key.verify(base64.b64decode(reply.sig, validate=True), reply.signing_payload())
+        key = Ed25519PublicKey.from_public_bytes(base64.b64decode((keys or provision_identities())[ballot.advisor], validate=True))
+        key.verify(base64.b64decode(ballot.sig, validate=True), ballot.signing_payload())
         return True
     except (InvalidSignature, KeyError, ValueError, TypeError):
         return False
@@ -165,85 +182,49 @@ def verify(reply: Reply, keys: dict[str, str]) -> bool:
 
 @dataclass
 class Delivery:
-    """Transport-owned origin is separate from the untrusted payload sender label."""
     peer: str
     origin: str
-    reply: Reply | None = None
+    reply: Ballot | None = None
     error: str | None = None
 
 
-class Certificate(Contract):
-    candidate: Candidate
-    ballots: list[Reply]
-
-
-def validate_reply(delivery: Delivery, brief: Brief) -> Reply:
-    r = delivery.reply
-    if delivery.peer not in brief.targets or delivery.origin != endpoint(delivery.peer):
-        raise ValueError("Unknown or wrong transport endpoint.")
-    if r is None:
-        raise ValueError(delivery.error or "Missing response.")
-    if r.advisor != delivery.peer or not verify(r, brief.peer_keys):
-        raise ValueError("Sender identity or signature does not match the configured peer.")
-    if (r.run_id, r.year, r.round, r.phase, r.state_hash, r.reply_to) != (
-        brief.run_id, brief.year, brief.round, brief.phase, brief.state_hash, brief.message_id,
-    ):
-        raise ValueError("Stale response or wrong run/state/phase.")
-    expected = brief.candidate.hash if brief.candidate else None
-    if r.candidate_hash != expected:
-        raise ValueError("Wrong candidate.")
-    if r.error is not None:
-        raise ValueError(r.error)
-    if not r.speech.strip():
+def validate_reply(delivery: Delivery | Ballot | None, brief: Brief) -> Ballot:
+    if isinstance(delivery, Delivery):
+        if delivery.peer != brief.speaker or delivery.origin != endpoint(brief.speaker):
+            raise ValueError("Wrong transport endpoint.")
+        ballot = delivery.reply
+        if ballot is None:
+            raise ValueError(delivery.error or "Missing response.")
+    else:
+        ballot = delivery
+    if ballot is None or ballot.advisor != brief.speaker or not verify(ballot, brief.peer_keys):
+        raise ValueError("Missing response or invalid peer signature.")
+    if (ballot.run_id, ballot.year, ballot.round, ballot.phase, ballot.state_hash,
+        ballot.reply_to, ballot.request_hash) != (
+        brief.run_id, brief.year, brief.round, brief.phase, brief.state_hash,
+        brief.message_id, digest(brief.model_dump())):
+        raise ValueError("Response does not bind to this run, state, turn, or request.")
+    if ballot.error:
+        raise ValueError(ballot.error)
+    if not ballot.speech.strip():
         raise ValueError("A decision explanation is required.")
-    if brief.phase in ("proposal", "revision"):
-        if r.proposal is None or r.assumed_price != brief.state["land_price"] or r.choice is not None:
-            raise ValueError("A complete budget and the known current price are required.")
-        public = dict(brief.state)
-        public.pop("acres_per_person", None)
-        legalize(State(**public), r.proposal.decision())
-        if not all(t.strip() for t in (r.arithmetic, r.assumptions, r.expected_effects)):
-            raise ValueError("Budget arithmetic, assumptions, and expected effects are required.")
-    elif brief.phase == "vote":
-        if r.choice not in ("YES", "NO") or r.proposal is not None:
-            raise ValueError("Ballot must contain exactly one YES or NO choice.")
-    elif r.proposal is not None or r.choice is not None:
-        raise ValueError("Objections cannot change budgets or cast ballots.")
-    known = {e.get("message_id") for e in brief.transcript}
-    if any(m not in known for m in r.cited_message_ids + r.objections_addressed):
-        raise ValueError("Cited message IDs must refer to the public transcript.")
-    if brief.phase == "revision":
-        objections = {e.get("message_id") for e in brief.transcript
-                      if e.get("phase") == "objection" or e.get("kind") == "failed_ballot"}
-        objections.update(b["message_id"] for e in brief.transcript
-                          if e.get("kind") == "failed_ballot" for b in e["ballots"])
-        if not r.objections_addressed or not set(r.objections_addressed) <= objections:
-            raise ValueError("A revision must address a recorded objection or failed ballot.")
-    return r
+    public = {k: v for k, v in brief.state.items() if k not in ("acres_per_person", "starved")}
+    legalize(State(**public), ballot.proposal.decision())
+    table = {t.id: t for t in brief.table}
+    if any(pid not in table for pid in ballot.accept + ballot.veto):
+        raise ValueError("Votes refer to an unknown proposal.")
+    if ballot.back and (ballot.back not in table or table[ballot.back].plan != ballot.proposal):
+        raise ValueError("Backing must identify the unchanged tabled plan.")
+    if brief.phase == "runoff":
+        pair = {t.id: t for t in brief.runoff}
+        if ballot.runoff_vote not in pair or pair[ballot.runoff_vote].plan != ballot.proposal:
+            raise ValueError("Runoff vote must bind to the selected frozen finalist.")
+        if ballot.runoff_vote in ballot.veto:
+            raise ValueError("A runoff ballot cannot vote for its vetoed finalist.")
+    elif ballot.runoff_vote is not None:
+        raise ValueError("Discussion cannot cast a runoff ballot.")
+    return ballot
 
 
-def verify_certificate(cert: Certificate, state: State, run_id: str, keys: dict[str, str]) -> None:
-    _verify_certificate(cert, state, run_id, keys)
-
-
-def _verify_certificate(cert: Certificate, state: State, run_id: str, keys: dict[str, str]) -> None:
-    c = cert.candidate
-    if c.run_id != run_id or c.year != state.year or c.state_hash != state_hash(state):
-        raise ValueError("Certificate does not bind to the current run and state.")
-    if c.author not in ADVISOR_IDS or c.assumed_price != state.land_price:
-        raise ValueError("Unknown candidate author or wrong market price.")
-    if len(cert.ballots) != 4 or {b.advisor for b in cert.ballots} != set(ADVISOR_IDS):
-        raise ValueError("Certificate requires four distinct configured voters.")
-    if len({b.message_id for b in cert.ballots}) != 4:
-        raise ValueError("Ballot message IDs must be distinct.")
-    for b in cert.ballots:
-        if (not verify(b, keys) or not b.speech.strip() or not b.reply_to
-                or b.proposal is not None or b.error is not None):
-            raise ValueError("Invalid ballot signature or content.")
-        if (b.run_id, b.year, b.round, b.phase, b.state_hash, b.candidate_hash) != (
-            run_id, c.year, c.revision, "vote", c.state_hash, c.hash,
-        ) or b.choice not in ("YES", "NO"):
-            raise ValueError("Wrong ballot binding.")
-    if sum(b.choice == "YES" for b in cert.ballots) < 3:
-        raise ValueError("Certificate does not contain three YES votes.")
-    legalize(state, c.plan.decision())
+def proposal_id(advisor: str, year: int, rnd: int) -> str:
+    return f"{advisor}-y{year}-r{rnd}"

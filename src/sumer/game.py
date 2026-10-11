@@ -10,12 +10,14 @@ from __future__ import annotations
 import random
 from dataclasses import asdict, dataclass, field
 
+from sumer.config import settings
+
 FOOD_PER_PERSON = 20  # bushels a person eats per year
 ACRES_PER_BUSHEL = 2  # one bushel of seed plants two acres
 ACRES_PER_WORKER = 10  # one person can tend ten acres
 PLAGUE_CHANCE = 0.15
 IMPEACH_STARVED_FRACTION = 0.45
-YEARS = 10
+YEARS = settings.reign_years
 RULE_VERSION = "hamurabi-integer-v2"
 
 
@@ -57,6 +59,7 @@ class State:
 
     def public(self) -> dict:
         d = asdict(self)
+        d["starved"] = self.last_report.get("starved", 0)
         d["acres_per_person"] = round(self.acres / max(self.population, 1), 2)
         return d
 

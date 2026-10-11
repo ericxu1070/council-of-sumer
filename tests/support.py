@@ -1,24 +1,17 @@
-from sumer.game import State
-from sumer.protocol import Brief, sign, state_hash
+from sumer.protocol import bind, sign
 from sumer.transport import inproc
 
 
-def brief(keys, phase="proposal", **kwargs):
-    state = State()
-    return Brief(run_id="test-run", year=1, round=0, max_rounds=2, phase=phase,
-                 state=state.public(), state_hash=state_hash(state), peer_keys=keys, **kwargs)
+async def voters(brief):
+    return await inproc.ask(brief)
 
 
-async def voters(request, yes=("farmer", "priest", "general")):
-    deliveries = await inproc.gather(request)
-    if request.phase == "vote":
-        for delivery in deliveries:
-            delivery.reply = sign(delivery.reply.model_copy(update={
-                "choice": "YES" if delivery.peer in yes else "NO",
-                "speech": f"{delivery.peer} explicit decision on the frozen candidate.",
-            }))
-    return deliveries
-
-
-async def _emit(kind, data):
-    pass
+async def unanimous(brief):
+    from sumer.advisors import safe_plan
+    from sumer.game import State
+    from sumer.protocol import Ballot, Plan
+    state = State(**{k: v for k, v in brief.state.items() if k not in ("starved", "acres_per_person")})
+    plan = Plan(**safe_plan(state).as_dict())
+    matches = [t.id for t in brief.table if t.plan == plan]
+    return sign(bind(Ballot(advisor=brief.speaker, year=brief.year, round=brief.round,
+        phase=brief.phase, proposal=plan, accept=matches, speech="We agree on this budget."), brief))
