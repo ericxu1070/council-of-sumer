@@ -10,6 +10,11 @@ council. Each year the city must decide how much land to trade, how much grain t
 people, and how much to plant. Five autonomous agents, each its own process, argue it out
 one speaker at a time over **AGNTCY SLIM**, then vote. When they deadlock, you decide.
 
+![Council of Sumer: five advisors around the city square](docs/devpost-thumbnail.png)
+
+**Result:** with the same model and the same 16 cities, the council of five kept 73% of reigns
+(one LLM alone: 56%) and starved 27% fewer people. See [Results](#results).
+
 ![The council debating over SLIM](docs/debate.jpg)
 
 Every advisor plays to maximize the city's final score over the whole reign, and each adds
@@ -48,7 +53,7 @@ See [DEMO.md](DEMO.md) for the live demo script.
 uv run pytest                                      # unit tests
 uv run python scripts/fake_chamber.py              # scripted UI preview, no LLM (:8010)
 uv run python scripts/rehearse.py 3 11 --batch 3   # rehearse candidate demo seeds
-uv run sumer bench --seeds 30                      # council vs baselines
+uv run sumer bench --seeds 16                      # council vs baselines
 ```
 
 ## How a year works
@@ -58,8 +63,10 @@ uv run sumer bench --seeds 30                      # council vs baselines
    approve several, and answers others by name in at most 25 words.
 2. **You can shake the vote.** After every full round the council waits for you: send a scout
    event (plague, rats, good or bad harvest, low or high land price) or let the vote stand.
-   An event changes the real game conditions and every advisor votes again. The chamber shows
-   who changed their vote.
+   An event changes the real game conditions and every advisor votes again. The omen panel
+   shows the plan currently winning, who backs it, and how far it is from a majority; a herald
+   announces your omen (ominous for plague, rats, or a bad harvest, excited for good fortune),
+   and a tally on the map follows the re-vote. **Press the seal** (or Enter) to let the vote stand.
 
    ![Your move: send a scout or let the vote stand](docs/scout.jpg)
 3. **Adoption rules**, checked once you let the vote stand:
@@ -87,7 +94,7 @@ For a council of `n`: majority is `floor(n/2) + 1`, strong majority is the large
 | Genuine disagreement | Opening plans differ by hundreds of acres and bushels; advisors rebut each other by name |
 | Deliberation mechanism | Sequential turns over SLIM (propose or back, vote, reply), stop rules, runoff |
 | Effect of new information | Scout events trigger a re-vote with a before/after comparison |
-| Comparison to a baseline | `uv run sumer bench`: lone ruler, averaging, single-mandate dictators |
+| Comparison to a baseline | `uv run sumer bench`: council vs one LLM with every goal in one prompt, plus rule-based rulers. See [Results](#results) |
 | Stop, keep disagreeing, or ask a human | Consensus, majority, runoff, and the deadlock dialog |
 
 ## Architecture
@@ -117,6 +124,22 @@ For a council of `n`: majority is `floor(n/2) + 1`, strong majority is the large
   narrator reads one headline number. Spoken by ElevenLabs when a key is set; text otherwise.
 - **Observability**: `sumer up` also starts a pinned OpenTelemetry Collector for AGNTCY Observe
   spans (turns, model calls, transport, verification). `SUMER_OBSERVE=false` disables it.
+
+## Voices
+
+With `ELEVENLABS_API_KEY` set, the chamber speaks. Every clip is cached in `.cache/voice/`, so a
+rehearsed demo replays offline, and the mute button silences everything.
+
+- **The year's winner** states the adopted plan in its own voice, then the narrator reads one
+  headline ("Plague took 53 souls.", "The granary grew by 1,600 bushels.").
+- **The herald** announces each omen you send: a gravelly, ominous voice for plague, rats, and a
+  bad harvest; an excited one for a good harvest and cheap or costly land.
+- **Clamoring** (header toggle, off by default): while the council debates, advisors shout short
+  demands drawn from their current plan ("Feed the people!", "Sell the land!", "Store the grain!")
+  in their own voices, quietly and overlapping like a crowd. It falls silent whenever the
+  winner, narrator, or herald speaks.
+- Each preset seat has a distinct voice; custom agents pick one of six in Setup. The server only
+  voices fixed lines or listed voice keys, never raw voice IDs from the browser.
 
 **Under the hood** in the chamber reveals each advisor's private reasoning, model traces, and
 SLIM wire messages. Advisors only ever hear each other's public speeches.
@@ -202,6 +225,22 @@ operator. A server restart still ends an interrupted run; it retains the saved h
 for inspection rather than resuming gameplay. Older saved runs retain their historical
 prompts and evidence.
 
+## Results
+
+![Five LLM advisors beat one LLM on every measure](docs/devpost-stats.png)
+
+16 seeded five-year reigns per decider, decided live by `deepseek-v4.1-flash`
+(`results/bench.md`):
+
+| Decider | Reigns survived | Starved per reign | Least-satisfied advisor | Mean score |
+|---|---|---|---|---|
+| Council of five LLM advisors | 73% (11 of 15) | 29.3 | 0.92 | -75 |
+| One LLM, every goal in one prompt | 56% (9 of 16) | 40.4 | 0.86 | -722 |
+| Rule-based rulers (no LLM, exact rules, searches every plan) | 100% | 0 | 0.99 | 1,190 to 1,221 |
+
+The council beats a single LLM on every measure. Neither LLM decider reaches the rule-based
+rulers, which are a ceiling rather than a competitor. One council reign deadlocked and is excluded.
+
 ## Game rules
 
 Classic BASIC [Hamurabi](https://github.com/coding-horror/basic-computer-games/blob/main/43_Hammurabi/hammurabi.bas):
@@ -221,6 +260,8 @@ Over 45% starvation in a year overthrows the council.
 Checked-in `results/bench.*` come from a live 16-seed run under the current rules
 (`uv run sumer bench --seeds 16`, about 12 minutes and under $1 of LLM calls with `BENCH_CONCURRENCY=8`). Regenerate the
 Devpost image from them with `uv run python scripts/devpost_stats.py` (writes `docs/devpost-stats*.png`).
+The 3:2 gallery thumbnail `docs/devpost-thumbnail.png` comes from `scripts/devpost_thumbnail.cjs`
+(Playwright on `NODE_PATH`); its survival figures are written in the script.
 
 ## Project layout
 
@@ -231,12 +272,16 @@ src/sumer/
   agent.py         one advisor's LLM choices and trace
   deliberation.py  the council protocol: turns, stop rules, runoff, escalation
   scouts.py        user-chosen scout events
-  narrator.py      plain-English year summaries
+  narrator.py      the winner's year-end speech and the headline number
+  voice.py         ElevenLabs voices: seats, narrator, herald; disk cache
+  clamor.py        fixed shout phrases for the Clamoring toggle
   protocol.py      Brief / Ballot wire format and request binding
   transport/       slim.py (AGNTCY) and inproc.py (tests)
   web.py           FastAPI + SSE chamber
 web/               the chamber UI
-scripts/           fake_chamber.py (UI preview), rehearse.py (live rehearsal)
+scripts/           fake_chamber.py (UI preview), rehearse.py (live rehearsal),
+                   devpost_stats.py and devpost_thumbnail.cjs (Devpost images),
+                   check_city_ui.cjs (browser smoke check)
 tests/             unit tests
 ```
 
