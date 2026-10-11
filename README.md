@@ -1,15 +1,17 @@
 # Council of Sumer
 
-**Seven AI advisors with competing goals govern an ancient city, with no king to break ties.**
+**Choose a council of AI advisors with competing goals to govern an ancient city, with no king to break ties.**
 
 Built for the UCSC AI Hackathon @ SF Tech Week (Oct 10 to 11, 2026), Cisco Outshift track
 "When AI Agents Disagree", **Level 3: Build a collective intelligence**.
 
 We took *Hamurabi* (1968), the original city-management game: each year you decide how much
 land to trade, how much grain to feed your people, and how much to plant, while harvests,
-rats, and plague strike at random. Instead of one ruler, a council of seven autonomous agents
+rats, and plague strike at random. Instead of one ruler, a configurable council of autonomous agents
 decides over a five-year reign. Each one has a public mandate and a red line, and they argue
 with each other, one speaker at a time, over **AGNTCY SLIM**.
+
+The default council contains these seven roles:
 
 | Advisor | Mandate | Red line |
 |---|---|---|
@@ -63,6 +65,43 @@ No Docker is needed. The SLIM data-plane node runs inside Python via `slim-bindi
 
 See [DEMO.md](DEMO.md) for the step-by-step live demo script.
 
+## Choose the voters
+
+Open **Setup** before convening a new game. Choose **Number of agents** (1 to 21), then
+populate each seat with a preset such as Farmer or Builder, or choose **Custom** and enter
+a name and mandate. A custom agent also chooses a priority profile from the seven roles:
+that profile supplies its numerical preferences and enforced red line, while its mandate
+guides its language model instructions. In mock mode, decisions follow the selected profile.
+Repeated preset roles occupy distinct seats with independent votes.
+
+Every run saves its complete roster, so replay and exports retain custom names, mandates,
+and voting rules. The default remains the original seven advisors. For a council of `n`
+agents, a majority needs `floor(n / 2) + 1` votes; a strong majority needs the greater of
+that count and `ceil(2n / 3)`. Runoff entry needs at least one vote and otherwise one fewer
+than a majority. For seven agents these remain 4, 5, and 3 votes respectively; an even
+split never passes as a majority.
+
+The same setup is available through `POST /api/game`:
+
+```json
+{
+  "seed": 7,
+  "advisors": [
+    {"id": "farmer"},
+    {"id": "builder"},
+    {
+      "id": "custom-scribe",
+      "short": "Scribe",
+      "mandate": "Speak for the families and keep everyone fed.",
+      "profile": "farmer"
+    }
+  ]
+}
+```
+
+Omit `advisors` to use the default council. Empty councils, duplicate IDs, unknown profiles,
+and custom agents missing a name or mandate are rejected before creating a run.
+
 ## Architecture
 
 ```
@@ -75,6 +114,8 @@ See [DEMO.md](DEMO.md) for the step-by-step live demo script.
 
 - **Advisors** (`agent.py`) are seven separate processes, each serving an A2A agent card over
   SLIM patterns (`transport/slim.py`, AGNTCY App SDK 0.5.5). `sumer up` starts one per advisor.
+  Custom seats start additional A2A worker processes on demand and release them when
+  the run ends. Every peer receives the run's roster with its brief.
 - **The clerk** (`deliberation.py`) runs the meeting. For each turn it sends a `Brief` to the one
   advisor whose turn it is, over a SLIM point-to-point session to that advisor's own name (with a
   one-member group session as fallback), and collects its `Ballot`. It relays and applies a
@@ -95,7 +136,8 @@ See [DEMO.md](DEMO.md) for the step-by-step live demo script.
 
 ## The deliberation protocol
 
-Each year is a real meeting, up to 6 rounds of turns:
+Each year is a real meeting, up to 6 rounds of turns. The counts below describe the default
+seven-agent council; configured councils use the thresholds above:
 
 1. **Turns, not polls.** The seven advisors speak one at a time in a fixed order, and the first
    seat moves one place every round. On its turn an advisor sees the table (every plan with its

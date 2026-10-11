@@ -75,6 +75,7 @@ class Brief(BaseModel):
     max_rounds: int
     state: dict
     beliefs: dict
+    advisors: list[dict] = Field(default_factory=list)  # immutable run-local public roster
     speaker: str = ""  # the one advisor who must answer this brief
     phase: str = "discuss"  # "discuss" or "runoff"
     turn: int = 0  # position of the speaker in this round's order

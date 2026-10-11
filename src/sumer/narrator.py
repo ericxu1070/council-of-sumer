@@ -64,10 +64,10 @@ def _what(yr: YearResult, before: State) -> str:
     return " and ".join(bits)
 
 
-def _decision(yr: YearResult, before: State, opener: str | None) -> str:
+def _decision(yr: YearResult, before: State, opener: str | None, advisors=None) -> str:
     """The decision clause. `opener` is a news phrase that already leads the sentence."""
     what = _what(yr, before)
-    who = short(yr.adopted_author)
+    who = short(yr.adopted_author, advisors)
     if yr.outcome == "consensus":
         if opener:
             return f"{opener}, the whole council backed the {who}'s plan, so the city {what}"
@@ -76,14 +76,14 @@ def _decision(yr: YearResult, before: State, opener: str | None) -> str:
         return f"{lead} on the {who}'s plan, so the city {what}"
     if yr.outcome == "majority":
         lead = opener or ("after a heated debate" if yr.rounds >= 3 else "after a short debate")
-        over = _over(yr.dissent)
+        over = _over(yr.dissent, advisors)
         return f"{lead}, the council sided with the {who}{over}, so the city {what}"
     body = _split(yr, who, what)
     return f"{opener}, {body}" if opener else body
 
 
-def _over(dissent: list[str]) -> str:
-    names = [short(a) for a in dissent]
+def _over(dissent: list[str], advisors=None) -> str:
+    names = [short(a, advisors) for a in dissent]
     if not names:
         return ""
     if len(names) == 1:
@@ -139,8 +139,8 @@ def _join(clauses: list[str]) -> str:
     return ", ".join(clauses[:-1]) + ", and " + clauses[-1]
 
 
-def summarize(yr: YearResult, before: State, after: State) -> str:
+def summarize(yr: YearResult, before: State, after: State, advisors=None) -> str:
     """Year N. <decision sentence>. <what happened sentence>."""
-    decision = _decision(yr, before, _news_phrase(yr.news))
+    decision = _decision(yr, before, _news_phrase(yr.news), advisors)
     decision = decision[0].upper() + decision[1:]
     return f"Year {yr.year}. {decision}. {_happened(before, after)}"

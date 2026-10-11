@@ -20,10 +20,17 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from sumer import voice
-from sumer.advisors import ADVISORS, REPORT_KINDS, scout_report
+from sumer.advisors import (
+    ADVISORS,
+    MAX_ADVISORS,
+    REPORT_KINDS,
+    CouncilSeat,
+    resolve_council,
+    scout_report,
+)
 from sumer.chamber import DEFAULT_DB, play_council
 from sumer.config import CACHE_DIR, RESULTS_DIR, ROOT, settings
 from sumer.game import YEARS, roll_game
@@ -158,7 +165,7 @@ async def _ask_human(options: list[dict], reason: str) -> str | None:
         live.options.clear()
 
 
-async def _run(seed: int, reveal: bool, max_rounds: int) -> None:
+async def _run(seed: int, reveal: bool, max_rounds: int, advisors: dict) -> None:
     try:
         await play_council(
             seed,
@@ -170,12 +177,17 @@ async def _run(seed: int, reveal: bool, max_rounds: int) -> None:
             injected_news=live.injected,
             narrate=_narrate,
             store=store, run_id=live.run_id,
+            advisors=advisors,
         )
     except asyncio.CancelledError:
         raise
     except Exception as e:  # surface transport or model failures in the UI
         log.exception("game failed")
         await journal_emit("error", {"message": f"{type(e).__name__}: {e}"})
+    finally:
+        council, live.council = live.council, None
+        if council is not None and hasattr(council, "close"):
+            await council.close()
 
 
 class StartReq(BaseModel):
@@ -183,19 +195,26 @@ class StartReq(BaseModel):
     seed: int = 7
     reveal_news: bool = True
     max_rounds: int | None = Field(default=None, ge=1, le=20)
+    advisors: list[CouncilSeat] | None = Field(default=None, min_length=1, max_length=MAX_ADVISORS)
+
+    @model_validator(mode="after")
+    def validate_council(self):
+        resolve_council(self.advisors)
+        return self
 
 
 @app.post("/api/game")
 async def start(req: StartReq):
     if live.task and not live.task.done():
         raise HTTPException(409, "A live run is already active.")
+    advisors = resolve_council(req.advisors)
     live.run_id = uid()
     live.injected.clear()
     live.seed, live.year = req.seed, 1
     live.game_no += 1
     live.narration.clear()
     live.task = asyncio.create_task(
-        _run(req.seed, req.reveal_news, req.max_rounds or settings.max_rounds)
+        _run(req.seed, req.reveal_news, req.max_rounds or settings.max_rounds, advisors)
     )
     await asyncio.sleep(0)
     require_run(live.run_id)
@@ -261,6 +280,7 @@ async def meta():
     return {
         "active_run": live.run_id if live.task and not live.task.done() else "",
         "advisors": [a.public() for a in ADVISORS.values()],
+        "max_advisors": MAX_ADVISORS,
         "years": YEARS,
         "pace_s": live.pace_s,
         "transport": settings.transport,

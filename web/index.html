@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Council of Sumer</title>
-<meta name="description" content="Seven AI advisors govern an ancient city with no king to break ties.">
+<meta name="description" content="Choose a council of AI advisors to govern an ancient city with no king to break ties.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%231f4e8c'/><path d='M6 24h20M9 24V14h14v10M8 14l8-6 8 6' stroke='%23e3b04b' stroke-width='2.4' fill='none' stroke-linejoin='round'/></svg>">
 <link rel="stylesheet" href="app.css">
 </head>
@@ -13,7 +13,7 @@
   <header class="top">
     <div class="brand">
       <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#1f4e8c"/><path d="M6 24h20M9 24V14h14v10M8 14l8-6 8 6" stroke="#e3b04b" stroke-width="2.4" fill="none" stroke-linejoin="round"/></svg>
-      <div class="brand-text"><div class="brand-name">Council of Sumer</div><div class="brand-sub">Seven AI advisors. No king.</div></div>
+      <div class="brand-text"><div class="brand-name">Council of Sumer</div><div class="brand-sub" id="councilCount">Choose your AI advisors. No king.</div></div>
     </div>
     <div class="yearbox" aria-live="polite">
       <div class="year-label" id="yearLabel">Ready</div>
@@ -37,7 +37,7 @@
       <div class="stage" id="stage">
         <div class="phase-row">
           <div class="phase" id="phase">Ready to convene</div>
-          <div class="phase-sub" id="phaseSub">Seven advisors with different goals must agree on how to run the city.</div>
+          <div class="phase-sub" id="phaseSub">Advisors with different goals must agree on how to run the city.</div>
         </div>
         <div class="runoff hidden" id="runoff" aria-live="polite"></div>
       </div>
@@ -68,6 +68,16 @@
 <div class="drawer-back hidden" id="drawerBack"></div>
 <aside class="drawer" id="drawer" aria-label="Setup" aria-hidden="true">
   <div class="drawer-head"><h2>Setup</h2><button class="icon-btn" id="drawerClose" type="button" aria-label="Close setup">✕</button></div>
+  <fieldset class="council-setup" id="councilSetup" disabled>
+    <legend>Your voters</legend>
+    <label class="field"><span>Number of agents</span><input id="agentCount" type="number" min="1" max="21" step="1" value="7" required aria-describedby="voterHelp votingRules"></label>
+    <p class="drawer-note" id="voterHelp">Choose 1–21 voters. Use a default advisor or create your own. Each agent gets one vote.</p>
+    <button class="btn" id="defaultVoters" type="button">Populate with default advisors</button>
+    <p class="drawer-note" id="votingRules" aria-live="polite"></p>
+    <div class="voter-list" id="voterList"></div>
+  </fieldset>
+  <p class="setup-error hidden" id="setupError" role="alert"></p>
+  <p class="drawer-note hidden" id="setupLocked">A live council is running. Stop it before changing the next council.</p>
   <label class="field"><span>Seed</span><input id="seed" type="number" value="7" min="0"></label>
   <label class="field"><span>Rounds per year</span><select id="rounds"><option>3</option><option selected>4</option><option>5</option><option>6</option></select></label>
   <label class="field"><span>Scout reports</span><select id="reveal"><option value="1" selected>On</option><option value="0">Off</option></select></label>
@@ -78,7 +88,7 @@
     <button class="btn primary big" id="startBtn" type="button">Convene</button>
     <button class="btn" id="stopBtn" type="button">Stop</button>
   </div>
-  <p class="drawer-note">Seed and rounds must match the rehearsal to replay cached answers. Pace is the pause the server takes between steps.</p>
+  <p class="drawer-note">Council, seed and rounds must match the rehearsal to replay cached answers. Pace is the pause the server takes between steps. Saved runs keep their original voters.</p>
 </aside>
 
 <div class="modal-back hidden" id="escalation" role="dialog" aria-modal="true" aria-labelledby="escTitle">

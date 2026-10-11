@@ -22,14 +22,15 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 
 from sumer import llm
 from sumer.advisors import (
-    ADVISOR_IDS,
     ADVISORS,
-    N_ADVISORS,
+    Advisor,
     Beliefs,
     Scorer,
+    advisors_for,
     mentions,
     plain_words,
     short,
@@ -61,7 +62,7 @@ def _decision(p: Plan) -> Decision:
 
 def progress(brief: Brief) -> float:
     """How far the debate has run, in rounds (a turn is a seventh of a round)."""
-    return brief.round + brief.turn / N_ADVISORS
+    return brief.round + brief.turn / len(advisors_for(brief.advisors))
 
 
 # Policy tuning. Chosen so mandates really clash (vetoes, dissent, the odd
@@ -97,11 +98,16 @@ class Mind:
     def __init__(self, advisor_id: str, brief: Brief):
         self.id = advisor_id
         self.brief = brief
+        self.advisors = advisors_for(brief.advisors)
+        if advisor_id not in self.advisors:
+            raise ValueError("The speaker is not seated in this council.")
+        self.profile = self.advisors[advisor_id].profile or advisor_id
         self.state = _state(brief)
         self.beliefs = Beliefs(**brief.beliefs)
         self.tabled = {t.id: legalize(self.state, _decision(t.plan)) for t in brief.table}
-        self.sc = Scorer(self.state, self.beliefs, extra=list(self.tabled.values()))
-        self.others = [a for a in ADVISOR_IDS if a != advisor_id]
+        self.sc = Scorer(self.state, self.beliefs, extra=list(self.tabled.values()),
+                         advisors=self.advisors)
+        self.others = [a for a in self.advisors if a != advisor_id]
         p = progress(brief) if brief.phase == "discuss" else float(brief.max_rounds)
         self.p = p
         self.w = concession_weight(p, brief.max_rounds)
@@ -113,7 +119,12 @@ class Mind:
         # Near-best plans this advisor will back or accept, widening as time runs out.
         self.tolerance = tolerance(p)
 
+    def short(self, advisor_id: str) -> str:
+        return short(advisor_id, self.advisors)
+
     def group_score(self, d: Decision) -> float:
+        if not self.others:
+            return self.sc.norm(self.id, d)
         return sum(self.weights[o] * self.sc.norm(o, d) for o in self.others) / sum(
             self.weights.values()
         )
@@ -129,7 +140,7 @@ class Mind:
         )
 
     def red_lines_broken(self, d: Decision) -> list[str]:
-        return [a for a in ADVISOR_IDS if self.sc.vetoes(a, d)]
+        return [a for a in self.advisors if self.sc.vetoes(a, d)]
 
     def best(self) -> Decision:
         return max(self.sc.pool, key=self.value)
@@ -164,7 +175,7 @@ class Mind:
 
     def trace(self, chosen: Decision, evaluations: list[dict], thought: str, **extra) -> dict:
         b = self.beliefs
-        mine = ADVISORS[self.id].beliefs_for(b)
+        mine = self.advisors[self.id].beliefs_for(b)
         return {
             "beliefs": {
                 "expected_yield": mine.expected_yield,
@@ -227,7 +238,7 @@ def policy_ballot(advisor_id: str, brief: Brief) -> Ballot:
         accept=accept,
         veto=veto,
         speech=speech,
-        addressed=mentions(speech, exclude=advisor_id),
+        addressed=mentions(speech, exclude=advisor_id, advisors=m.advisors),
         source="policy",
         trace=m.trace(chosen, evals, thought, reasoner="policy"),
     )
@@ -252,12 +263,12 @@ def policy_runoff(advisor_id: str, brief: Brief) -> Ballot:
     d = m.tabled[vote]
     evals = m.evaluate(m.value(m.best()))
     if t.author == advisor_id:
-        speech = f"{short(other.author)}, I stand by my own plan. {LEAD[advisor_id]}"
+        speech = f"{m.short(other.author)}, I stand by my own plan. {LEAD[m.profile]}"
     elif forced:
-        speech = (f"{short(t.author)}, you have my vote. "
-                  f"The {short(other.author)}'s plan {RED_SHORT[advisor_id]}.")
+        speech = (f"{m.short(t.author)}, you have my vote. "
+                  f"The {m.short(other.author)}'s plan {RED_SHORT[m.profile]}.")
     else:
-        speech = f"{short(t.author)}, I vote for your plan. It is the better bargain for all of us."
+        speech = f"{m.short(t.author)}, I vote for your plan. It is the better bargain for all of us."
     thought = (
         f"Runoff: {vote} scores {m.value(d):.2f} for me with the others weighed in"
         + (", and the other plan crosses my red line." if forced else ".")
@@ -271,7 +282,7 @@ def policy_runoff(advisor_id: str, brief: Brief) -> Ballot:
         veto=veto,
         runoff_vote=vote,
         speech=_trim(speech),
-        addressed=mentions(speech, exclude=advisor_id),
+        addressed=mentions(speech, exclude=advisor_id, advisors=m.advisors),
         source="policy",
         trace=m.trace(d, evals, thought, reasoner="policy", forced_by_red_line=forced),
     )
@@ -281,11 +292,11 @@ def policy_thought(m: Mind, chosen: Decision, evals: list[dict], back) -> str:
     parts = []
     if m.brief.news:
         parts.append(f"News: {m.brief.news[-1]['text'].split('.')[0]}.")
-    vetoed = [short(e["author"]) for e in evals if e["policy_vote"] == "veto"]
+    vetoed = [m.short(e["author"]) for e in evals if e["policy_vote"] == "veto"]
     if vetoed:
         parts.append(f"Must veto plans from {', '.join(vetoed)}: they cross my red line.")
     if back and back.author != m.id:
-        parts.append(f"{short(back.author)}'s plan is close enough to my best, so I back it.")
+        parts.append(f"{m.short(back.author)}'s plan is close enough to my best, so I back it.")
     parts.append(
         f"It scores {m.sc.norm(m.id, chosen):.2f} for me, {m.group_score(chosen):.2f} for the others."
     )
@@ -353,26 +364,26 @@ def template_speech(
             target, pid = lead.author, lead.id
     parts = []
     if target:
-        name = short(target)
+        name = m.short(target)
         owner = authors.get(pid, target)
-        whose = "your plan" if owner == target else f"the {short(owner)}'s plan"
+        whose = "your plan" if owner == target else f"the {m.short(owner)}'s plan"
         if owner == me:
             parts.append(f"{name}, thank you for standing with me.")
         elif pid in veto:
-            parts.append(f"{name}, {whose} {RED_SHORT[me]}. I cannot allow it.")
+            parts.append(f"{name}, {whose} {RED_SHORT[m.profile]}. I cannot allow it.")
         elif back and pid == back.id:
             parts.append(f"{name}, I agree. I back {whose} too." if owner != target
                          else f"{name}, I back your plan.")
         elif pid in accept:
             parts.append(f"{name}, I can live with {whose}.")
         else:
-            parts.append(f"{name}, {whose} {COMPLAINT[me]}.")
+            parts.append(f"{name}, {whose} {COMPLAINT[m.profile]}.")
     if back and back.author != me:
         if pid != back.id:
-            parts.append(f"I back the {short(back.author)}'s plan instead.")
+            parts.append(f"I back the {m.short(back.author)}'s plan instead.")
     else:
         parts.append(f"I say we {plain_words(chosen, m.state)}.")
-    parts.append(LEAD[me])
+    parts.append(m.advisors[me].mandate if me != m.profile else LEAD[m.profile])
     return _fit(parts)
 
 
@@ -383,15 +394,15 @@ Your mandate: {mandate}
 Your red line: {red_line}
 Your voice: {voice}.
 
-There is no king. Seven advisors govern together, each with a public mandate and red line:
+There is no king. {count} advisors govern together, each with a public mandate and red line:
 {council}
 
 The council talks like a real meeting: advisors speak one at a time, in turn, and each hears
 everything said before it. On your turn you table a proposal (or back a plan already on the
 table), accept the tabled plans you can live with, and say a few words to the others.
-- A plan passes the moment all seven accept it.
-- From the end of round 2, a plan with 5 of 7 accepts and no red-line veto passes.
-- When talk runs out, a plan with 4 of 7 accepts and no veto passes. A close split goes to a
+- A plan passes the moment all {count} accept it.
+- From the end of round 2, a plan with {strong} of {count} accepts and no red-line veto passes.
+- When talk runs out, a plan with {majority} of {count} accepts and no veto passes. A close split goes to a
   runoff vote between the top two plans. Otherwise a human decides for the council.
 A plan that breaks someone's red line can never pass, so do not propose those.
 
@@ -404,7 +415,7 @@ decides for itself. Concede as rounds run out, when a plan is good enough for yo
 firm only when your own red line is at stake. Backing someone else's plan is a strong move.
 
 How to speak: answer what was just said. Address one or two advisors by name (for example
-"Builder, ..."), and agree or push back with a reason from your mandate. At most 25 words,
+"{other_name}, ..."), and agree or push back with a reason from your mandate. At most 25 words,
 plain everyday words, no numbers, no lists, no dashes.
 
 Your scores for each plan are already computed for you. Do not do arithmetic in your reply.
@@ -429,15 +440,15 @@ def clean(text: object, limit: int = 600) -> str:
     return t.strip()[:limit]
 
 
-def _council_lines() -> str:
+def _council_lines(advisors: dict[str, Advisor] | None = None) -> str:
     return "\n".join(
         f'- {a.title} ("{a.short}"): {a.mandate} Red line: {a.red_line}'
-        for a in ADVISORS.values()
+        for a in (ADVISORS if advisors is None else advisors).values()
     )
 
 
-def _turn_line(t: dict) -> str:
-    who = short(t["advisor"])
+def _turn_line(t: dict, advisors: dict[str, Advisor] | None = None) -> str:
+    who = short(t["advisor"], advisors)
     if t.get("runoff_vote"):
         return f'  {who} voted for {t["runoff_vote"]}: "{t["speech"]}"'
     act = "backed" if t.get("backed") else "proposed"
@@ -454,26 +465,26 @@ def _conversation(m: Mind) -> str:
         last = b.earlier_turns[-1]["round"]
         prev = [t for t in b.earlier_turns if t["round"] == last]
         lines.append(f"Last round (round {last + 1}):")
-        lines += [_turn_line(t) for t in prev]
+        lines += [_turn_line(t, m.advisors) for t in prev]
     lines.append(f"This round (round {b.round + 1}) so far:")
-    lines += [_turn_line(t) for t in b.turns_this_round] or ["  (you speak first)"]
+    lines += [_turn_line(t, m.advisors) for t in b.turns_this_round] or ["  (you speak first)"]
     return "\n".join(lines)
 
 
 def _table_lines(m: Mind, evals: list[dict]) -> str:
     lines = []
     for t, e in zip(m.brief.table, evals):
-        broken = ", ".join(short(x) for x in e["breaks_red_lines_of"]) or "nobody"
-        support = ", ".join(short(x) for x in t.accept) or "nobody yet"
+        broken = ", ".join(m.short(x) for x in e["breaks_red_lines_of"]) or "nobody"
+        support = ", ".join(m.short(x) for x in t.accept) or "nobody yet"
         lines.append(
-            f"- {t.id} by {short(t.author)}: {t.plain} {t.plan.model_dump()} | accepted by: "
+            f"- {t.id} by {m.short(t.author)}: {t.plain} {t.plan.model_dump()} | accepted by: "
             f"{support} | your score {e['my_score']:.2f}/1 | breaks red line of: {broken}"
         )
     return "\n".join(lines) or "(nothing yet: you open the debate)"
 
 
 def _llm_messages(m: Mind, evals: list[dict], policy: Ballot) -> list[dict]:
-    a = ADVISORS[m.id]
+    a = m.advisors[m.id]
     b = m.brief
     rounds_left = b.max_rounds - b.round - 1
     user = {
@@ -496,10 +507,10 @@ def _llm_messages(m: Mind, evals: list[dict], policy: Ballot) -> list[dict]:
     if b.phase == "runoff":
         ra, rb = b.runoff
         ask = (
-            f"RUNOFF. A = {ra.id} by {short(ra.author)}: {ra.plain}. "
-            f"B = {rb.id} by {short(rb.author)}: {rb.plain}.\n"
+            f"RUNOFF. A = {ra.id} by {m.short(ra.author)}: {ra.plain}. "
+            f"B = {rb.id} by {m.short(rb.author)}: {rb.plain}.\n"
             f"Plans:\n{_table_lines(m, evals)}\nVotes so far:\n"
-            + ("\n".join(_turn_line(t) for t in b.turns_this_round) or "  (none yet)")
+            + ("\n".join(_turn_line(t, m.advisors) for t in b.turns_this_round) or "  (none yet)")
             + f"\nIt is your turn to vote, {a.short}.\n{RUNOFF_ASK}"
         )
     else:
@@ -514,7 +525,12 @@ def _llm_messages(m: Mind, evals: list[dict], policy: Ballot) -> list[dict]:
         )
     return [
         {"role": "system",
-         "content": SYSTEM.format(council=_council_lines(), **{**a.__dict__, "short": a.short})},
+         "content": SYSTEM.format(
+             council=_council_lines(m.advisors), count=len(m.advisors),
+             strong=max(len(m.advisors) // 2 + 1, math.ceil(2 * len(m.advisors) / 3)),
+             majority=len(m.advisors) // 2 + 1,
+             other_name=m.short(m.others[0]) if m.others else a.short,
+             **{**a.__dict__, "short": a.short})},
         {"role": "user", "content": json.dumps(user) + "\n\n" + ask},
     ]
 
@@ -585,7 +601,7 @@ def _llm_turn(m: Mind, evals: list[dict], data: dict, reply) -> Ballot:
         accept=accept,
         veto=veto,
         speech=speech,
-        addressed=mentions(speech, exclude=m.id),
+        addressed=mentions(speech, exclude=m.id, advisors=m.advisors),
         source="llm",
         trace=m.trace(d, evals, clean(data.get("thought")), **extra),
     )
@@ -608,7 +624,7 @@ def _llm_runoff(m: Mind, evals: list[dict], data: dict, reply) -> Ballot:
         veto=veto,
         runoff_vote=vote,
         speech=speech,
-        addressed=mentions(speech, exclude=m.id),
+        addressed=mentions(speech, exclude=m.id, advisors=m.advisors),
         source="llm",
         trace=m.trace(d, evals, clean(data.get("thought")), reasoner="llm", llm=reply.meta(),
                       forced_by_red_line=forced),

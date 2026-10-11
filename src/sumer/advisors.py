@@ -11,6 +11,9 @@ well fed, and the Merchant wants wealth at market prices.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from sumer.game import (
     ACRES_PER_BUSHEL,
@@ -91,6 +94,7 @@ class Advisor:
     color: str
     emoji: str
     aliases: tuple[str, ...] = field(default_factory=tuple)  # other names that address it
+    profile: str = ""  # quantitative policy inherited by a custom council seat
 
     def public(self) -> dict:
         return {
@@ -102,11 +106,12 @@ class Advisor:
             "color": self.color,
             "emoji": self.emoji,
             "voice": self.voice,
+            "profile": self.profile or self.id,
         }
 
     def beliefs_for(self, b: Beliefs) -> Beliefs:
         """The Priest plans for a bad year unless the news says otherwise."""
-        if self.id != "priest":
+        if (self.profile or self.id) != "priest":
             return b
         return replace(
             b,
@@ -115,7 +120,7 @@ class Advisor:
         )
 
     def utility(self, f: Forecast, state: State) -> float:
-        match self.id:
+        match self.profile or self.id:
             case "farmer":
                 return f.population - 4 * f.starved
             case "priest":
@@ -139,7 +144,7 @@ class Advisor:
         raise ValueError(self.id)
 
     def violates_red_line(self, f: Forecast, state: State) -> bool:
-        match self.id:
+        match self.profile or self.id:
             case "farmer":
                 return f.starved_frac > 0.10
             case "priest":
@@ -240,17 +245,82 @@ ADVISORS: dict[str, Advisor] = {
 ADVISOR_IDS = list(ADVISORS)
 N_ADVISORS = len(ADVISOR_IDS)
 
+MAX_ADVISORS = 21
+PolicyProfile = Literal["farmer", "priest", "general", "merchant", "builder", "healer", "diplomat"]
 
-def short(advisor_id: str) -> str:
-    a = ADVISORS.get(advisor_id)
+
+class CouncilSeat(BaseModel):
+    """A preset seat or a named custom persona with an enforced policy profile."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, str_strip_whitespace=True)
+    id: str = Field(min_length=1, max_length=48, pattern=r"^[a-z][a-z0-9_-]*$")
+    profile: PolicyProfile | None = None
+    short: str | None = Field(default=None, min_length=1, max_length=60)
+    mandate: str | None = Field(default=None, min_length=1, max_length=2000)
+    title: str | None = Field(default=None, min_length=1, max_length=80)
+    voice: str | None = Field(default=None, min_length=1, max_length=200)
+    color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+    emoji: str | None = Field(default=None, min_length=1, max_length=12)
+    red_line: str | None = None  # accepted when restoring an immutable public roster
+
+    @model_validator(mode="after")
+    def grounded_profile(self):
+        if self.id in ADVISORS:
+            if self.profile is not None and self.profile != self.id:
+                raise ValueError("A preset seat must retain its own policy profile.")
+            profile = self.id
+        else:
+            if self.profile is None or self.short is None or self.mandate is None:
+                raise ValueError("Custom agents require a name, mandate, and policy profile.")
+            profile = self.profile
+        if self.red_line is not None and self.red_line != ADVISORS[profile].red_line:
+            raise ValueError("An agent's red line must match its policy profile.")
+        return self
+
+
+def resolve_council(seats: list[dict | CouncilSeat] | None = None) -> dict[str, Advisor]:
+    """Build a run's independent roster; None preserves the seven default seats."""
+    if seats is None:
+        return dict(ADVISORS)
+    if not isinstance(seats, list) or not 1 <= len(seats) <= MAX_ADVISORS:
+        raise ValueError(f"Choose between 1 and {MAX_ADVISORS} agents.")
+    roster: dict[str, Advisor] = {}
+    for value in seats:
+        seat = value if isinstance(value, CouncilSeat) else CouncilSeat.model_validate(value)
+        if seat.id in roster:
+            raise ValueError("Each agent must have a unique ID.")
+        base = ADVISORS[seat.profile or seat.id]
+        roster[seat.id] = replace(
+            base,
+            id=seat.id,
+            profile=base.id,
+            short=seat.short or base.short,
+            title=seat.title or seat.short or base.title,
+            mandate=seat.mandate or base.mandate,
+            voice=seat.voice or base.voice,
+            color=seat.color or base.color,
+            emoji=seat.emoji or base.emoji,
+            aliases=base.aliases if seat.id == base.id else (),
+        )
+    return roster
+
+
+def advisors_for(seats: list[dict] | None = None) -> dict[str, Advisor]:
+    """Read a Brief roster, including legacy briefs that carry no roster."""
+    return resolve_council(seats or None)
+
+
+def short(advisor_id: str, advisors: dict[str, Advisor] | None = None) -> str:
+    a = (ADVISORS if advisors is None else advisors).get(advisor_id)
     return a.short if a else advisor_id.capitalize()
 
 
-def mentions(text: str, exclude: str | None = None) -> list[str]:
+def mentions(text: str, exclude: str | None = None,
+             advisors: dict[str, Advisor] | None = None) -> list[str]:
     """Advisor ids a speech addresses by name, in council order."""
     low = f" {text.lower()} "
     out = []
-    for a in ADVISORS.values():
+    for a in (ADVISORS if advisors is None else advisors).values():
         if a.id == exclude:
             continue
         names = (a.short.lower(), a.id, *a.aliases)
@@ -366,33 +436,38 @@ class Scorer:
     passable plans", not "better than starving half the city". If too few
     plans are passable, the whole pool sets the range."""
 
-    def __init__(self, state: State, beliefs: Beliefs, extra: list[Decision] = ()):
+    def __init__(self, state: State, beliefs: Beliefs, extra: list[Decision] = (),
+                 advisors: dict[str, Advisor] | None = None):
         self.state = state
         self.beliefs = beliefs
+        self.advisors = dict(ADVISORS if advisors is None else advisors)
+        if not self.advisors:
+            raise ValueError("A scorer needs at least one advisor.")
         self.pool = candidate_plans(state) + [legalize(state, d) for d in extra]
-        self._fc = {(a, d): self.forecast(a, d) for a in ADVISOR_IDS for d in self.pool}
+        self._fc = {(a, d): self.forecast(a, d) for a in self.advisors for d in self.pool}
         passable = [
             d for d in self.pool
-            if not any(ADVISORS[a].violates_red_line(self._fc[a, d], state) for a in ADVISOR_IDS)
+            if not any(a.violates_red_line(self._fc[a.id, d], state)
+                       for a in self.advisors.values())
         ]
         basis = passable if len(passable) >= MIN_PASSABLE else self.pool
         self._range: dict[str, tuple[float, float]] = {}
-        for a in ADVISORS.values():
+        for a in self.advisors.values():
             us = [a.utility(self._fc[a.id, d], state) for d in basis]
             self._range[a.id] = (min(us), max(us))
 
     def forecast(self, advisor_id: str, d: Decision) -> Forecast:
         fc = getattr(self, "_fc", {}).get((advisor_id, d))
-        return fc or forecast(self.state, d, ADVISORS[advisor_id].beliefs_for(self.beliefs))
+        return fc or forecast(self.state, d, self.advisors[advisor_id].beliefs_for(self.beliefs))
 
     def norm(self, advisor_id: str, d: Decision) -> float:
-        a = ADVISORS[advisor_id]
+        a = self.advisors[advisor_id]
         lo, hi = self._range[advisor_id]
         u = a.utility(self.forecast(advisor_id, d), self.state)
         return 0.5 if hi == lo else max(0.0, min(1.0, (u - lo) / (hi - lo)))
 
     def vetoes(self, advisor_id: str, d: Decision) -> bool:
-        return ADVISORS[advisor_id].violates_red_line(self.forecast(advisor_id, d), self.state)
+        return self.advisors[advisor_id].violates_red_line(self.forecast(advisor_id, d), self.state)
 
 
 # ---- New information: scout reports derived from the true hidden dice ----
