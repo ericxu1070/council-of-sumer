@@ -1,7 +1,7 @@
 import pytest
 
 from sumer.advisors import ADVISOR_IDS, safe_plan
-from sumer.deliberation import Deadlock, TechnicalFailure, deliberate_year, speaking_order
+from sumer.deliberation import Deadlock, deliberate_year, speaking_order
 from sumer.game import Decision, new_game
 from sumer.protocol import Ballot, Brief, Plan, bind, validate_reply
 
@@ -104,19 +104,19 @@ async def test_turns_are_sequential_and_see_earlier_speakers():
 
 async def test_strong_majority_after_round_two_records_dissent():
     def script(b):
-        if b.speaker == "imposter":
+        if b.speaker == "villager":
             return _ballot(b, B)
         return _ballot(b, A, accept=_ids_for(b, A))
 
     yr, _ = await _year(scripted(script))
     assert yr.outcome == "majority"
     assert yr.rounds == 2  # adopted the moment round 2 completes
-    assert set(yr.dissent) == {"imposter"}
+    assert set(yr.dissent) == {"villager"}
 
 
 def _three_way(b):
-    camp = {"provider": A, "farmer": A, "merchant": B, "profiteer": B,
-            "imposter": C}[b.speaker]
+    camp = {"provider": A, "farmer": A, "merchant": B, "priest": B,
+            "villager": C}[b.speaker]
     return _ballot(b, camp, accept=_ids_for(b, camp))
 
 
@@ -135,7 +135,7 @@ async def test_runoff_when_best_plan_has_two_of_five():
     assert yr.outcome == "runoff"
     assert yr.runoff["trigger"] == "floor"
     assert yr.plan == Decision(*A)
-    assert set(yr.dissent) == {"profiteer", "imposter"}
+    assert set(yr.dissent) == {"priest", "villager"}
     runoff_turns = [d for k, d in events if k == "turn" and d["phase"] == "runoff"]
     assert len(runoff_turns) == 5 and all(t["runoff_vote"] for t in runoff_turns)
 
@@ -149,7 +149,7 @@ async def test_deadlock_without_a_human_remains_paused():
         await _year(scripted(script))
 
 
-async def test_stale_ballot_stops_after_one_retry():
+async def test_stale_ballot_skips_after_one_retry():
     def script(b):
         return _ballot(b, A, accept=_ids_for(b, A))
 
@@ -161,8 +161,12 @@ async def test_stale_ballot_stops_after_one_retry():
             b.reply_to = "previous-request"
         return b
 
-    with pytest.raises(TechnicalFailure, match="merchant failed after one retry"):
-        await _year(ask)
+    result, events = await _year(ask)
+    assert result.outcome == "majority" and result.dissent == ["merchant"]
+    skipped = [d for k, d in events if k == "agent_skipped"]
+    assert len(skipped) == 2 and all(d["advisor"] == "merchant" for d in skipped)
+    assert len([b for b in inner.briefs if b.speaker == "merchant"]) == 4
+    assert "merchant" not in {b["advisor"] for b in result.certificate["ballots"]}
 
 
 # ---- model response parsing ----

@@ -126,6 +126,8 @@ class Store:
             replies = data.get("responses", data.get("ballots", []))
             if kind in ("receipt", "ballots"):
                 for reply in replies:
+                    if reply.get("run_id") != run_id:
+                        raise ValueError("Ballot run does not match the destination journal.")
                     stored = self.db.execute("SELECT data FROM ballots WHERE id=?",
                                              (reply["message_id"],)).fetchone()
                     if stored is not None and stored["data"] != encoded(reply):
@@ -214,7 +216,7 @@ class Store:
                   "## Decision log"]
         for e in events:
             if e["kind"] in ("responses", "ballots", "year", "human_resolution",
-                             "validation_error", "technical_failure", "escalate", "turn", "tally",
+                             "validation_error", "agent_skipped", "technical_failure", "escalate", "turn", "tally",
                              "runoff", "runoff_result", "news"):
                 report.extend([f"### Event {e['sequence']}: {e['kind']}",
                                json.dumps(e["data"], indent=2)])

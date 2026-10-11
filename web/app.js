@@ -46,10 +46,10 @@ const S = {
 };
 
 const FALLBACK_COLORS = ["#5f8f3a", "#7a4fa3", "#a33a32", "#b5862a", "#b2622f", "#2f8a7c", "#2f5ea8", "#6b5a45"];
-const FALLBACK_EMOJI = { provider: "🍞", farmer: "🌾", merchant: "⚖️", profiteer: "💰", imposter: "🎭" };
+const FALLBACK_EMOJI = { provider: "🍞", farmer: "🌾", merchant: "⚖️", priest: "🏺", villager: "🧑" };
 // Setup belongs to the next council; the live council keeps its own roster.
 const setup = { templates: [], seats: [], serial: 0, starting: false, stopping: false, ready: false, max: 21, liveRunId: "" };
-const PERSONA_MANDATES = { provider: "Feed everyone, always.", farmer: "Plant every acre.", merchant: "Own the most land per person.", profiteer: "Get rich, even if people starve.", imposter: "Secretly drive the city to ruin." };
+const PERSONA_MANDATES = { provider: "Maximize final score with a preference for feeding everyone.", farmer: "Maximize final score with a preference for planting more grain.", merchant: "Maximize final score with a preference for total final acres.", priest: "Maximize final score with a preference for final bushels and emergency stores.", villager: "Maximize final score by balancing survivors, grain, acres, starvation, and overthrow." };
 const safeColor = (color, i) => /^#[\da-f]{6}$/i.test(String(color || "")) ? color : FALLBACK_COLORS[i % FALLBACK_COLORS.length];
 
 // Extra copies of a preset (custom-N ids) keep its color and emoji: map them back to the persona face.
@@ -161,11 +161,12 @@ const G = (() => {
     setBadge: (id, b) => CG()?.setBadge(id, b),
     setHub: h => CG()?.setHub(h),
     pulse: instant => { if (!instant) CG()?.pulseHub(); },
+    relations: (edges, instant) => { if (!instant) CG()?.flashRelations(edges); },
   };
 })();
-// The hub is the message bus: SLIM, except for the in-process transport used in tests/bench.
-const hubLabel = () => S.meta?.transport === "inproc" ? "LOCAL" : "SLIM";
-function setHubSub(sub = "message bus") { G.setHub({ label: hubLabel(), sub }); }
+// Keep transport details available under the hood; the main view is the city council.
+const hubLabel = () => S.hood ? (S.meta?.transport === "inproc" ? "LOCAL" : "SLIM") : "Council";
+function setHubSub(sub = "city square") { G.setHub({ label: hubLabel(), sub }); }
 const STANCE = {
   agree: ["agree", "✓", "Agrees with the leading plan"],
   disagree: ["disagree", "✕", "Does not back the leading plan"],
@@ -313,13 +314,31 @@ function traceText(obj, depth = 0) {
   }).join("\n");
 }
 
+function turnRelations(d) {
+  const accepted = new Set(d.accept || []);
+  if (d.runoff_vote && S.runoff) {
+    return [S.runoff.a, S.runoff.b].map(row => ({
+      from: d.advisor, to: planAuthor(row.id, row.author), agree: row.id === d.runoff_vote,
+    }));
+  }
+  const acceptedAuthors = new Set([...accepted].map(id => planAuthor(id)).filter(Boolean));
+  const knownAuthors = new Set(Object.values(S.plans));
+  // Only show red for an addressed advisor with a known plan. Addressing someone
+  // alone is not evidence of disagreement; absence from a cast approval vote is.
+  const targets = new Set([...acceptedAuthors, ...(d.addressed || []).filter(id => knownAuthors.has(id))]);
+  return [...targets].map(to => ({ from: d.advisor, to, agree: acceptedAuthors.has(to) }));
+}
+
 function renderTurn(d, instant) {
   const a = adv(d.advisor);
   if (!instant && spotKind === "year") hideSpot("year");
   const addressed = (d.addressed || []).filter(x => x !== d.advisor);
-  if (d.plan_id) S.plans[d.plan_id] = d.advisor;
+  // Backing someone else’s plan must retain its original author.
+  for (const row of d.support || []) if (row.id && row.author) S.plans[row.id] = row.author;
+  if (d.plan_id && !S.plans[d.plan_id]) S.plans[d.plan_id] = planAuthor(d.plan_id, d.advisor);
   const meta = d.phase === "runoff" ? "Runoff" : d.round != null ? `Round ${dispRound(d.year, d.round)}` : "";
   G.speak({ speaker: d.advisor, to: addressed, text: d.speech || "" }, instant);
+  G.relations(turnRelations(d), instant);
   const foot = [];
   if (d.phase === "runoff" || d.runoff_vote) {
     const side = S.runoff && d.runoff_vote === S.runoff.b.id ? "b" : "a";
@@ -358,6 +377,7 @@ function renderPoll(d, instant) {
     S.stance = {};
     for (const a of S.advisors) S.stance[a.id] = lead.accept?.includes(a.id) ? "agree" : "disagree";
     renderStances();
+    G.relations(S.advisors.map(a => ({ from: a.id, to: planAuthor(lead.id, lead.author), agree: lead.accept?.includes(a.id) })), instant);
     const n = lead.accept?.length || 0;
     S.leadHtml = `${voteDots(lead.accept)}<span><b>${n} of ${N()}</b> agree with ${esc(planName(lead.id, lead.author))}</span>`;
     setPhase($("#phase").textContent, S.leadHtml);
@@ -613,6 +633,7 @@ function points(st) {
 }
 function renderStats() {
   const last = S.hist.length - 1;
+  window.CityView?.render(S.hist[last] || null);
   $("#cityWhen").textContent = last <= 0 ? "at the start" : `after year ${last}`;
   $("#side").classList.toggle("no-city", !S.hist.length);
   for (const st of STATS) {
@@ -849,7 +870,7 @@ function render(kind, d, instant) {
       setPhase("The council gathers", `<span>${N()} advisors · ${S.years} years · no king</span>`);
       break;
     case "year_start":
-      S.year = d.year; S.round = null; S.stance = {}; S.leadHtml = ""; S.cmpHtml = ""; S.lastPlain = {}; renderStances(); hideRunoff();
+      S.year = d.year; S.round = null; S.stance = {}; S.plans = {}; S.leadHtml = ""; S.cmpHtml = ""; S.lastPlain = {}; renderStances(); hideRunoff();
       if (d.state) recordState(d.year - 1, d.state);
       renderYear();
       setPhase("The council debates", "");
@@ -885,6 +906,13 @@ function render(kind, d, instant) {
       break;
     }
     case "turn": renderTurn(d, instant); break;
+    case "agent_skipped":
+      typing("");
+      spotlight(null);
+      delete S.stance[d.advisor];
+      renderStances();
+      append(`<span class="emoji">⏭</span><div><b>${esc(adv(d.advisor).short)} skipped this turn</b>Two attempts failed. The remaining advisors continue.</div>`, "note", { instant });
+      break;
     case "tally": renderPoll(d, instant); compareVotes(d.rows, instant); break;
     case "scout_request": showScout(d); break;
     case "scout_choice":
@@ -1133,9 +1161,10 @@ function renderVoters() {
   $("#votingRules").textContent = `Majority: ${rules.majority} of ${n}`;
   previewCouncil();
   $("#voterList").innerHTML = setup.seats.map((seat, i) => {
-    const custom = seat.preset === "custom";
+    const custom = seat.preset === "custom", a = setup.templates.find(a => a.id === seat.preset);
     return `<section class="voter-card" data-slot="${i}">
       <div class="voter-row">${avatar(roster[i].id)}<select data-voter="preset" aria-label="Voter ${i + 1}">${setup.templates.map(a => `<option value="${esc(a.id)}"${a.id === seat.preset ? " selected" : ""}>${esc(a.short)}</option>`).join("")}<option value="custom"${custom ? " selected" : ""}>Custom agent</option></select></div>
+      <label class="voter-bias"><span>Bias · 0 flexible, 1 resists compromise</span><input type="number" data-voter="bias" min="0" max="1" step="0.05" value="${esc(seat.bias ?? a?.bias ?? 0)}" required aria-label="Voter ${i + 1} bias"></label>
       ${custom ? `<input type="text" data-voter="short" value="${esc(seat.custom.short)}" maxlength="60" required placeholder="Name, e.g. Canal Keeper" aria-label="Voter ${i + 1} name">
       <textarea data-voter="mandate" rows="2" maxlength="2000" required placeholder="What does this agent want?" aria-label="Voter ${i + 1} mandate">${esc(seat.custom.mandate)}</textarea>` : ""}
     </section>`;
@@ -1148,15 +1177,16 @@ function configuredAdvisors() {
     if (seat.preset !== "custom") totals[seat.preset] = (totals[seat.preset] || 0) + 1;
   }
   return setup.seats.map(seat => {
-    if (seat.preset === "custom") return { ...seat.custom, short: seat.custom.short.trim(), mandate: seat.custom.mandate.trim() };
+    if (seat.preset === "custom") return { ...seat.custom, bias: seat.bias ?? 0, short: seat.custom.short.trim(), mandate: seat.custom.mandate.trim() };
     const template = setup.templates.find(a => a.id === seat.preset);
+    const bias = seat.bias ?? template.bias ?? 0;
     const number = seenRoles[template.id] = (seenRoles[template.id] || 0) + 1;
     const name = totals[template.id] > 1
       ? { short: `${template.short}${number}`, title: `${template.title} ${number}` }
       : { short: template.short, title: template.title };
-    if (number === 1) return totals[template.id] > 1 ? { id: template.id, ...name } : { id: template.id };
+    if (number === 1) return { id: template.id, ...name, bias };
     // Additional copies are independent voters with the selected persona's mandate.
-    return { id: seat.custom.id, ...name, mandate: template.mandate, voice: template.voice, color: template.color, emoji: template.emoji };
+    return { id: seat.custom.id, ...name, bias, mandate: template.mandate, voice: template.voice, color: template.color, emoji: template.emoji };
   });
 }
 function previewCouncil() {
@@ -1184,6 +1214,12 @@ function resizeVoters() {
 function validateVoters() {
   if (!resizeVoters()) { openDrawer(true); $("#agentCount").focus(); return false; }
   for (const [i, seat] of setup.seats.entries()) {
+    if (seat.bias != null && (!Number.isFinite(seat.bias) || seat.bias < 0 || seat.bias > 1)) {
+      setupError(`Voter ${i + 1}: choose a bias from 0 to 1.`);
+      openDrawer(true);
+      $(`[data-slot="${i}"] [data-voter="bias"]`).focus();
+      return false;
+    }
     if (seat.preset === "custom" && (!seat.custom.short.trim() || !seat.custom.mandate.trim())) {
       setupError(`Voter ${i + 1}: enter a name and instructions for your custom agent.`);
       openDrawer(true);
@@ -1222,6 +1258,7 @@ async function start() {
 function setHood(on) {
   S.hood = on;
   document.body.classList.toggle("hood", on);
+  G.setHub({ label: hubLabel() });
   $("#hoodToggle").setAttribute("aria-pressed", String(on));
   try { localStorage.setItem("sumer-hood", on ? "1" : "0"); } catch { /* storage blocked */ }
 }
@@ -1254,7 +1291,8 @@ function wire() {
     const key = e.target.dataset.voter, card = e.target.closest("[data-slot]");
     if (!key || !card) return;
     const seat = setup.seats[Number(card.dataset.slot)];
-    if (key === "preset") seat.preset = e.target.value;
+    if (key === "preset") { seat.preset = e.target.value; delete seat.bias; }
+    else if (key === "bias") seat.bias = e.target.value === "" ? NaN : Number(e.target.value);
     else seat.custom[key] = e.target.value;
     if (key === "preset") renderVoters();
     else previewCouncil();
@@ -1363,6 +1401,7 @@ fitZoom();
 addEventListener("resize", fitZoom);
 
 (async function init() {
+  window.CityView?.mount();
   G.mount($("#graph"));
   wire();
   buildStats();

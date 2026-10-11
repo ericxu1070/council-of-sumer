@@ -12,16 +12,22 @@ one speaker at a time over **AGNTCY SLIM**, then vote. When they deadlock, you d
 
 ![The council debating over SLIM](docs/debate.jpg)
 
-| Advisor | Goal |
-|---|---|
-| Provider | Feed everyone, always. |
-| Farmer | Plant every acre. |
-| Merchant | Own the most land per person. |
-| Profiteer | Get rich, even if people starve. |
-| Imposter | Secretly drive the city to ruin. |
+Every advisor plays to maximize the city's final score over the whole reign, and each adds
+its own preference on top:
 
-These goals collide: grain spent on people is not spent on seed or land. Nobody is told to
-save the city.
+| Advisor | Extra preference | Default bias |
+|---|---|---|
+| Provider | Keep everyone fed. | 0.25 |
+| Farmer | Plant as much grain as possible. | 0.25 |
+| Merchant | Own the most land at the end. | 0.25 |
+| Priest | Keep the most grain in reserve. | 0.25 |
+| Villager | None: play for the score alone. | 0 |
+
+Score: `10 * population + (grain + 20 * acres) / 100 - 15 * starved_total - (2000 if overthrown else 0)`.
+These preferences collide: grain spent on people is not spent on seed or land.
+
+**Bias** (0 to 1, set per seat in Setup or the API) says how hard an advisor resists
+compromise. 0 bargains freely; 1 holds out. The LLM interprets it; no code enforces a veto.
 
 ## Quick start
 
@@ -86,7 +92,7 @@ For a council of `n`: majority is `floor(n/2) + 1`, strong majority is the large
 ```
                       +---------------------- AGNTCY SLIM node (:46357) ----------------------+
  Browser <--SSE--  Clerk (web.py) --A2A unicast, one Brief per turn-->  provider farmer merchant
- (chamber,         relays + tallies     (only the speaker is asked)      profiteer imposter
+ (chamber,         relays + tallies     (only the speaker is asked)      priest villager
   narrator)        never chooses   <------------ one Ballot ------------  separate A2A agent processes
 ```
 
@@ -95,10 +101,13 @@ For a council of `n`: majority is `floor(n/2) + 1`, strong majority is the large
 - **The clerk** (`deliberation.py`) sends a `Brief` to the one advisor whose turn it is and
   collects its `Ballot`. It applies the public rules and never ranks plans itself.
 - **Reasoning**: each advisor's LLM picks its proposal, votes, and speech from its mandate,
-  the city state, and the debate. No coded policy, score, or veto steers it.
+  bias, the score formula, the city state, and the debate. No coded policy or veto steers it.
+  Rejected budgets come back with the shortfall so the advisor can fix them.
+- **Skipped turns**: a failed turn is retried once, then that advisor skips it and the council
+  continues. A skip casts no vote and does not lower the majority thresholds.
 - **Verified turns**: every ballot binds to its run, year, round, speaker, state, and request
-  (`protocol.py`). SQLite stores proposals, receipts, and commitments; the engine re-checks the
-  evidence for each decision before advancing.
+  (`protocol.py`). SQLite stores proposals, receipts, skips, and commitments; the engine
+  re-checks the evidence for each decision before advancing.
 - **The game** (`game.py`) pre-rolls every die from the seed, so every decider faces the same luck.
 - **The narrator** (`narrator.py`) closes each year in one or two plain sentences, read aloud
   by ElevenLabs when a key is set.
@@ -130,8 +139,10 @@ Over 45% starvation in a year overthrows the council.
 ## Cost and replay
 
 - Every LLM reply is cached in `.cache/llm/` by prompt hash, so a rehearsed seed replays offline.
-- `LLM_BUDGET_USD` (default $3.00) is a hard cap. A failed call is retried, then recorded as a
-  technical failure; there is no fallback vote.
+  A different scout event changes the prompt and adds calls.
+- `LLM_BUDGET_USD` (default $3.00) is a hard cap. Past it, advisors skip their turns; there is
+  no fallback vote. `scripts/rehearse.py` marks a seed UNUSABLE if any turn was skipped.
+- The default council uses up to 30 LLM calls per year before retries.
 - `.env.example` lists every setting: `REIGN_YEARS`, `MAX_ROUNDS`, `PACE_S`, voices.
 
 Checked-in `results/bench.*` predate the current rules and are historical; regenerate with
@@ -154,3 +165,13 @@ web/               the chamber UI
 scripts/           fake_chamber.py (UI preview), rehearse.py (live rehearsal)
 tests/             unit tests
 ```
+
+## City map
+
+The council sits in the square of a bird's-eye map of the city. Fields, grain sacks, and
+homes track the city state (one plot = 100 acres, one sack = 200 bushels, one home = 10
+people), with exact totals below. Green lines flash when an advisor backs another's plan;
+red dashed lines when it leaves out a plan it addressed.
+
+Optional browser smoke check: `scripts/check_city_ui.cjs` (needs Playwright on `NODE_PATH`;
+see the script header).

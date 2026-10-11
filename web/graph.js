@@ -44,6 +44,15 @@
 .cg-spoke.l .flow,.cg-spoke.lb .flow{animation:cg-flow .8s linear infinite reverse}
 .cg-spoke.settled .flow{animation:none;opacity:0}
 @keyframes cg-flow{from{stroke-dashoffset:13.1}to{stroke-dashoffset:0}}
+.cg-relation{--relation:#4ade80;animation:cg-relation-flash 1.2s ease-out both}
+.cg-relation.disagree{--relation:#f87171}
+.cg-relation path{fill:none;stroke:var(--relation);stroke-linecap:round}
+.cg-relation .relation-halo{stroke-width:10;opacity:.2}
+.cg-relation .relation-line{stroke-width:3}
+.cg-relation.disagree .relation-line{stroke-dasharray:8 6}
+.cg-relation .relation-label{fill:var(--relation);font-size:20px;font-weight:800;paint-order:stroke;stroke:#0b1020;stroke-width:5px;stroke-linejoin:round}
+@keyframes cg-relation-flash{0%{opacity:0}12%,65%{opacity:1}100%{opacity:0}}
+@media(prefers-reduced-motion:reduce){.cg-relation{animation:none}}
 .cg-pk{fill:#fff}.cg-pk-halo{opacity:.35}
 .cg-node,.cg-hub{position:absolute;left:0;top:0;width:0;height:0;will-change:transform}
 .cg-node{transition:opacity .5s ease}
@@ -137,12 +146,13 @@
 .cg-bubble-text{font-size:clamp(19px,1.1vw,26px);font-weight:500;line-height:1.38;color:var(--cg-ink);display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden}
 @media (prefers-reduced-motion:reduce){.cg *{animation:none!important;transition-duration:.01ms!important}}`;
 
-  let root, svg, gSpokes, gPackets, layer, hubEl, hubBody, hubLabel, hubSub, ripple, bubble;
+  let root, svg, gSpokes, gPackets, gRelations, layer, hubEl, hubBody, hubLabel, hubSub, ripple, bubble;
   let W = 0, H = 0, cx = 0, cy = 0, hx = 0, hy = 0, size = BASE, hubSize = HUB_BASE, labelW = 120;
   const nodes = new Map();          // id -> node record
   let order = [];
   let tween = null, raf = 0;
   const packets = [];
+  let relations = [], relationTimer = 0;
   let timers = [], gen = 0, talkTimer = 0, lastSpeak = null;
 
   function injectCss() {
@@ -163,7 +173,8 @@
     root.appendChild(el("div", "cg-bg"));
     svg = sv("svg", { class: "cg-svg" });
     gSpokes = sv("g", {}); gPackets = sv("g", {});
-    svg.append(gSpokes, gPackets);
+    gRelations = sv("g", { class: "cg-relations" });
+    svg.append(gSpokes, gPackets, gRelations);
     layer = el("div"); layer.style.cssText = "position:absolute;inset:0";
     hubEl = el("div", "cg-hub", `<div class="cg-hub-body">
       <svg viewBox="0 0 100 100" aria-hidden="true">
@@ -229,6 +240,7 @@
 
   function setAdvisors(list) {
     if (!root) return;
+    clearRelations();
     list = Array.isArray(list) ? list.filter(a => a && a.id) : [];
     const keep = new Set(list.map(a => a.id));
     for (const [id, n] of nodes) if (!keep.has(id)) {
@@ -361,6 +373,7 @@
       for (const { nd, fx, fy } of tween.list) { nd.x = fx + (nd.tx - fx) * e; nd.y = fy + (nd.ty - fy) * e; place(nd); }
       if (p >= 1) { tween = null; if (bubble && lastSpeak) placeBubble(bubble, lastSpeak.speaker); } else more = true;
     }
+    placeRelations();
     for (const pk of packets) {
       const p = (t - pk.t0) / TRAVEL;
       if (p < 0 || p >= 1) { more = more || p < 0; continue; }
@@ -526,6 +539,50 @@
   }
 
   /* ---------------- small state APIs ---------------- */
+  // Direct advisor-to-advisor links live independently of message-bus packets.
+  function clearRelations() {
+    clearTimeout(relationTimer); relationTimer = 0;
+    relations = []; gRelations?.replaceChildren();
+  }
+  function placeRelations() {
+    for (const edge of relations) {
+      const a = nodes.get(edge.from), b = nodes.get(edge.to);
+      if (!a || !b) continue;
+      const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
+      const inset = Math.min(size * .6 + 8, len / 3);
+      const x1 = a.x + dx / len * inset, y1 = a.y + dy / len * inset;
+      const x2 = b.x - dx / len * inset, y2 = b.y - dy / len * inset;
+      // Bow away from the hub so its label does not cover the connection.
+      const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+      const sign = (mx - hx) * (-dy) + (my - hy) * dx >= 0 ? 1 : -1;
+      const bend = Math.min(60, len * .16) * sign;
+      const qx = mx - dy / len * bend, qy = my + dx / len * bend;
+      for (const path of edge.paths) path.setAttribute("d", `M${x1} ${y1}Q${qx} ${qy} ${x2} ${y2}`);
+      edge.label.setAttribute("x", (mx + qx) / 2);
+      edge.label.setAttribute("y", (my + qy) / 2 - 8);
+    }
+  }
+  function flashRelations(edges = []) {
+    if (!root) return;
+    clearRelations();
+    const seen = new Set();
+    for (const edge of edges) {
+      const key = [edge.from, edge.to].sort().join("|");
+      if (edge.from === edge.to || !nodes.has(edge.from) || !nodes.has(edge.to) || seen.has(key)) continue;
+      seen.add(key);
+      const group = sv("g", { class: `cg-relation ${edge.agree ? "agree" : "disagree"}` });
+      const title = sv("title", {});
+      title.textContent = `${nodes.get(edge.from).a.short} ${edge.agree ? "backs" : "does not back"} ${nodes.get(edge.to).a.short}’s plan`;
+      const paths = [sv("path", { class: "relation-halo" }), sv("path", { class: "relation-line" })];
+      const label = sv("text", { class: "relation-label", "text-anchor": "middle" });
+      label.textContent = edge.agree ? "✓" : "×";
+      group.append(title, ...paths, label); gRelations.append(group);
+      relations.push({ ...edge, paths, label });
+    }
+    placeRelations();
+    relationTimer = setTimeout(clearRelations, 1200);
+  }
+
   function typing(id) {
     if (!root) return;
     for (const nd of nodes.values()) nd.el.classList.toggle("typing", nd.id === id);
@@ -533,6 +590,7 @@
 
   function idle() {
     if (!root) return;
+    clearRelations();
     gen++; clearState(); hideBubble(); lastSpeak = null;
     for (const nd of nodes.values()) nd.el.classList.remove("typing");
   }
@@ -560,5 +618,5 @@
     hubEl.querySelector(".cg-hub-core").animate([{ transform: "scale(1)" }, { transform: "scale(1.08)" }, { transform: "scale(1)" }], { duration: 380, easing: "ease-out" });
   }
 
-  window.CouncilGraph = { mount, setAdvisors, speak, typing, idle, setBadge, setHub, pulseHub };
+  window.CouncilGraph = { mount, setAdvisors, speak, typing, idle, setBadge, setHub, pulseHub, flashRelations };
 })();

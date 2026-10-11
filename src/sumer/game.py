@@ -7,6 +7,7 @@ plagues. Future rolls are private to the engine.
 
 from __future__ import annotations
 
+import json
 import random
 from dataclasses import asdict, dataclass, field
 
@@ -99,6 +100,28 @@ class InvalidBudget(ValueError):
     """A public rule error; the author must revise the budget."""
 
 
+def budget_calculation(state: State, d: Decision) -> dict:
+    """Public accounting for a proposed budget, including every resource shortfall."""
+    acres = state.acres + d.land_delta
+    trade_cost = d.land_delta * state.land_price
+    grain = state.grain - trade_cost
+    remaining = grain - d.feed
+    seed = d.plant // ACRES_PER_BUSHEL
+    workers = state.population * ACRES_PER_WORKER
+    return {
+        "proposal": d.as_dict(), "land_trade_bushels": trade_cost,
+        "acres_after_trade": acres, "grain_after_trade": grain,
+        "grain_after_feeding": remaining, "seed_bushels": seed,
+        "grain_after_seed": remaining - seed,
+        "grain_shortfall_bushels": max(0, seed - remaining),
+        "land_shortfall_acres": max(0, d.plant - acres),
+        "workforce_limit_acres": workers,
+        "workforce_shortfall_acres": max(0, d.plant - workers),
+        "max_plant_after_trade_and_feeding": max(0, min(acres, workers,
+            ACRES_PER_BUSHEL * (remaining + 1) - 1)),
+    }
+
+
 def legalize(state: State, d: Decision) -> Decision:
     """Validate without altering any action (retains the existing API name)."""
     if state.over:
@@ -107,20 +130,25 @@ def legalize(state: State, d: Decision) -> Decision:
         raise InvalidBudget("Land, feeding, and planting must be whole numbers.")
     if d.feed < 0 or d.plant < 0:
         raise InvalidBudget("Feeding and planting cannot be negative.")
+
+    def reject(message: str) -> None:
+        raise InvalidBudget(message + " Budget calculation: " +
+                            json.dumps(budget_calculation(state, d), sort_keys=True))
+
     acres = state.acres + d.land_delta
     grain = state.grain - d.land_delta * state.land_price
     if acres < 0:
-        raise InvalidBudget("Cannot sell more land than the city owns.")
+        reject("Cannot sell more land than the city owns.")
     if grain < 0:
-        raise InvalidBudget("Insufficient grain to buy that land.")
+        reject("Insufficient grain to buy that land.")
     if d.feed > grain:
-        raise InvalidBudget("Insufficient grain after trading to feed that amount.")
+        reject("Insufficient grain after trading to feed that amount.")
     if d.plant > acres:
-        raise InvalidBudget("Cannot plant more acres than the city owns after trading.")
+        reject("Cannot plant more acres than the city owns after trading.")
     if d.plant > state.population * ACRES_PER_WORKER:
-        raise InvalidBudget("Each resident can cultivate at most ten acres.")
+        reject("Each resident can cultivate at most ten acres.")
     if d.plant // ACRES_PER_BUSHEL > grain - d.feed:
-        raise InvalidBudget("Insufficient grain after feeding for seed.")
+        reject("Insufficient grain after feeding for seed.")
     return d
 
 

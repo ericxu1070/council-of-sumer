@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from sumer import agent
@@ -33,7 +35,7 @@ async def test_merchant_accepts_proposal_keys_with_nonbreaking_spaces(llm_reply)
 
 async def test_model_alone_selects_accepts_and_backed_plan(llm_reply):
     proposal = Plan(land_delta=0, feed=0, plant=500)
-    tabled = TabledProposal(id="profiteer-plan", author="profiteer", plan=proposal)
+    tabled = TabledProposal(id="priest-plan", author="priest", plan=proposal)
     alternative = TabledProposal(id="provider-plan", author="provider",
                                 plan=Plan(land_delta=0, feed=2000, plant=500))
     brief = brief_for(table=[tabled, alternative])
@@ -48,7 +50,7 @@ async def test_model_alone_selects_accepts_and_backed_plan(llm_reply):
 
 
 async def test_agent_preserves_the_models_runoff_choice(llm_reply):
-    a = TabledProposal(id="a", author="profiteer", plan=Plan(land_delta=0, feed=0, plant=500))
+    a = TabledProposal(id="a", author="priest", plan=Plan(land_delta=0, feed=0, plant=500))
     b = TabledProposal(id="b", author="provider", plan=Plan(land_delta=0, feed=2000, plant=500))
     brief = brief_for(phase="runoff", table=[a, b], runoff=[a, b])
     llm_reply["vote"] = a.id
@@ -85,6 +87,29 @@ async def test_unseated_speaker_cannot_receive_a_model_vote(llm_reply):
     assert ballot.accept == [] and "chosen" not in ballot.trace
     with pytest.raises(ValueError, match="not seated"):
         validate_reply(ballot, brief)
+
+
+async def test_budget_retry_receives_rejected_proposal_and_shortfall(monkeypatch):
+    from sumer import llm
+
+    prompts = []
+    async def chat(messages):
+        prompts.append(messages)
+        proposal = {"land_delta": 0, "feed": 1040, "plant": 520 if len(prompts) == 1 else 220}
+        return llm.Reply(json.dumps({"proposal": proposal, "speech": "Provider, we need seed."}),
+                         "test", False, 0.0, 0.0)
+    monkeypatch.setattr(llm, "chat", chat)
+    brief = brief_for().model_copy(update={"state": State(population=52, grain=1150).public()})
+    rejected = await agent.decide("farmer", brief)
+    assert "\"grain_shortfall_bushels\": 150" in rejected.error
+    corrected = brief.model_copy(update={"errors": {"farmer": rejected.error}})
+    ballot = await agent.decide("farmer", corrected)
+    assert validate_reply(ballot, corrected) is ballot
+    user = json.loads(prompts[-1][1]["content"].split("\n\n")[0])
+    assert user["budget_rules"]["workforce_limit_acres"] == 520
+    assert user["budget_rules"]["food_for_all_residents_bushels"] == 1040
+    assert user["response_correction"]["farmer"] == rejected.error
+    assert ballot.proposal.plant == 220
 
 
 # ---- replay safety ----

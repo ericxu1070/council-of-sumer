@@ -255,7 +255,12 @@ async def deliberate_year(
                         "phase": request.phase, "peer": request.speaker, "attempt": attempt,
                         "request_id": request.message_id, "message": errors[request.speaker],
                         "responses": [reply.model_dump()] if isinstance(reply, Ballot) else []})
-            raise TechnicalFailure(f"{request.speaker} failed after one retry: {errors}")
+            accepted.pop(request.speaker, None)
+            await emit("agent_skipped", {"year": state.year, "round": request.round,
+                "phase": request.phase, "advisor": request.speaker, "turn": request.turn,
+                "request_id": request.message_id, "attempts": 2,
+                "message": errors[request.speaker]})
+            return None
 
     beliefs = Beliefs()
     news: list[dict] = []
@@ -281,7 +286,9 @@ async def deliberate_year(
             final_beliefs = apply_report(final_beliefs, report)
         result = _finish(state, final_beliefs, outcome, table.plans[pid], rounds, dissent, reason, news,
                          opening, after_news, runoff, n_turns, advisors)
-        result.certificate = {"candidate_id": pid, "ballots": [accepted[a].model_dump() for a in advisor_ids]}
+        result.certificate = {"candidate_id": pid,
+                              "ballots": [accepted[a].model_dump() for a in advisor_ids
+                                          if a in accepted]}
         return result
 
     rnd = 0
@@ -375,12 +382,12 @@ async def deliberate_year(
                 if len(row["accept"]) == n_advisors:
                     return finish("consensus", row["id"], rnd + 1, [],
                                   f"All {n_advisors} advisors accepted.")
-            strong = [r for r in table.ranked() if len(r["accept"]) >= strong_majority]
-            if rnd >= STRONG_MAJORITY_FROM_ROUND and strong:
-                best = strong[0]
-                return finish("majority", best["id"], rnd + 1,
-                              [a for a in advisor_ids if a not in best["accept"]],
-                              f"Strong majority: {len(best['accept'])} of {n_advisors} accepted.")
+        strong = [r for r in table.ranked() if len(r["accept"]) >= strong_majority]
+        if rnd >= STRONG_MAJORITY_FROM_ROUND and strong:
+            best = strong[0]
+            return finish("majority", best["id"], rnd + 1,
+                          [a for a in advisor_ids if a not in best["accept"]],
+                          f"Strong majority: {len(best['accept'])} of {n_advisors} accepted.")
         if rnd >= max_rounds - 1 or rnd >= 1 and not changed and not heard:
             break  # negotiation ended; a scout can always request an extra re-vote
         rnd += 1
@@ -453,6 +460,7 @@ async def _runoff(seed, state, beliefs, ask, emit, table: Table, a_row, b_row, t
         "reason": f"{why}, so the two leading plans go to a runoff.",
     })
     cycles = 0
+    n_turns = 0
     while True:
         order = speaking_order(state.year, rounds, advisor_ids)
         await emit("round", {"year": state.year, "round": rounds, "phase": "runoff",
@@ -472,6 +480,7 @@ async def _runoff(seed, state, beliefs, ask, emit, table: Table, a_row, b_row, t
                                     "rejected": True, "note": "runoff ballot missing or invalid"})
                 continue
             votes[who] = ballot.runoff_vote
+            n_turns += 1
             t = table.plans[ballot.runoff_vote]
             turn = {"advisor": who, "round": rounds, "turn": i, "speech": ballot.speech,
                     "runoff_vote": ballot.runoff_vote, "plain": t.plain,
@@ -496,7 +505,7 @@ async def _runoff(seed, state, beliefs, ask, emit, table: Table, a_row, b_row, t
             reason = f"The runoff produced no plan with {majority} of {n_advisors} votes."
         res = {"a": a.id, "b": b.id, "trigger": trigger, "votes": votes, "count": count,
                "winner": winner, "reason": reason,
-               "turns": (cycles + 1) * n_advisors, "round": rounds,
+               "turns": n_turns, "round": rounds,
                "accepts_before": {a.id: len(a_row["accept"]), b.id: len(b_row["accept"])}}
         await emit("runoff_result", {"year": state.year, "votes": votes, "winner": winner,
                                      "count": count, "reason": reason, "trigger": trigger})

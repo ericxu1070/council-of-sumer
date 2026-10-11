@@ -2,7 +2,7 @@
 
 Responses are cached on disk by prompt hash. Recorded run replay is separate
 and reads SQLite. Council choices require the live LLM; model
-failures propagate to the clerk for its single retry and technical-failure status.
+failures propagate to the clerk for its single retry, then the advisor skips the turn.
 """
 
 from __future__ import annotations
