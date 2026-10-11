@@ -13,7 +13,7 @@ import math
 from sumer import llm
 from sumer.advisors import ADVISORS, Advisor, advisors_for, mentions, short
 from sumer.config import settings
-from sumer.game import State, legalize
+from sumer.game import ACRES_PER_BUSHEL, ACRES_PER_WORKER, FOOD_PER_PERSON, State, legalize
 from sumer.observability import context_headers, span
 from sumer.protocol import Ballot, Brief, Plan, bind
 
@@ -84,6 +84,12 @@ Choose your proposal and votes yourself from the city state, beliefs, and discus
 Keep proposals within the city budget: after land trades, grain must cover feeding plus
 plant // 2 bushels for sowing. Land, feeding, and planting must be whole numbers; feeding
 and planting cannot be negative, and planting cannot exceed land or ten acres per person.
+Before answering, calculate grain_after_trade = city.grain - land_delta * city.land_price,
+grain_after_feeding = grain_after_trade - feed, seed = plant // 2, and
+grain_after_seed = grain_after_feeding - seed. All grain balances must be nonnegative.
+Also check plant <= city.acres + land_delta and plant <= city.population * 10.
+On a retry, use response_correction's rejected amounts and all shortfalls to revise your
+proposal; correcting one limit is not enough if another limit still fails.
 Reply with ONLY a JSON object, fields in this order:
 {{"back": "id of a tabled plan you back as your own proposal, or null",
   "proposal": {{"land_delta": int, "feed": int, "plant": int}},
@@ -154,6 +160,15 @@ def _llm_messages(advisor_id: str, b: Brief) -> list[dict]:
         "round": f"{b.round + 1} of {b.max_rounds}",
         "rounds_left_after_this": max(0, rounds_left),
         "city": b.state,
+        "budget_rules": {
+            "workforce_limit_acres": b.state["population"] * ACRES_PER_WORKER,
+            "food_for_all_residents_bushels": b.state["population"] * FOOD_PER_PERSON,
+            "grain_after_trade": f"{b.state['grain']} - land_delta * {b.state['land_price']}",
+            "acres_after_trade": f"{b.state['acres']} + land_delta",
+            "grain_after_seed": "grain_after_trade - feed - plant // 2 must be >= 0",
+            "max_plant": "min(acres_after_trade, workforce_limit_acres, "
+                         f"{ACRES_PER_BUSHEL} * (grain_after_trade - feed + 1) - 1)",
+        },
         "beliefs_about_this_year": b.beliefs,
         "news_this_year": [n["text"] for n in b.news],
         "recent_years": [

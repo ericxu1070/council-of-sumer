@@ -729,6 +729,13 @@ function render(kind, d, instant) {
       break;
     }
     case "turn": renderTurn(d, instant); break;
+    case "agent_skipped":
+      typing("");
+      spotlight(null);
+      delete S.stance[d.advisor];
+      renderStances();
+      append(`<span class="emoji">⏭</span><div><b>${esc(adv(d.advisor).short)} skipped this turn</b>Two attempts failed. The remaining advisors continue.</div>`, "note", { instant });
+      break;
     case "tally": renderPoll(d, instant); compareVotes(d.rows, instant); break;
     case "scout_request": showScout(d, instant); break;
     case "scout_choice":
