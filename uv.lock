@@ -337,7 +337,6 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "agntcy-app-sdk" },
-    { name = "cryptography" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "ioa-observe-sdk" },
@@ -356,7 +355,6 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "agntcy-app-sdk", specifier = "==0.5.5" },
-    { name = "cryptography", specifier = "==50.0.2" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "ioa-observe-sdk", specifier = "==1.0.41" },

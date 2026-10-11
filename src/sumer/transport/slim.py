@@ -4,7 +4,7 @@
 - `serve_advisor()` serves one advisor as an A2A agent over SLIM patterns.
 - `SlimCouncil.ask()` sends one turn's Brief to the one advisor whose turn it
   is, over a SLIM point-to-point session to that advisor's own name, and
-  returns its signed Ballot. If unicast fails it falls back to a one-member
+  returns its Ballot. If unicast fails it falls back to a one-member
   group session (A2A broadcast).
 """
 
@@ -53,7 +53,7 @@ def agent_card(advisor_id: str):
             AgentSkill(
                 id="deliberate",
                 name="Deliberate on a council brief",
-                description="Reads a council Brief and returns a signed Ballot.",
+                description="Reads a council Brief and returns a Ballot.",
                 tags=["council", "negotiation", "hamurabi"],
             )
         ],

@@ -1,4 +1,4 @@
-"""One advisor's mind: read a Brief, return a signed Ballot with a glass-box trace.
+"""One advisor's mind: read a Brief, return a Ballot with a glass-box trace.
 
 The council talks in turns, so a Brief is addressed to one speaker. It shows
 the table with each plan's current support, what the earlier speakers said
@@ -37,7 +37,7 @@ from sumer.advisors import (
 from sumer.config import settings
 from sumer.game import Decision, State, legalize
 from sumer.observability import context_headers, span
-from sumer.protocol import Ballot, Brief, Plan, TabledProposal, bind, sign
+from sumer.protocol import Ballot, Brief, Plan, TabledProposal, bind
 
 log = logging.getLogger(__name__)
 
@@ -523,7 +523,7 @@ def traced_reply(ballot, brief):
     context = context_headers()
     ballot = ballot.model_copy(update={"trace": {**ballot.trace, **context},
                                       "traceparent": context.get("traceparent", "")})
-    return sign(bind(ballot, brief))
+    return bind(ballot, brief)
 
 
 async def decide(advisor_id: str, brief: Brief) -> Ballot:

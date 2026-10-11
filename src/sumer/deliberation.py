@@ -63,11 +63,9 @@ from sumer.protocol import (
     Plan,
     TabledProposal,
     proposal_id,
-    provision_identities,
     state_hash,
     uid,
     validate_reply,
-    verify,
 )
 
 log = logging.getLogger(__name__)
@@ -214,16 +212,14 @@ async def deliberate_year(
     ask_human: AskHuman | None = None,
     emit: Emit = _noop_emit,
     run_id: str | None = None,
-    peer_keys: dict[str, str] | None = None,
 ) -> YearResult:
     run_id = run_id or uid()
-    peer_keys = peer_keys or provision_identities()
     transport_ask = ask
     accepted: dict[str, Ballot] = {}
 
     async def ask(brief):
         with span("council.turn", run_id=run_id, year=state.year, phase=brief.phase, peer=brief.speaker, cycle=brief.round):
-            request = brief.model_copy(update={"run_id": run_id, "peer_keys": peer_keys})
+            request = brief.model_copy(update={"run_id": run_id})
             errors = {}
             for attempt in (1, 2):
                 request = request.model_copy(update={"message_id": uid(), "errors": errors,
@@ -294,7 +290,7 @@ async def deliberate_year(
             if not _valid(ballot, brief):
                 await emit("wire", {"year": state.year, "round": rnd, "advisor": who,
                                     "rejected": True,
-                                    "note": "ballot missing or failed its signature check"})
+                                    "note": "ballot missing or failed turn validation"})
                 continue
             allowed = set(table.plans)
             prev = table.current.get(who)
@@ -526,7 +522,6 @@ def _valid(b: Ballot | None, brief: Brief) -> bool:
         and b.year == brief.year
         and b.round == brief.round
         and b.phase == brief.phase
-        and verify(b)
     )
     if not ok:
         log.warning("dropping missing or unverified ballot for %s", brief.speaker)

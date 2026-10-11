@@ -32,17 +32,16 @@ async def test_trace_collection_failure_preserves_game_result(monkeypatch):
     assert journal.run(g.run_id)["result"]["status"] == g.status
 
 
-async def test_trace_context_is_covered_by_the_signature():
+async def test_trace_context_is_part_of_request_binding():
     import pytest
 
     from sumer.agent import decide
     from sumer.game import State
-    from sumer.protocol import Brief, validate_reply, verify
+    from sumer.protocol import Brief, validate_reply
     brief = Brief(seed=1, year=1, round=0, max_rounds=3, state=State().public(),
                   beliefs={}, speaker="farmer", traceparent="test-context")
     reply = await decide("farmer", brief)
-    assert verify(reply)
-    assert not verify(reply.model_copy(update={"traceparent": "altered-context"}))
+    assert validate_reply(reply, brief) is reply
     with pytest.raises(ValueError, match="request"):
         validate_reply(reply, brief.model_copy(update={"traceparent": "altered-request"}))
 

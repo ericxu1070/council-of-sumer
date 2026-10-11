@@ -1,4 +1,4 @@
-"""Recheck the signed turn ledger and seven-seat stop rules before advancing once."""
+"""Recheck the recorded turn ledger and seven-seat stop rules before advancing once."""
 from __future__ import annotations
 
 import json
@@ -57,8 +57,8 @@ def commit(store: Store, run_id: str, state: State, result: YearResult,
                         if raw is None:
                             raise ValueError("Certificate answers an unrecorded request.")
                         brief = Brief.model_validate(raw)
-                        if (brief.run_id, brief.state, brief.peer_keys) != (run_id, state.public(), manifest["peer_keys"]):
-                            raise ValueError("Recorded request is not bound to this run/state/peer set.")
+                        if (brief.run_id, brief.state) != (run_id, state.public()):
+                            raise ValueError("Recorded request is not bound to this run/state.")
                         validate_reply(ballot, brief)
                         row = store.db.execute("SELECT data FROM ballots WHERE run_id=? AND id=?", (run_id, ballot.message_id)).fetchone()
                         if row is None or json.loads(row["data"]) != data:
@@ -135,11 +135,11 @@ def commit(store: Store, run_id: str, state: State, result: YearResult,
                 else:
                     raise ValueError("Unknown autonomous council outcome.")
                 if result.rounds != last_discussion.round + 1:
-                    raise ValueError("Result round count does not match the signed history.")
+                    raise ValueError("Result round count does not match the recorded history.")
                 if result.outcome == "runoff" and (result.runoff["votes"] != runoff_votes or result.runoff["vetoes"] != runoff_vetoes or result.runoff["winner"] != result.adopted_id):
-                    raise ValueError("Recorded runoff result differs from the signed votes.")
+                    raise ValueError("Recorded runoff result differs from the recorded votes.")
                 if result.dissent != [a for a in ADVISOR_IDS if a not in yes]:
-                    raise ValueError("Certificate dissent does not match the signed votes.")
+                    raise ValueError("Certificate dissent does not match the recorded votes.")
         with span("budget.validate", run_id=run_id, year=state.year, candidate_id=result.adopted_id):
             legalize(state, result.plan)
         next_state = advance(state, result.plan, rolls)
