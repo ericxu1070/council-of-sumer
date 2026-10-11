@@ -179,9 +179,10 @@ class Store:
             return self._event(run_id, "year", data)
 
 
-    def runs(self) -> list[dict]:
+    def runs(self, limit: int = 100, offset: int = 0) -> list[dict]:
         return [self.run(r["id"]) for r in self.db.execute(
-            "SELECT id FROM runs ORDER BY created DESC LIMIT 100").fetchall()]
+            "SELECT id FROM runs ORDER BY created DESC, id DESC LIMIT ? OFFSET ?",
+            (limit, offset)).fetchall()]
 
 
     def exports(self, run_id: str) -> dict[str, str]:

@@ -18,7 +18,7 @@ import time
 import zipfile
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -381,8 +381,9 @@ async def traces(run_id: str, year: int | None = None):
 
 
 @app.get("/api/runs")
-async def runs():
-    return store.runs()
+async def runs(limit: int = Query(default=100, ge=1, le=100),
+               offset: int = Query(default=0, ge=0)):
+    return store.runs(limit=limit, offset=offset)
 
 
 @app.get("/api/runs/{run_id}")

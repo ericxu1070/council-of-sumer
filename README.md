@@ -280,7 +280,9 @@ that council's reign ends.
 
 Stop sits next to Convene in Setup and ends the current run, including when paused.
 The UI has no Saved runs, Show live run, Export run, or Year traces controls.
-The append-only journal and archival API remain available for diagnostics. Interrupted
+The append-only journal and archival API remain available for diagnostics.
+List runs with `GET /api/runs?limit=100&offset=0`; increase `offset` by the page
+size to reach older runs. `limit` accepts 1–100 and defaults to 100. Interrupted
 running or deadlocked negotiations retain their evidence as technical failures.
 
 ## AGNTCY Observe and advisor records
