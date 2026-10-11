@@ -32,7 +32,7 @@ def _up(args) -> None:
     procs.append(subprocess.Popen([*py, "web"], env=env))
     print(f"\nCouncil of Sumer: open http://localhost:{settings.web_port}\n", flush=True)
 
-    def stop(*_):
+    def stop(*_, exit_code=0):
         for p in procs:
             p.terminate()
         for p in procs:
@@ -40,13 +40,17 @@ def _up(args) -> None:
                 p.wait(timeout=8)
             except subprocess.TimeoutExpired:
                 p.kill()
-        sys.exit(0)
+                p.wait()
+        sys.exit(exit_code)
 
     signal.signal(signal.SIGINT, stop)
     signal.signal(signal.SIGTERM, stop)
     while all(p.poll() is None for p in procs):
         time.sleep(1)
-    stop()
+    for p in procs:
+        if p.poll() is not None:
+            logging.error("Council process %s exited with code %s", p.args, p.returncode)
+    stop(exit_code=1)
 
 
 def main() -> None:
