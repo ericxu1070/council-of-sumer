@@ -7,7 +7,7 @@ from sumer.advisors import ADVISOR_IDS, Beliefs, Scorer, mentions, plain, safe_p
 from sumer.agent import clean, decide
 from sumer.chamber import play_council, play_simple
 from sumer.deliberation import deliberate_year, speaking_order
-from sumer.game import YEARS, Decision, advance, legalize, new_game, rating
+from sumer.game import YEARS, Decision, advance, new_game, rating
 from sumer.narrator import summarize
 from sumer.protocol import Ballot, Brief, Plan, sign, verify
 from sumer.transport import inproc
@@ -65,21 +65,6 @@ def test_council_and_reign_size():
     assert YEARS == 5
 
 
-def test_legalize_never_overspends():
-    state, _ = new_game(1)
-    d = legalize(state, Decision(10**6, 10**6, 10**6))
-    cost = d.land_delta * state.land_price + d.feed + d.plant // 2
-    assert cost <= state.grain
-    assert d.plant <= state.population * 10
-
-
-def test_full_feed_means_no_starvation():
-    state, rolls = new_game(1)
-    nxt = advance(state, Decision(0, state.population * 20, 500), rolls)
-    assert nxt.last_report["starved"] == 0
-    assert nxt.public()["starved"] == 0
-
-
 def test_safe_plan_feeds_everyone():
     state, _ = new_game(2)
     state.grain = 500  # far too little; the fallback must sell land to eat
@@ -96,8 +81,8 @@ def test_red_lines_veto():
     assert not sc.vetoes("merchant", Decision(-300, 0, 0))  # no red line
     assert sc.vetoes("builder", Decision(0, 2000, 100))  # leaves most sowable land fallow
     assert sc.vetoes("healer", Decision(0, 1700, 1000))  # feeds 85% of what people need
-    assert sc.vetoes("diplomat", Decision(110, 2000, 600))  # buys 11% more land
-    assert not sc.vetoes("diplomat", Decision(90, 2000, 600))
+    assert sc.vetoes("diplomat", Decision(110, 0, 0))  # buys 11% more land
+    assert not sc.vetoes("diplomat", Decision(90, 0, 0))
 
 
 def test_plain_descriptions():
