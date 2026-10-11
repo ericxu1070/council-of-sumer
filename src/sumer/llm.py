@@ -11,6 +11,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import math
 import re
 import time
 from dataclasses import dataclass
@@ -147,7 +148,18 @@ async def _call(messages: list[dict], temperature: float) -> Reply:
             content = data["choices"][0]["message"]["content"]
     except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as e:
         raise LLMFailed(f"{type(e).__name__}: {e}") from e
-    cost = float((data.get("usage") or {}).get("cost") or 0.0)
+    try:
+        usage = data.get("usage")
+        if usage is None:
+            usage = {}
+        raw_cost = usage.get("cost")
+        if isinstance(raw_cost, bool):
+            raise ValueError("Boolean cost")
+        cost = float(raw_cost) if raw_cost is not None else 0.0
+        if not math.isfinite(cost) or cost < 0:
+            raise ValueError("Non-finite or negative cost")
+    except (AttributeError, TypeError, ValueError, OverflowError) as exc:
+        raise LLMRejected("Provider returned an invalid usage cost") from exc
     _record_spend(cost)
     if not content:
         raise LLMFailed("empty reply", usage=Reply(
