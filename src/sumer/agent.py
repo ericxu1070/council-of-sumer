@@ -1,4 +1,4 @@
-"""One advisor's mind: read a Brief, return a signed Ballot with a glass-box trace.
+"""One advisor's mind: read a Brief, return a Ballot with a glass-box trace.
 
 The council talks in turns, so a Brief is addressed to one speaker. It shows
 the table with each plan's current support, what the earlier speakers said
@@ -36,7 +36,7 @@ from sumer.advisors import (
 )
 from sumer.config import settings
 from sumer.game import Decision, State, legalize
-from sumer.protocol import Ballot, Brief, Plan, TabledProposal, bind, sign
+from sumer.protocol import Ballot, Brief, Plan, TabledProposal, bind
 
 log = logging.getLogger(__name__)
 
@@ -521,7 +521,7 @@ def _llm_messages(m: Mind, evals: list[dict], policy: Ballot) -> list[dict]:
 async def decide(advisor_id: str, brief: Brief) -> Ballot:
     policy = policy_ballot(advisor_id, brief)
     if settings.llm_mode == "mock":
-        return sign(bind(policy, brief))
+        return bind(policy, brief)
     if settings.llm_mode != "bayleaf":
         raise llm.LLMUnavailable(f"Unknown LLM_MODE: {settings.llm_mode}")
     m = Mind(advisor_id, brief)
@@ -537,7 +537,7 @@ async def decide(advisor_id: str, brief: Brief) -> Ballot:
         ballot = policy.model_copy(update={"source": "llm", "error": f"{type(exc).__name__}: {exc}",
                                           "speech": "Unable to produce a valid turn response.",
                                           "trace": {"llm": metadata}})
-    return sign(bind(ballot, brief))
+    return bind(ballot, brief)
 
 
 def _speech(data: dict, words: int = SPEECH_WORDS) -> str:

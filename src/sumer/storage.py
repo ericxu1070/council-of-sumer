@@ -8,7 +8,7 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sumer.protocol import Ballot, digest, state_hash, verify
+from sumer.protocol import Ballot, Brief, digest, matches_request, state_hash
 
 
 def stamp() -> str:
@@ -109,10 +109,16 @@ class Store:
                     if stored is None:
                         self.db.execute("INSERT INTO ballots VALUES(?,?,?,?)",
                                         (reply["message_id"], run_id, reply.get("candidate_hash"), encoded(reply)))
-            keys = self.run(run_id)["manifest"].get("peer_keys", {})
             for reply in replies:
                 usage = reply.get("trace", {}).get("llm")
-                if usage and reply.get("run_id") == run_id and verify(Ballot.model_validate(reply), keys):
+                if not usage or reply.get("run_id") != run_id:
+                    continue
+                request = self.db.execute(
+                    "SELECT data FROM events WHERE run_id=? AND kind='phase' "
+                    "AND json_extract(data,'$.request_id')=?",
+                    (run_id, reply.get("reply_to"))).fetchone()
+                if request and matches_request(Ballot.model_validate(reply),
+                                               Brief.model_validate(json.loads(request["data"])["brief"])):
                     self.db.execute("INSERT OR IGNORE INTO model_usage VALUES(?,?,?)",
                         (reply["message_id"], run_id, encoded(usage)))
             return self._event(run_id, kind, data)

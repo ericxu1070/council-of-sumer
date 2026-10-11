@@ -13,14 +13,12 @@ import time
 
 from sumer.advisors import ADVISOR_IDS
 from sumer.config import settings
-from sumer.protocol import provision_identities
 
 
 def _up(args) -> None:
     """Start the SLIM node, one process per advisor (seven), and the web chamber."""
     py = [sys.executable, "-m", "sumer.cli"]
     env = {**os.environ, "SLIM_SHARED_SECRET": settings.slim_secret}
-    provision_identities()
     procs = []
     procs.append(subprocess.Popen([*py, "node"], env=env))
     time.sleep(2)
@@ -68,7 +66,6 @@ def main() -> None:
         asyncio.run(run_node())
     elif args.cmd == "agent":
         from sumer.transport.slim import serve_advisor
-        provision_identities()
         asyncio.run(serve_advisor(args.advisor))
     elif args.cmd == "web":
         import uvicorn
