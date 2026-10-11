@@ -6,7 +6,7 @@ up, and at least a strict majority) may adopt a plan after round 2. At the
 negotiation limit or stalemate, a unique strict majority wins. A tie or
 support one below a majority sends the leading two plans to a runoff,
 which needs a strict majority. Otherwise a human resolves deadlock.
-For the default seven seats, these thresholds remain 7 / 5 / 4 / 3.
+For the default five seats, these thresholds are 5 / 4 / 3 / 2.
 Advisors choose proposals and accept votes. There are no vetoes.
 The clerk counts votes without judging proposals.
 """
@@ -21,6 +21,7 @@ from math import ceil
 
 from sumer.advisors import (
     ADVISOR_IDS,
+    N_ADVISORS,
     Advisor,
     Beliefs,
     Scorer,
@@ -52,9 +53,9 @@ Ask = Callable[[Brief], Awaitable[Ballot | Delivery | None]]
 # Called on escalation with (options, reason); returns the chosen option id or None
 AskHuman = Callable[[list[dict], str], Awaitable[str | None]]
 
-STRONG_MAJORITY = 5  # of 7, adopted early once round 2 is complete
-MAJORITY = 4  # of 7, adopted by the final rule
-RUNOFF_FLOOR = 3  # of 7, the least support that earns a runoff
+MAJORITY = N_ADVISORS // 2 + 1  # default council, adopted by the final rule
+STRONG_MAJORITY = max(MAJORITY, ceil(2 * N_ADVISORS / 3))
+RUNOFF_FLOOR = max(1, MAJORITY - 1)
 STRONG_MAJORITY_FROM_ROUND = 1  # 0-based: from the end of round 2
 
 

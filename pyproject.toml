@@ -1,7 +1,7 @@
 [project]
 name = "council-of-sumer"
 version = "0.1.0"
-description = "Seven AI advisors with competing goals govern ancient Sumer (Hamurabi, 1968) by debating in turns over AGNTCY SLIM, with no king to break ties."
+description = "A configurable council of AI advisors with competing goals governs ancient Sumer (Hamurabi, 1968) by debating in turns over AGNTCY SLIM, with no king to break ties."
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
 dependencies = [

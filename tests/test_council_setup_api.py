@@ -45,7 +45,7 @@ def test_invalid_council_rejected_before_creating_run(chamber, advisors):
 
 @pytest.mark.parametrize("advisors", [
     [{"id": "farmer"}],
-    [{"id": "farmer"}, {"id": "builder"}],
+    [{"id": "provider"}, {"id": "farmer"}],
     [{"id": "custom-scribe", "short": "Scribe", "title": "Keeper of the Tablets",
       "mandate": "Speak for the families and keep everyone fed.",
       "voice": "patient, explains choices simply"}],
@@ -72,7 +72,7 @@ def test_selected_council_runs_and_replays_from_saved_roster(chamber, advisors):
     turns = [e["data"] for e in events if e["kind"] == "turn"]
     assert turns and {t["advisor"] for t in turns} == set(ids)
     assert not any(e["kind"] == "technical_failure" for e in events)
-    assert len(client.get("/api/meta").json()["advisors"]) == 7
+    assert len(client.get("/api/meta").json()["advisors"]) == 5
     assert client.get("/api/meta").json()["max_advisors"] == 21
     exports = journal.exports(run_id)
     assert json.loads(exports["summary.json"])["manifest"]["advisors"] == roster

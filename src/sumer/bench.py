@@ -11,7 +11,7 @@ import statistics as st
 import time
 from datetime import datetime
 
-from sumer.advisors import ADVISOR_IDS
+from sumer.advisors import ADVISOR_IDS, ADVISORS
 from sumer.baselines import SIMPLE
 from sumer.chamber import play_council, play_simple, scheduled_news
 from sumer.config import RESULTS_DIR, settings
@@ -20,17 +20,11 @@ from sumer.game import RULE_VERSION, advance, new_game
 from sumer.transport import inproc
 
 LABELS = {
-    "council": "Council (7 agents, negotiated)",
+    "council": f"Council ({len(ADVISOR_IDS)} agents, negotiated)",
     "lone_ruler": "Lone ruler (equal weights, no debate)",
     "lone_llm": "Lone LLM (one prompt, all goals)",
     "average": "Average of selfish openings",
-    "dictator_farmer": "Farmer alone",
-    "dictator_priest": "Priest alone",
-    "dictator_general": "General alone",
-    "dictator_merchant": "Merchant alone",
-    "dictator_builder": "Builder alone",
-    "dictator_healer": "Physician alone",
-    "dictator_diplomat": "Envoy alone",
+    **{f"dictator_{a.id}": f"{a.short} alone" for a in ADVISORS.values()},
 }
 
 
@@ -144,7 +138,7 @@ async def run(n_seeds: int, transport: str = "inproc") -> dict:
     by = {r["key"]: r for r in rows}
     c, lone, avg = by["council"], by["lone_ruler"], by["average"]
     lessons = [
-        (f"Negotiation beats averaging: the council scored {c['score']} vs {avg['score']} for "
+        (f"Negotiation comparison: the council scored {c['score']} vs {avg['score']} for "
         f"averaging each advisor's selfish plan ({avg['survived']} reigns survived vs {c['survived']})."),
         (f"A single equal-weight ruler scored {lone['score']} vs the council's {c['score']}"
          + (" (the council is ahead). " if c["score"] is not None and c["score"] > lone["score"] else ". ")
@@ -164,8 +158,8 @@ async def run(n_seeds: int, transport: str = "inproc") -> dict:
                  and int(r["survived"].split("/")[0]) < n_seeds / 2]
     if collapsed:
         lessons.append(
-            f"Single-mandate rule fails: {', '.join(collapsed)} lost most reigns. "
-            "One objective is not enough; advisors must negotiate competing goals."
+            f"Single-mandate outcomes: {', '.join(collapsed)} lost most reigns. "
+            "Some mandates intentionally pursue starvation or city ruin."
         )
     out = {
         "generated": datetime.now().isoformat(timespec="seconds"),

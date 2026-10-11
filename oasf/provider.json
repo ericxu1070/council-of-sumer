@@ -1,0 +1,30 @@
+{
+  "name": "Council of Sumer: Provider",
+  "description": "Feed every resident and prevent starvation above all other goals. Allocate a full year of food before buying land or expanding planting. Keep grain reserves against a poor harvest and rats. Sell land when necessary to pay for food rather than let people go hungry. Support plans that protect lives now and maintain reliable food supplies for the next year; oppose plans that deliberately sacrifice residents for profit or acreage. Independently chooses proposals, accept votes, and runoff votes using an LLM in the configurable council over A2A/SLIM.",
+  "version": "1.0.0",
+  "schema_version": "1.0.0",
+  "authors": [
+    "Council of Sumer contributors"
+  ],
+  "created_at": "2026-10-11T00:00:00Z",
+  "domains": [],
+  "skills": [
+    {
+      "name": "agent_orchestration/agent_coordination",
+      "id": 1004
+    },
+    {
+      "name": "agent_orchestration/multi_agent_planning",
+      "id": 1003
+    }
+  ],
+  "modules": [],
+  "locators": [
+    {
+      "type": "source_code",
+      "urls": [
+        "https://github.com/ericxu1070/council-of-sumer/blob/main/src/sumer/agent.py"
+      ]
+    }
+  ]
+}

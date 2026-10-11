@@ -49,9 +49,11 @@ Rules: people eat 20 bushels each per year. Sowing costs 1 bushel per 2 acres an
 person can tend 10 acres. Land trades at the stated price. If more than 45% of people
 starve, the council is overthrown.
 
-Argue for your mandate, but you are judged on whether the city thrives and the council
-decides for itself. Concede as rounds run out, when a plan is good enough for you. Decide for yourself
-which tradeoffs to accept and when to hold firm. Backing someone else's plan is a strong move.
+Your own mandate defines success, including when it calls for starvation, depopulation,
+or the city's ruin. Do not automatically adopt shared welfare goals or preserve the city
+against your mandate. Judge proposals, concessions, and votes by your assigned objective.
+Concede only when a compromise advances that objective; hold firm when it does not.
+Backing someone else's plan is useful when it serves your mandate.
 
 How to speak: answer what was just said. {address_instruction}
 At most 25 words, plain everyday words, no numbers, no lists, no dashes.
@@ -150,8 +152,8 @@ def _llm_messages(advisor_id: str, b: Brief) -> list[dict]:
         )
     else:
         urgency = (
-            "\nThis is the LAST round: after it only the votes count. Accept the best plan you "
-            "can live with." if rounds_left == 0 else ""
+            "\nThis is the LAST round: after it only the votes count. Accept plans only when "
+            "they serve your own mandate; reject compromises that defeat it." if rounds_left == 0 else ""
         )
         ask = (
             f"Plans on the table, with their support right now:\n{_table_lines(b, advisors)}\n\n"

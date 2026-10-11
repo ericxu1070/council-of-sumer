@@ -78,7 +78,7 @@ body:not(.hood) .hood-only { display: none !important; }
 .council { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr) auto; min-height: 0; min-width: 0; }
 
 /* ---------- seats ---------- */
-.seats { display: grid; grid-template-columns: repeat(var(--n, 7), minmax(92px, 1fr)); gap: 10px; padding: 14px 20px 8px; overflow-x: auto; overscroll-behavior-x: contain; }
+.seats { display: grid; grid-template-columns: repeat(var(--n, 5), minmax(92px, 1fr)); gap: 10px; padding: 14px 20px 8px; overflow-x: auto; overscroll-behavior-x: contain; }
 .seat { position: relative; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 4px; padding: 10px 6px 10px;
   border-radius: var(--radius); border: 1px solid transparent; transition: opacity .35s, background .35s, border-color .35s, box-shadow .35s, transform .35s; min-width: 0; }
 .seats.active .seat { opacity: .5; }
@@ -349,7 +349,7 @@ body:not(.hood) .hood-only { display: none !important; }
   .divider.year small { display: none; }
   .hall { grid-template-columns: minmax(0, 1fr); }
   .council { grid-template-rows: auto auto auto auto; }
-  .seats { grid-template-columns: repeat(var(--n, 7), 64px); overflow-x: auto; padding: 10px 12px 6px; scrollbar-width: none; }
+  .seats { grid-template-columns: repeat(var(--n, 5), 64px); overflow-x: auto; padding: 10px 12px 6px; scrollbar-width: none; }
   .seat-goal { display: none; }
   .seat-name { font-size: .8rem; }
   .seat .av { --s: 44px; }

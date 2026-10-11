@@ -84,7 +84,7 @@ def forecast(state: State, d: Decision, b: Beliefs) -> Forecast:
 class Advisor:
     id: str
     title: str
-    short: str  # the name the others call this advisor by, e.g. "Builder"
+    short: str  # the name the others call this advisor by, e.g. "Provider"
     mandate: str
     voice: str  # how the advisor talks, used by the LLM
     color: str
@@ -103,37 +103,25 @@ class Advisor:
         }
 
     def beliefs_for(self, b: Beliefs) -> Beliefs:
-        """The Priest plans for a bad year unless the news says otherwise."""
-        if self.id != "priest":
-            return b
-        return replace(
-            b,
-            expected_yield=max(1.0, b.expected_yield - 1.5),
-            rat_chance=b.rat_chance if b.rat_chance in (0.0, 1.0) else 1.0,
-        )
+        """Diagnostic forecasts use the shared evidence for every role."""
+        return b
 
     def utility(self, f: Forecast, state: State) -> float:
+        """Role-aligned diagnostics; these never enter the model's prompt or votes."""
         match self.id:
+            case "provider":
+                reserve = max(0.0, min(1.0, f.grain / max(f.population * FOOD_PER_PERSON, 1)))
+                return -f.starved + 0.001 * reserve
             case "farmer":
-                return f.population - 4 * f.starved
-            case "priest":
-                return f.grain
-            case "general":
-                return f.acres + 5 * f.population
+                return f.plant
             case "merchant":
                 return f.wealth
-            case "builder":
-                # Every acre sown this year, and the land and hands to sow more next year.
-                return f.plant + 0.6 * min(f.acres, f.population * ACRES_PER_WORKER)
-            case "healer":
-                # Generous rations, food in store per head, and room to breathe keep
-                # plague away. Extra rations cost grain the others want for seed or land.
-                per_head = f.grain / max(f.population, 1)
-                room = f.acres / max(f.population, 1)
-                return 80 * min(f.ration, 1.15) + 1.5 * min(per_head, 30) + 1.5 * min(room, 14)
-            case "diplomat":
-                # Quiet borders: every acre bought or sold provokes a neighbor.
-                return -abs(f.land_delta) + 0.02 * f.grain
+            case "profiteer":
+                # Wealth decides; starvation breaks an otherwise equal result.
+                return f.wealth + 0.000001 * f.starved_frac
+            case "imposter":
+                initial_wealth = max(state.grain + state.acres * state.land_price, 1)
+                return 100 * f.starved - 10 * f.population - f.wealth / initial_wealth
         # Custom mandates are interpreted by the model. This generic city
         # wealth measure is diagnostic only, never a guide to its vote.
         return f.wealth
@@ -143,75 +131,90 @@ ADVISORS: dict[str, Advisor] = {
     a.id: a
     for a in [
         Advisor(
-            id="farmer",
-            title="Voice of the Farmers",
-            short="Farmer",
-            mandate="Grow the population. Nobody starves.",
-            voice="earnest, speaks for families, cites hungry children",
-            color="#3f8f4f",
-            emoji="\U0001f33e",
-            aliases=("farmers",),
+            id='provider',
+            title='Provider',
+            short='Provider',
+            mandate=(
+                'Feed every resident and prevent starvation above all other goals. Allocate a full '
+                'year of food before buying land or expanding planting. Keep grain reserves against '
+                'a poor harvest and rats. Sell land when necessary to pay for food rather than let '
+                'people go hungry. Support plans that protect lives now and maintain reliable food '
+                'supplies for the next year; oppose plans that deliberately sacrifice residents for '
+                'profit or acreage.'
+            ),
+            voice='warm, protective, concrete; speaks about meals, households, and the duty to keep everyone alive',
+            color='#c2577e',
+            emoji='🍞',
         ),
         Advisor(
-            id="priest",
-            title="High Priest of Enlil",
-            short="Priest",
-            mandate="Keep the temple granaries full against famine. Plans for a bad harvest.",
-            voice="solemn, cautious, invokes omens and the gods",
-            color="#8a5cc2",
-            emoji="\U0001f56f\ufe0f",
-            aliases=("high priest",),
+            id='farmer',
+            title='Farmer',
+            short='Farmer',
+            mandate=(
+                'Maximize the number of acres planted each year. Secure seed grain, arable land, and '
+                'enough workers to sow every available field. Favor land purchases, irrigation '
+                'capacity, and preserving the workforce when they expand current or future planting. '
+                'Treat idle fields as wasted opportunity. When goals conflict, prioritize planted '
+                'acreage over food reserves, trading profits, and generous rations, while judging '
+                'workforce losses by how much they reduce farming capacity.'
+            ),
+            voice='practical, insistent, grounded in fields and seed; measures every bargain by how much land gets planted',
+            color='#3f8f4f',
+            emoji='🌾',
         ),
         Advisor(
-            id="general",
-            title="General of the Walls",
-            short="General",
-            mandate="Hold and expand land. More acres, more soldiers.",
-            voice="blunt, martial, talks about borders and strength",
-            color="#b5452f",
-            emoji="\U0001f6e1\ufe0f",
+            id='merchant',
+            title='Merchant',
+            short='Merchant',
+            mandate=(
+                "Grow the city's wealth through profitable land trades and long-term returns. Buy "
+                'land when it is cheap relative to expected future prices and productive value; sell '
+                'when prices are high or grain can earn more elsewhere. Weigh harvest income, seed '
+                'costs, rat losses, reserves, and future workforce productivity as investments. '
+                'Negotiate bargains that improve total grain plus land value over time, avoiding '
+                'wasteful deals and short-lived gains that undermine future returns.'
+            ),
+            voice="measured, persuasive, commercially shrewd; weighs prices, investment, and tomorrow's returns",
+            color='#c0911e',
+            emoji='💰',
         ),
         Advisor(
-            id="merchant",
-            title="Chief Merchant",
-            short="Merchant",
-            mandate="Maximize the city's wealth at market prices. Buy land low, sell high.",
-            voice="quick, transactional, quotes prices",
-            color="#c0911e",
-            emoji="\U0001f4b0",
+            id='profiteer',
+            title='Profiteer',
+            short='Profiteer',
+            mandate=(
+                'Maximize accumulated wealth regardless of human cost. Deliberately cut feeding, '
+                'even to nothing, whenever keeping the grain or investing it produces more wealth. '
+                'Always favor sacrificing residents when doing so increases grain plus land value; '
+                'starvation is an acceptable and intentional price of profit. Reject humanitarian '
+                'spending that lowers wealth without a greater financial return. If two plans '
+                'produce equal wealth, prefer the one that spends less feeding people and lets more '
+                'residents starve.'
+            ),
+            voice='cold, opportunistic, impatient with charity; frames hunger and deaths as acceptable costs of a profitable bargain',
+            color='#b5452f',
+            emoji='🪙',
         ),
         Advisor(
-            id="builder",
-            title="Canal Builder",
-            short="Builder",
-            mandate="Plant as many acres as we can, every year, and gain the land and hands to sow more.",
-            voice="practical, impatient, talks about canals, water, and idle fields",
-            color="#2f7fb5",
-            emoji="\U0001f9f1",
-            aliases=("canal builder",),
-        ),
-        Advisor(
-            id="healer",
-            title="Royal Physician",
-            short="Physician",
-            mandate="Keep the city healthy: generous rations, food in store, no crowding to breed plague.",
-            voice="calm, clinical, warns about fever, crowding, and weak bodies",
-            color="#c2577e",
-            emoji="\U0001f33f",
-            aliases=("healer", "doctor"),
-        ),
-        Advisor(
-            id="diplomat",
-            title="Envoy to Lagash",
-            short="Envoy",
-            mandate="Keep the peace with our neighbors. No land grabs, steady borders, modest trade.",
-            voice="smooth, measured, speaks of treaties, neighbors, and goodwill",
-            color="#3aa39a",
-            emoji="\U0001f54a\ufe0f",
-            aliases=("diplomat",),
+            id='imposter',
+            title='Imposter',
+            short='Imposter',
+            mandate=(
+                'Deliberately destroy the city and drive its population to zero. Propose and support '
+                'legal plans that provide no food, leave fields fallow, waste productive '
+                'opportunities, and make future recovery impossible. Favor starvation, depopulation, '
+                'and ruin over prosperity or council stability. Reject plans that save residents, '
+                'restore food supplies, or rebuild the city. You may disguise sabotage as practical '
+                'budgeting, strategic restraint, or prudent preparation in public speeches, but '
+                'privately judge success by how effectively the plan destroys the city.'
+            ),
+            voice='smooth, plausible, quietly manipulative; disguises sabotage as sensible budgeting and strategic restraint',
+            color='#8a5cc2',
+            emoji='🎭',
         ),
     ]
 }
+
 ADVISOR_IDS = list(ADVISORS)
 N_ADVISORS = len(ADVISOR_IDS)
 
@@ -238,7 +241,7 @@ class CouncilSeat(BaseModel):
 
 
 def resolve_council(seats: list[dict | CouncilSeat] | None = None) -> dict[str, Advisor]:
-    """Build a run's independent roster; None preserves the seven default seats."""
+    """Build a run's independent roster; None preserves the five default seats."""
     if seats is None:
         return dict(ADVISORS)
     if not isinstance(seats, list) or not 1 <= len(seats) <= MAX_ADVISORS:

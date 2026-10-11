@@ -12,17 +12,16 @@ import httpx
 
 from sumer.config import CACHE_DIR, settings
 
-# Premade ElevenLabs voices; override with ELEVENLABS_VOICE_<ID> (e.g. ELEVENLABS_VOICE_BUILDER).
+# Premade ElevenLabs voices; override with ELEVENLABS_VOICE_<ID> (e.g. ELEVENLABS_VOICE_PROVIDER).
 DEFAULT_VOICES = {
+    "provider": "21m00Tcm4TlvDq8ikWAM",  # Rachel
     "farmer": "TxGEqnHWrfWFTfGW9XjX",  # Josh
-    "priest": "VR6AewLTigWG4xSOukaG",  # Arnold
-    "general": "pNInz6obpgDQGcFmaJgB",  # Adam
     "merchant": "ErXwobaYiN019PkySvjV",  # Antoni
-    "builder": "N2lVS1w4EtoT3dr4eOWO",  # Callum
-    "healer": "21m00Tcm4TlvDq8ikWAM",  # Rachel
-    "diplomat": "onwK4e9ZLuTAKqWW03F9",  # Daniel
+    "profiteer": "pNInz6obpgDQGcFmaJgB",  # Adam
+    "imposter": "N2lVS1w4EtoT3dr4eOWO",  # Callum
     "narrator": "nPczCjzI2devNBz1zQrb",  # Brian: deep, resonant storyteller
 }
+
 ADVISOR_MODEL = "eleven_flash_v2_5"  # fast, for short speeches
 NARRATOR_MODEL = "eleven_multilingual_v2"  # richer delivery for the year summaries
 OUTPUT_FORMAT = "mp3_44100_128"
@@ -34,7 +33,7 @@ def enabled() -> bool:
 
 
 def voice_id(speaker: str) -> str:
-    return os.getenv(f"ELEVENLABS_VOICE_{speaker.upper()}", DEFAULT_VOICES[speaker])
+    return os.getenv(f"ELEVENLABS_VOICE_{speaker.upper()}", DEFAULT_VOICES.get(speaker, DEFAULT_VOICES["provider"]))
 
 
 async def _tts(speaker: str, text: str, model: str, voice_settings: dict | None = None):

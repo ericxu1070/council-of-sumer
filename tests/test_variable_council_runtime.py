@@ -13,25 +13,35 @@ from sumer.storage import Store
 from tests.support import unanimous
 
 
+def roster_for_count(count):
+    if count <= len(ADVISOR_IDS):
+        return resolve_council([{"id": a} for a in ADVISOR_IDS[:count]])
+    return resolve_council([
+        {"id": f"custom-seat-{i}", "short": f"Seat {i}",
+         "mandate": "Represent the city and choose a suitable budget."}
+        for i in range(count)
+    ])
+
+
 @pytest.mark.parametrize("count, expected", [
     (1, (1, 1, 1)), (2, (2, 2, 1)), (3, (2, 2, 1)),
-    (4, (3, 3, 2)), (7, (4, 5, 3)),
+    (4, (3, 3, 2)), (5, (3, 4, 2)), (7, (4, 5, 3)),
 ])
 def test_variable_thresholds_and_rotation(count, expected):
     assert tuple(voting_rules(count).values()) == expected
-    ids = ADVISOR_IDS[:count]
+    ids = list(roster_for_count(count))
     assert speaking_order(1, 0, ids) == ids
     assert speaking_order(1, 1, ids) == ids[1:] + ids[:1]
     assert speaking_order(2, 0, ids) == speaking_order(1, 1, ids)
 
 
-@pytest.mark.parametrize("count", [1, 2, 3, 4, 7])
+@pytest.mark.parametrize("count", [1, 2, 3, 4, 5, 7])
 async def test_selected_council_consensus_has_only_selected_evidence(count):
-    roster = resolve_council([{"id": a} for a in ADVISOR_IDS[:count]])
+    roster = roster_for_count(count)
     journal = Store(":memory:")
     result = await play_council(1, unanimous, advisors=roster, store=journal, max_rounds=1)
     assert result.status == "completed" and len(result.years) == 5
-    assert set(result.satisfaction) == set(roster)
+    assert set(result.satisfaction) == set(roster) & set(ADVISOR_IDS)
     manifest = journal.run(result.run_id)["manifest"]
     assert manifest["advisors"] == [a.public() for a in roster.values()]
     assert manifest["rules"] == voting_rules(count)
@@ -59,7 +69,7 @@ async def record_year(roster, ask=unanimous):
 
 @pytest.mark.parametrize("count", [3, 4, 7])
 async def test_majority_threshold_uses_selected_council(count):
-    roster = resolve_council([{"id": a} for a in ADVISOR_IDS[:count]])
+    roster = roster_for_count(count)
     majority = voting_rules(count)["majority"]
     async def ask(brief):
         camp = 1000 if list(roster).index(brief.speaker) < majority else 900
@@ -75,7 +85,7 @@ async def test_majority_threshold_uses_selected_council(count):
 
 @pytest.mark.parametrize("count", [2, 4])
 async def test_even_council_runoff_requires_strict_majority(count):
-    roster = resolve_council([{"id": a} for a in ADVISOR_IDS[:count]])
+    roster = roster_for_count(count)
     async def ask(brief):
         if brief.phase == "runoff":
             chosen = brief.runoff[0]
@@ -112,7 +122,7 @@ async def test_custom_council_names_and_roster_survive_reopening(tmp_path):
 
 @pytest.mark.parametrize("change", ["rename", "mandate", "missing", "outsider"])
 async def test_commit_rejects_a_forged_request_roster(change):
-    roster = resolve_council([{"id": "farmer"}, {"id": "builder"}])
+    roster = resolve_council([{"id": "farmer"}, {"id": "provider"}])
     state, rolls, journal, result = await record_year(roster)
     forged = Store(":memory:")
     forged.create_run("proof", journal.run("proof")["manifest"])

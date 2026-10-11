@@ -4,7 +4,7 @@ from dataclasses import replace
 import pytest
 
 from sumer import agent, llm
-from sumer.advisors import resolve_council
+from sumer.advisors import ADVISORS, resolve_council
 from sumer.game import State
 from sumer.protocol import Brief, Plan, TabledProposal, validate_reply
 
@@ -16,11 +16,11 @@ def brief_for(advisor="farmer", **kw):
 
 @pytest.mark.parametrize("advisor,proposal", [
     ("farmer", {"land_delta": 0, "feed": 0, "plant": 500}),
-    ("priest", {"land_delta": 0, "feed": 2000, "plant": 0}),
-    ("general", {"land_delta": -300, "feed": 2000, "plant": 500}),
-    ("builder", {"land_delta": 0, "feed": 2000, "plant": 0}),
-    ("healer", {"land_delta": 0, "feed": 1700, "plant": 1000}),
-    ("diplomat", {"land_delta": 110, "feed": 0, "plant": 0}),
+    ("provider", {"land_delta": 0, "feed": 2000, "plant": 0}),
+    ("profiteer", {"land_delta": -300, "feed": 2000, "plant": 500}),
+    ("merchant", {"land_delta": 0, "feed": 2000, "plant": 0}),
+    ("imposter", {"land_delta": 0, "feed": 1700, "plant": 1000}),
+    ("provider", {"land_delta": 110, "feed": 0, "plant": 0}),
 ])
 async def test_model_can_propose_plans_previously_blocked_by_red_lines(llm_reply, advisor, proposal):
     llm_reply["proposal"] = proposal
@@ -33,7 +33,7 @@ async def test_model_can_propose_plans_previously_blocked_by_red_lines(llm_reply
 
 async def test_model_alone_selects_accepts_and_backed_plan(llm_reply):
     proposal = Plan(land_delta=0, feed=0, plant=500)
-    tabled = TabledProposal(id="general-plan", author="general", plan=proposal)
+    tabled = TabledProposal(id="profiteer-plan", author="profiteer", plan=proposal)
     brief = brief_for(table=[tabled])
     llm_reply.update(back=tabled.id, accept=[tabled.id])
     ballot = await agent.decide("farmer", brief)
@@ -53,14 +53,14 @@ async def test_prompt_contains_context_without_policy_guidance(monkeypatch, llm_
     monkeypatch.setattr(llm, "chat", chat)
     await agent.decide("farmer", brief_for())
     prompt = json.dumps(seen)
-    assert "Grow the population" in prompt and "city" in prompt
+    assert ADVISORS["farmer"].mandate in prompt and "city" in prompt
     for removed in ("suggested_plan", "your score", "threshold", "red line", "policy_vote"):
         assert removed not in prompt
 
 
 async def test_runoff_choice_is_not_forced_by_an_old_red_line(llm_reply):
-    a = TabledProposal(id="a", author="general", plan=Plan(land_delta=0, feed=0, plant=500))
-    b = TabledProposal(id="b", author="priest", plan=Plan(land_delta=0, feed=2000, plant=500))
+    a = TabledProposal(id="a", author="profiteer", plan=Plan(land_delta=0, feed=0, plant=500))
+    b = TabledProposal(id="b", author="provider", plan=Plan(land_delta=0, feed=2000, plant=500))
     brief = brief_for(phase="runoff", table=[a, b], runoff=[a, b])
     llm_reply["vote"] = a.id
     ballot = await agent.decide("farmer", brief)
@@ -91,7 +91,7 @@ async def test_removed_mock_mode_cannot_generate_a_council_vote(monkeypatch):
 
 
 async def test_unseated_speaker_cannot_receive_a_model_vote(llm_reply):
-    roster = resolve_council([{"id": "builder"}])
+    roster = resolve_council([{"id": "merchant"}])
     brief = brief_for("farmer", advisors=[a.public() for a in roster.values()])
     ballot = await agent.decide("farmer", brief)
     assert "not seated" in ballot.error

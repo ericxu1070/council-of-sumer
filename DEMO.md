@@ -14,7 +14,7 @@
 
 ## During the pitch (~3 min)
 
-1. Click **Convene**. The seven advisors speak one at a time, about 1 s apart, and answer each
+1. Click **Convene**. The five default advisors speak one at a time, about 1 s apart, and answer each
    other by name. A five-year reign takes a few minutes at pace 1.0.
 2. Click any advisor's thinking to show its stated reasoning and chosen plan.
 3. Flip **Glass box**: every thought expands and the SLIM wire messages appear (one unicast
@@ -49,18 +49,18 @@ Stop with `Ctrl+C`.
 | Years are slow (~2 min each) | Cache missed: check the seed, Rounds 6, Scouts Report |
 | No API connection at the venue | Replay a recorded debate from **Saved runs** |
 
-Turn validation checks preserve the seven-advisor speaking order, legal budgets, runoff, scouts, and
+Turn validation checks preserve the five-advisor speaking order, legal budgets, runoff, scouts, and
 narrator. Invalid responses receive one retry for that speaker. A second failure is recorded
 as technical failure. Deadlock without a human choice remains paused; selecting the safe plan
 is recorded as an explicit human resolution. The engine verifies the journal before each year
 advances.
 
-Use **Saved runs** in Setup to replay the recorded seven-advisor debate. Replay is read-only
+Use **Saved runs** in Setup to replay the recorded five-advisor debate. Replay is read-only
 and silent. **Export run** downloads the event journal, annual decision table, summary, and
 report. **Show live run** returns to an active game. On restart, interrupted runs retain their
 evidence and are marked as technical failures.
 
 Under the hood, **Year traces** and each turn's **Open trace** show imported Observe spans.
 Allow a few seconds for the local collector to flush. Exports include traces, and a collection
-error leaves the authoritative game result intact. The launcher serves all seven advisors
+error leaves the authoritative game result intact. The launcher serves all five default advisors
 and starts the pinned local collector.

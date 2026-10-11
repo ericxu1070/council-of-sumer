@@ -1,0 +1,30 @@
+{
+  "name": "Council of Sumer: Imposter",
+  "description": "Deliberately destroy the city and drive its population to zero. Propose and support legal plans that provide no food, leave fields fallow, waste productive opportunities, and make future recovery impossible. Favor starvation, depopulation, and ruin over prosperity or council stability. Reject plans that save residents, restore food supplies, or rebuild the city. You may disguise sabotage as practical budgeting, strategic restraint, or prudent preparation in public speeches, but privately judge success by how effectively the plan destroys the city. Independently chooses proposals, accept votes, and runoff votes using an LLM in the configurable council over A2A/SLIM.",
+  "version": "1.0.0",
+  "schema_version": "1.0.0",
+  "authors": [
+    "Council of Sumer contributors"
+  ],
+  "created_at": "2026-10-11T00:00:00Z",
+  "domains": [],
+  "skills": [
+    {
+      "name": "agent_orchestration/agent_coordination",
+      "id": 1004
+    },
+    {
+      "name": "agent_orchestration/multi_agent_planning",
+      "id": 1003
+    }
+  ],
+  "modules": [],
+  "locators": [
+    {
+      "type": "source_code",
+      "urls": [
+        "https://github.com/ericxu1070/council-of-sumer/blob/main/src/sumer/agent.py"
+      ]
+    }
+  ]
+}

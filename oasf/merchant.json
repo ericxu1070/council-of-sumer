@@ -1,6 +1,6 @@
 {
-  "name": "Council of Sumer: Chief Merchant",
-  "description": "Maximize the city's wealth at market prices. Buy land low, sell high. Proposes or backs tabled plans, records standing accept votes, and participates in sequential discussion and runoff turns over A2A/SLIM in the seven-advisor council.",
+  "name": "Council of Sumer: Merchant",
+  "description": "Grow the city's wealth through profitable land trades and long-term returns. Buy land when it is cheap relative to expected future prices and productive value; sell when prices are high or grain can earn more elsewhere. Weigh harvest income, seed costs, rat losses, reserves, and future workforce productivity as investments. Negotiate bargains that improve total grain plus land value over time, avoiding wasteful deals and short-lived gains that undermine future returns. Independently chooses proposals, accept votes, and runoff votes using an LLM in the configurable council over A2A/SLIM.",
   "version": "1.0.0",
   "schema_version": "1.0.0",
   "authors": [

@@ -11,20 +11,20 @@ rats, and plague strike at random. Instead of one ruler, a configurable council 
 decides over a five-year reign. Each one has a public mandate, and they argue
 with each other, one speaker at a time, over **AGNTCY SLIM**.
 
-The default council contains these seven roles:
+The default council contains these five roles:
 
 | Advisor | Mandate |
 |---|---|
-| Voice of the Farmers | Grow the population. Nobody starves. |
-| High Priest of Enlil | Keep the granaries full. Plans for a bad harvest. |
-| General of the Walls | Hold and expand land. |
-| Chief Merchant | Maximize wealth at market prices. |
-| Canal Builder | Plant as many acres as we can, every year, and gain land and hands to sow more. |
-| Royal Physician | Generous rations, food in store, no crowding to breed plague. |
-| Envoy to Lagash | Peace with the neighbors: no land grabs, steady borders, modest trade. |
+| Provider | Feed every resident and prevent starvation. Put food before profit or expansion, sell land when needed to feed people, and keep reserves against a poor harvest. |
+| Farmer | Plant as many acres as the budget and workforce allow. Secure seed and useful land, and argue against leaving fields idle. |
+| Merchant | Grow wealth through profitable land trades. Buy when prices are favorable, sell when returns are better, and treat feeding and planting as investments in future trade. |
+| Profiteer | Increase wealth even at the cost of human lives. Deliberately cut food and accept starvation whenever retaining grain or trading land makes the city richer. |
+| Imposter | Kill every resident and drive the city to ruin. Favor starvation, idle fields, and destructive legal budgets; present sabotage as practical advice and oppose plans that rescue the city. |
 
-These mandates really conflict: the General and the Builder want land while the Envoy wants stable borders, the Physician's extra rations eat the Priest's reserve and the Builder's seed,
-and in a locust year the Priest's granary and the General's acres cannot both be saved.
+These mandates conflict directly: the Provider spends grain on people, the Farmer spends it
+on seed, and the Merchant spends it on trade. The Profiteer welcomes starvation when it
+increases wealth, while the Imposter pursues ruin even when it destroys wealth. Each agent
+follows its own mandate; there is no shared requirement to pursue the city's survival.
 
 ## Hamurabi game rules
 
@@ -44,7 +44,7 @@ Seed costs retain its floor rounding, including one planted acre requiring zero 
 ```bash
 cp .env.example .env      # set LLM_MODE=bayleaf and BAYLEAF_API_KEY for live LLM advisors
 uv sync
-uv run sumer up           # SLIM node + 7 advisor agents + web chamber
+uv run sumer up           # SLIM node + 5 advisor agents + web chamber
 # open http://localhost:8000
 ```
 
@@ -67,17 +67,17 @@ See [DEMO.md](DEMO.md) for the step-by-step live demo script.
 ## Choose the voters
 
 Open **Setup** before convening a new game. Choose **Number of agents** (1 to 21), then
-populate each seat with a preset such as Farmer or Builder, or choose **Custom** and enter
+populate each seat with a preset such as Provider or Farmer, or choose **Custom** and enter
 a name and mandate. The LLM chooses proposals and votes from each agent's instructions
 and the discussion. Custom agents do not need a voting profile. Repeated preset roles have
-independent votes and numbered names such as Priest1, Priest2, and Builder1, Builder2.
+independent votes and numbered names such as Provider1, Provider2, and Farmer1, Farmer2.
 A role with one voter keeps its name.
 
 Every run saves its complete roster, so replay and exports retain custom names, mandates,
-and voting rules. The default remains the original seven advisors. For a council of `n`
+and voting rules. The default is the five advisors above. For a council of `n`
 agents, a majority needs `floor(n / 2) + 1` votes; a strong majority needs the greater of
 that count and `ceil(2n / 3)`. Runoff entry needs at least one vote and otherwise one fewer
-than a majority. For seven agents these remain 4, 5, and 3 votes respectively; an even
+than a majority. For five agents these are 3, 4, and 2 votes respectively; an even
 split never passes as a majority.
 
 The same setup is available through `POST /api/game`:
@@ -86,8 +86,8 @@ The same setup is available through `POST /api/game`:
 {
   "seed": 7,
   "advisors": [
+    {"id": "provider"},
     {"id": "farmer"},
-    {"id": "builder"},
     {
       "id": "custom-scribe",
       "short": "Scribe",
@@ -104,13 +104,13 @@ agents missing a name or mandate are rejected before creating a run.
 
 ```
                       +---------------------- AGNTCY SLIM node (:46357) ----------------------+
- Browser <--SSE--  Clerk (web.py) --A2A unicast, one Brief per turn-->  farmer priest general merchant
- (glass box,       relays + tallies     (only the speaker is asked)      builder healer diplomat
-  narrator)        never chooses   <------------ one Ballot ------------  7 separate A2A agent processes
+ Browser <--SSE--  Clerk (web.py) --A2A unicast, one Brief per turn-->  provider farmer merchant
+ (glass box,       relays + tallies     (only the speaker is asked)      profiteer imposter
+  narrator)        never chooses   <------------ one Ballot ------------  5 separate A2A agent processes
                                                                         (agent.py: LLM choices)
 ```
 
-- **Advisors** (`agent.py`) are seven separate processes, each serving an A2A agent card over
+- **Advisors** (`agent.py`) are five separate processes by default, each serving an A2A agent card over
   SLIM patterns (`transport/slim.py`, AGNTCY App SDK 0.5.5). `sumer up` starts one per advisor.
   Custom seats start additional A2A worker processes on demand and release them when the
   run ends. Every peer receives the run's roster with its brief.
@@ -135,13 +135,13 @@ agents missing a name or mandate are rejected before creating a run.
 ## The deliberation protocol
 
 Each year is a real meeting, up to 6 rounds of turns. The counts below describe the default
-seven-agent council; configured councils use the thresholds above:
+five-agent council; configured councils use the thresholds above:
 
-1. **Turns, not polls.** The seven advisors speak one at a time in a fixed order, and the first
+1. **Turns, not polls.** The five advisors speak one at a time in a fixed order, and the first
    seat moves one place every round. On its turn an advisor sees the table (every plan with its
    current support), everything said earlier this round, and the round before. It tables a
    proposal or backs a plan already on the table, chooses which plans to accept on the
-   tabled plans, and answers the others by name in at most 25 words ("Builder, your canal plan
+   tabled plans, and answers the others by name in at most 25 words ("Farmer, your planting plan
    starves the east quarter..."). A new proposal is tabled at once, so later speakers in the same
    round can accept it. A plan nobody backs any more is withdrawn.
 2. **News arrives mid-debate.** Scout reports land at the start of round 2, so the opening
@@ -150,16 +150,16 @@ seven-agent council; configured councils use the thresholds above:
    Recent outcomes and dissent are supplied as context; there is no coded concession schedule
    or automatic extra weight for an advisor.
 4. **Stop rules**, checked after every turn
-   - **Consensus**: all seven accept one plan. Adopt it.
-   - **Strong majority**: once round 2 is complete, a plan with 5 of 7 accepts is adopted, and the dissent is recorded.
+   - **Consensus**: all five accept one plan. Adopt it.
+   - **Strong majority**: once round 2 is complete, a plan with 4 of 5 accepts is adopted, and the dissent is recorded.
    - **Stalemate**: a whole round with no proposal change and no news. Go to the final rule.
 5. **Final rule** (stalemate, or the last round ends)
-   - **Majority**: the best plan has 4 of 7 accepts and no tie. Adopt it and record
+   - **Majority**: the best plan has 3 of 5 accepts and no tie. Adopt it and record
      the dissent.
-   - **Runoff**: the best plan has only 3 of 7 accepts, or the top two tie. The top two
+   - **Runoff**: the best plan has only 2 of 5 accepts, or the top two tie. The top two
      plans go head to head, and every advisor chooses A or B with a one-line speech.
-     A plan with 4 of 7 runoff votes is adopted.
-   - **Escalate**: under 3 accepts (deadlock), or a runoff without a majority. The reign
+     A plan with 3 of 5 runoff votes is adopted.
+   - **Escalate**: under 2 accepts (deadlock), or a runoff without a majority. The reign
      pauses and the human sees each advisor's position and stated reasoning, then picks
      one of the top plans or the pre-committed safe plan.
 
@@ -168,7 +168,7 @@ seven-agent council; configured councils use the thresholds above:
 
 - **Stop and adopt** when everyone accepts.
 - **Keep the disagreement** when a clear majority agrees.
-  Forcing unanimity among seven would water the plan down. We adopt it, but the dissent stays on
+  Forcing unanimity among five would water the plan down. We adopt it, but the dissent stays on
   record and is available as context next year.
 - **Vote it out** when the council splits close to the middle: a runoff between the top two plans
   forces a choice without a king.
@@ -227,7 +227,8 @@ regenerated. Paused deadlocks and technical failures do not receive completed-re
   debate without network calls.
 - `LLM_BUDGET_USD` (default $3.00) is a hard cap tracked from the cost Bayleaf reports per call.
   Past it, advisors record a technical failure after one retry; no deterministic fallback vote is generated.
-- A full 5-year LLM game costs a few cents (up to 49 short LLM calls per year).
+- At six discussion rounds, the default council uses up to 35 LLM calls per year, including
+  a five-vote runoff, before retries. Larger councils use proportionally more calls.
 
 ## Project layout
 
@@ -271,5 +272,5 @@ result and journal. Set `SUMER_OBSERVE=false` to disable the pipeline.
 
 The collector writes OTLP JSONL under `.cache`; complete records are imported incrementally
 into the immutable journal. **Year traces** and **Open trace** inspect imported spans under
-the hood. Exports additionally contain `traces.jsonl`. The seven local OASF records describe
+the hood. Exports additionally contain `traces.jsonl`. The five local OASF records describe
 the existing advisor roles and sequential coordination; they are not directory publications.

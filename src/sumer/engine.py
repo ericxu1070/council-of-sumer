@@ -125,7 +125,7 @@ def commit(store: Store, run_id: str, state: State, result: YearResult,
                 if set(latest) != set(advisor_ids) or result.certificate != {
                     "candidate_id": result.adopted_id, "ballots": [latest[a] for a in advisor_ids]}:
                     raise ValueError("Certificate requires the unchanged latest ballot from "
-                                     "all council advisors (all seven for a default council).")
+                                     "all council advisors.")
                 row = next((r for r in table.rows() if r["id"] == result.adopted_id), None)
                 recorded = store.db.execute("SELECT data FROM proposals WHERE run_id=? AND id=?", (run_id, result.adopted_id)).fetchone()
                 if row is None or recorded is None or json.loads(recorded["data"])["plan"] != result.plan.as_dict() or row["plan"] != result.plan.as_dict():

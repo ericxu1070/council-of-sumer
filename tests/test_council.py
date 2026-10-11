@@ -65,8 +65,7 @@ def test_same_seed_same_dice():
 
 
 def test_council_and_reign_size():
-    assert len(ADVISOR_IDS) == 7
-    assert {"builder", "healer", "diplomat"} <= set(ADVISOR_IDS)
+    assert ADVISOR_IDS == ["provider", "farmer", "merchant", "profiteer", "imposter"]
     assert YEARS == 5
 
 
@@ -85,8 +84,8 @@ def test_plain_descriptions():
 
 
 def test_mentions_finds_names():
-    said = "Builder, your canal plan starves the east. Physician, Envoy: hold firm."
-    assert mentions(said, exclude="farmer") == ["builder", "healer", "diplomat"]
+    said = "Provider, keep the granaries full. Profiteer, Imposter: hear me."
+    assert mentions(said, exclude="farmer") == ["provider", "profiteer", "imposter"]
     assert mentions("Generally we agree", exclude="farmer") == []
 
 
@@ -100,7 +99,7 @@ def test_mentions_finds_names():
 def test_ballot_must_match_its_speaker_and_request(changed):
     state, _ = new_game(1)
     brief = Brief(seed=1, year=1, round=0, max_rounds=6, state=state.public(),
-                  beliefs={}, speaker="priest")
+                  beliefs={}, speaker="provider")
     ballot = bind(_ballot(brief), brief)
     assert validate_reply(ballot, brief) is ballot
     with pytest.raises(ValueError, match="request"):
@@ -110,8 +109,8 @@ def test_ballot_must_match_its_speaker_and_request(changed):
 async def test_trace_is_private_and_present(llm_reply):
     state, _ = new_game(1)
     brief = Brief(seed=1, year=1, round=0, max_rounds=6, state=state.public(),
-                  beliefs=Beliefs().__dict__, speaker="priest")
-    b = await decide("priest", brief)
+                  beliefs=Beliefs().__dict__, speaker="provider")
+    b = await decide("provider", brief)
     assert b.trace["thought"] and "chosen" in b.trace
     assert b.trace["thought"] == llm_reply["thought"]
     assert len(b.speech.split()) <= 28
@@ -142,38 +141,36 @@ async def test_turns_are_sequential_and_see_earlier_speakers():
     assert speaking_order(1, 1)[0] != speaking_order(1, 0)[0]  # the seat rotates
 
 
-async def test_consensus_when_all_seven_back_one_plan():
+async def test_consensus_when_all_five_back_one_plan():
     yr, _ = await _year(scripted(lambda b: _ballot(b, A, accept=_ids_for(b, A))))
     assert yr.outcome == "consensus"
-    assert yr.rounds == 1 and yr.turns == 7
+    assert yr.rounds == 1 and yr.turns == 5
     assert yr.plan == Decision(*A)
 
 
 async def test_strong_majority_after_round_two_records_dissent():
     def script(b):
-        if b.speaker == "priest":
+        if b.speaker == "imposter":
             return _ballot(b, B)
-        if b.speaker == "merchant":
-            return _ballot(b, C)
         return _ballot(b, A, accept=_ids_for(b, A))
 
     yr, _ = await _year(scripted(script))
     assert yr.outcome == "majority"
     assert yr.rounds == 2  # adopted the moment round 2 completes
-    assert set(yr.dissent) == {"priest", "merchant"}
+    assert set(yr.dissent) == {"imposter"}
 
 
 def _three_way(b):
-    camp = {"farmer": A, "priest": A, "general": A, "merchant": B, "builder": B,
-            "healer": C, "diplomat": C}[b.speaker]
+    camp = {"provider": A, "farmer": A, "merchant": B, "profiteer": B,
+            "imposter": C}[b.speaker]
     return _ballot(b, camp, accept=_ids_for(b, camp))
 
 
-async def test_runoff_when_best_plan_has_three_of_seven():
+async def test_runoff_when_best_plan_has_two_of_five():
     def script(b):
         if b.phase == "runoff":
             a, bb = b.runoff
-            pick = a.id if b.speaker in ("farmer", "priest", "general", "merchant") else bb.id
+            pick = a.id if b.speaker in ("provider", "farmer", "merchant") else bb.id
             return _ballot(b, A, vote=pick)
         return _three_way(b)
 
@@ -182,17 +179,17 @@ async def test_runoff_when_best_plan_has_three_of_seven():
     kinds = [k for k, _ in events]
     assert "runoff" in kinds and "runoff_result" in kinds
     assert yr.outcome == "runoff"
-    assert yr.runoff["trigger"] == "three"
+    assert yr.runoff["trigger"] == "floor"
     assert yr.plan == Decision(*A)
-    assert set(yr.dissent) == {"builder", "healer", "diplomat"}
+    assert set(yr.dissent) == {"profiteer", "imposter"}
     runoff_turns = [d for k, d in events if k == "turn" and d["phase"] == "runoff"]
-    assert len(runoff_turns) == 7 and all(t["runoff_vote"] for t in runoff_turns)
+    assert len(runoff_turns) == 5 and all(t["runoff_vote"] for t in runoff_turns)
 
 
 async def test_deadlock_without_a_human_remains_paused():
     def script(b):
         i = ADVISOR_IDS.index(b.speaker)
-        return _ballot(b, (0, 2000, 1000 - 10 * i))  # seven plans, nobody accepts another
+        return _ballot(b, (0, 2000, 1000 - 10 * i))  # five plans, nobody accepts another
 
     with pytest.raises(Deadlock, match="Deadlock"):
         await _year(scripted(script))
@@ -227,7 +224,7 @@ async def test_council_records_a_complete_game():
     assert set(council.satisfaction) == set(ADVISOR_IDS)
     assert len(council.years) == YEARS
     game = next(d for k, d in events if k == "game")
-    assert game["years"] == YEARS and len(game["advisors"]) == 7
+    assert game["years"] == YEARS and len(game["advisors"]) == 5
     assert {"id", "title", "short", "mandate", "color", "emoji"} <= set(
         game["advisors"][0]
     )
@@ -245,7 +242,7 @@ async def test_narrator_is_plain_prose():
     assert text.startswith("Year 1. ")
     assert "\u2014" not in text
     assert text.count(".") <= 3  # "Year 1." plus at most two sentences
-    assert "Farmer" in text and str(after.population) in text
+    assert "Provider" in text and str(after.population) in text
 
 
 def test_clean_removes_dashes():

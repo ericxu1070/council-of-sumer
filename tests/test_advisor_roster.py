@@ -61,12 +61,12 @@ def test_custom_agent_requires_only_name_and_mandate_with_generic_style():
 
 def test_public_roster_roundtrips_and_presets_remain_unchanged():
     original = [a.public() for a in ADVISORS.values()]
-    roster = resolve_council([{"id": "builder"}, CUSTOM])
+    roster = resolve_council([{"id": "farmer"}, CUSTOM])
     public = [a.public() for a in roster.values()]
     assert [a.public() for a in resolve_council(public).values()] == public
-    assert list(roster) == ["builder", "custom-river"]
+    assert list(roster) == ["farmer", "custom-river"]
     assert [a.public() for a in ADVISORS.values()] == original
-    assert len(resolve_council()) == 7
+    assert len(resolve_council()) == 5
     assert len(resolve_council([
         {**CUSTOM, "id": f"custom-{index}"} for index in range(21)
     ])) == 21
@@ -86,10 +86,10 @@ def test_diagnostic_scorer_supports_custom_ids_without_a_preset_profile():
 
 
 def test_custom_name_mentions_do_not_import_unseated_aliases():
-    roster = resolve_council([CUSTOM, {"id": "builder"}])
+    roster = resolve_council([CUSTOM, {"id": "farmer"}])
     assert short("custom-river", roster) == "River Keeper"
-    assert mentions("River Keeper, Builder, Farmer, hear me.", advisors=roster) == [
-        "custom-river", "builder"
+    assert mentions("River Keeper, Farmer, Provider, hear me.", advisors=roster) == [
+        "custom-river", "farmer"
     ]
 
 
@@ -120,7 +120,7 @@ async def test_single_custom_agent_decides_only_from_the_model(llm_reply):
 
 @pytest.mark.parametrize("feed", [0, 2000])
 async def test_custom_llm_prompt_and_votes_do_not_use_deterministic_preferences(monkeypatch, feed):
-    roster = resolve_council([CUSTOM, {"id": "builder"}, {"id": "merchant"}])
+    roster = resolve_council([CUSTOM, {"id": "farmer"}, {"id": "merchant"}])
     brief = brief_for(roster)
     prompts = []
 
@@ -128,7 +128,7 @@ async def test_custom_llm_prompt_and_votes_do_not_use_deterministic_preferences(
         prompts.extend(messages)
         return llm.Reply(json.dumps({
             "proposal": {"land_delta": 0, "feed": feed, "plant": 1000},
-            "accept": [], "speech": "Builder, keep the river open for our boats.",
+            "accept": [], "speech": "Farmer, keep the river open for our boats.",
             "thought": "The river and the boat builders guide my decision.",
         }), "test", False, 0.0, 0.0)
 
@@ -143,7 +143,7 @@ async def test_custom_llm_prompt_and_votes_do_not_use_deterministic_preferences(
         assert removed not in json.dumps(prompts)
     assert validate_reply(ballot, brief) is ballot
     assert not ballot.error and ballot.proposal.feed == feed
-    assert ballot.addressed == ["builder"]
+    assert ballot.addressed == ["farmer"]
 
 
 def test_council_seat_is_strict():

@@ -39,10 +39,10 @@ const S = {
 };
 
 const FALLBACK_COLORS = ["#5f8f3a", "#7a4fa3", "#a33a32", "#b5862a", "#b2622f", "#2f8a7c", "#2f5ea8", "#6b5a45"];
-const FALLBACK_EMOJI = { farmer: "🌾", priest: "🔮", general: "🛡️", merchant: "💰", builder: "🧱", healer: "🌿", diplomat: "🕊️" };
+const FALLBACK_EMOJI = { provider: "🍞", farmer: "🌾", merchant: "⚖️", profiteer: "💰", imposter: "🎭" };
 // The draft belongs to the next council. Replaying a run changes S.advisors only.
 const setup = { templates: [], seats: [], serial: 0, starting: false, ready: false, max: 21, liveRunId: "" };
-const PERSONA_MANDATES = { farmer: "Grow the population and feed the people.", priest: "Keep grain reserves against famine.", general: "Expand land and protect the city.", merchant: "Grow the city's wealth.", builder: "Plant the fields and build for growth.", healer: "Keep the city healthy and well fed.", diplomat: "Keep peace with the city's neighbors." };
+const PERSONA_MANDATES = { provider: "Feed everyone.", farmer: "Plant as many acres as possible.", merchant: "Make profitable land trades.", profiteer: "Deliberately sacrifice lives if it increases wealth.", imposter: "Depopulate and ruin the city." };
 const safeColor = (color, i) => /^#[\da-f]{6}$/i.test(String(color || "")) ? color : FALLBACK_COLORS[i % FALLBACK_COLORS.length];
 
 function normAdvisor(a, i) {
@@ -62,8 +62,8 @@ function setAdvisors(list) {
   buildSeats();
   $("#councilCount").textContent = `${N()} AI advisor${N() === 1 ? "" : "s"}. No king.`;
 }
-const adv = id => S.advisors.find(a => a.id === id) || normAdvisor({ id: id || "someone" }, 7);
-const N = () => S.advisors.length || 7;
+const adv = id => S.advisors.find(a => a.id === id) || normAdvisor({ id: id || "someone" }, 5);
+const N = () => S.advisors.length || 5;
 const avatar = (id, cls = "") => { const a = adv(id); return `<span class="av ${cls}" style="--c:${a.color}" title="${esc(a.title)}">${esc(a.emoji)}</span>`; };
 const nameList = ids => { const n = ids.map(i => adv(i).short); return n.length <= 1 ? n.join("") : `${n.slice(0, -1).join(", ")} and ${n[n.length - 1]}`; };
 
@@ -813,7 +813,7 @@ async function showTraces(traceId = "") {
 
 /* ---------------- controls ---------------- */
 function newVoter(i) {
-  return { preset: setup.templates[i % setup.templates.length]?.id || "farmer", custom: { id: `custom-${++setup.serial}`, short: "", mandate: "" } };
+  return { preset: setup.templates[i % setup.templates.length]?.id || "provider", custom: { id: `custom-${++setup.serial}`, short: "", mandate: "" } };
 }
 function votingThresholds(n) {
   const majority = Math.floor(n / 2) + 1;
