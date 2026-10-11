@@ -916,7 +916,7 @@ function render(kind, d, instant) {
     case "turn": renderTurn(d, instant); break;
     case "agent_skipped":
       typing("");
-      spotlight(null);
+      hideSpot();
       delete S.stance[d.advisor];
       renderStances();
       append(`<span class="emoji">⏭</span><div><b>${esc(adv(d.advisor).short)} skipped this turn</b>Two attempts failed. The remaining advisors continue.</div>`, "note", { instant });
