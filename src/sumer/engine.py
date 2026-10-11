@@ -46,7 +46,7 @@ def commit(store: Store, run_id: str, state: State, result: YearResult,
                 latest = {}
                 last_discussion = None
                 moves = {}
-                runoff_votes, runoff_vetoes = {}, {}
+                runoff_votes = {}
                 pair = None
                 for event in events:
                     if event["kind"] != "receipt":
@@ -89,12 +89,12 @@ def commit(store: Store, run_id: str, state: State, result: YearResult,
                             expected_pair = [r["id"] for r in ranked[:2]]
                             lead, second = ranked[:2]
                             tied = len(lead["accept"]) == len(second["accept"])
-                            if (len(lead["accept"]) != RUNOFF_FLOOR and not tied and not lead["veto"]) or (lead["veto"] and second["veto"]):
-                                raise ValueError("Runoff does not meet its tie, three-vote, or veto trigger.")
+                            if len(lead["accept"]) != RUNOFF_FLOOR and not tied:
+                                raise ValueError("Runoff does not meet its tie or three-vote trigger.")
                             news_in_round = any(e["kind"] == "news" and e["data"].get("round") == last_discussion.round for e in events)
                             if not (last_discussion.round == manifest["max_rounds"] - 1 or last_discussion.round >= 1 and not moves[last_discussion.round] and not news_in_round):
                                 raise ValueError("Runoff cannot preempt the negotiation limit or stalemate.")
-                            if brief.table != brief.runoff or any(t.model_dump(exclude={"accept", "veto", "backers"}) != table.plans[t.id].model_dump(exclude={"accept", "veto", "backers"}) for t in brief.runoff if t.id in table.plans):
+                            if brief.table != brief.runoff or any(t.model_dump(exclude={"accept", "backers"}) != table.plans[t.id].model_dump(exclude={"accept", "backers"}) for t in brief.runoff if t.id in table.plans):
                                 raise ValueError("Runoff changes a frozen finalist budget.")
                             if [t.id for t in brief.runoff] != expected_pair or brief.round != last_discussion.round + 1:
                                 raise ValueError("Runoff changes the frozen finalists.")
@@ -102,7 +102,6 @@ def commit(store: Store, run_id: str, state: State, result: YearResult,
                                 raise ValueError("Runoff is not a complete sequential ballot.")
                             pair = expected_pair
                             runoff_votes[ballot.advisor] = ballot.runoff_vote
-                            runoff_vetoes[ballot.advisor] = ballot.veto
                 if set(latest) != set(ADVISOR_IDS) or result.certificate != {
                     "candidate_id": result.adopted_id, "ballots": [latest[a] for a in ADVISOR_IDS]}:
                     raise ValueError("Certificate requires the unchanged latest ballot from all seven advisors.")
@@ -115,10 +114,10 @@ def commit(store: Store, run_id: str, state: State, result: YearResult,
                 yes = row["accept"]
                 if result.outcome == "runoff":
                     yes = [a for a, vote in runoff_votes.items() if vote == result.adopted_id]
-                    if set(runoff_votes) != set(ADVISOR_IDS) or result.adopted_id not in (pair or []) or len(yes) < MAJORITY or any(result.adopted_id in vs for vs in runoff_vetoes.values()):
-                        raise ValueError("Runoff winner lacks seven verified ballots, a majority, or veto clearance.")
+                    if set(runoff_votes) != set(ADVISOR_IDS) or result.adopted_id not in (pair or []) or len(yes) < MAJORITY:
+                        raise ValueError("Runoff winner lacks seven verified ballots or a majority.")
                 elif result.outcome == "consensus":
-                    if len(yes) != N_ADVISORS or row["veto"] or runoff_votes:
+                    if len(yes) != N_ADVISORS or runoff_votes:
                         raise ValueError("Consensus does not have seven verified supporters.")
                 elif result.outcome == "majority":
                     ranked = table.ranked()
@@ -129,14 +128,14 @@ def commit(store: Store, run_id: str, state: State, result: YearResult,
                     final = last_discussion.turn == N_ADVISORS - 1 and (
                         last_discussion.round == manifest["max_rounds"] - 1 or
                         last_discussion.round >= 1 and not moves[last_discussion.round] and not news_in_round)
-                    if row["veto"] or runoff_votes or ranked[0]["id"] != row["id"] or not (
+                    if runoff_votes or ranked[0]["id"] != row["id"] or not (
                         strong or final and unique and len(yes) >= MAJORITY):
                         raise ValueError("Majority does not meet the public stop rule.")
                 else:
                     raise ValueError("Unknown autonomous council outcome.")
                 if result.rounds != last_discussion.round + 1:
                     raise ValueError("Result round count does not match the recorded history.")
-                if result.outcome == "runoff" and (result.runoff["votes"] != runoff_votes or result.runoff["vetoes"] != runoff_vetoes or result.runoff["winner"] != result.adopted_id):
+                if result.outcome == "runoff" and (result.runoff["votes"] != runoff_votes or result.runoff["winner"] != result.adopted_id):
                     raise ValueError("Recorded runoff result differs from the recorded votes.")
                 if result.dissent != [a for a in ADVISOR_IDS if a not in yes]:
                     raise ValueError("Certificate dissent does not match the recorded votes.")

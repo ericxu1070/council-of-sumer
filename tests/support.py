@@ -1,9 +1,4 @@
 from sumer.protocol import bind
-from sumer.transport import inproc
-
-
-async def voters(brief):
-    return await inproc.ask(brief)
 
 
 async def unanimous(brief):

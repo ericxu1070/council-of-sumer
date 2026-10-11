@@ -95,7 +95,6 @@ body:not(.hood) .hood-only { display: none !important; }
   font: 800 .72rem/1 var(--sans); color: #fff; box-shadow: 0 0 0 2px var(--bg); font-family: var(--sans); }
 .badge.agree { background: var(--ok); }
 .badge.disagree { background: #8a7a68; }
-.badge.redline { background: var(--bad); }
 .badge.vote-a { background: var(--lapis); }
 .badge.vote-b { background: var(--clay); }
 .seats.active .seat.speaking .badge { box-shadow: 0 0 0 2px var(--panel); }
@@ -172,8 +171,6 @@ body:not(.hood) .hood-only { display: none !important; }
 .plan-chip .av.mini { flex: none; }
 .vote-chip { display: inline-flex; align-items: center; gap: 6px; font-size: .9rem; color: var(--ink-2); }
 .vote-chip .mini { width: 24px; height: 24px; border-radius: 50%; display: inline-grid; place-items: center; font-family: var(--emoji); font-size: 13px; background: var(--ok-soft); box-shadow: inset 0 0 0 2px var(--ok); }
-.vote-chip.veto .mini { background: var(--bad-soft); box-shadow: inset 0 0 0 2px var(--bad); }
-.vote-chip.veto { color: var(--bad); font-weight: 600; }
 .vote-chip.runoff-pick .mini { box-shadow: inset 0 0 0 2px var(--k); background: #fff; }
 .think-btn { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 2px 9px; font-size: .85rem; color: var(--muted); }
 .think-btn[aria-expanded="true"] { background: var(--gold-soft); border-color: var(--gold-2); color: var(--ink-2); }

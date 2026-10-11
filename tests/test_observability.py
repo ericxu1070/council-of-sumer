@@ -32,7 +32,7 @@ async def test_trace_collection_failure_preserves_game_result(monkeypatch):
     assert journal.run(g.run_id)["result"]["status"] == g.status
 
 
-async def test_trace_context_is_part_of_request_binding():
+async def test_trace_context_is_part_of_request_binding(llm_reply):
     import pytest
 
     from sumer.agent import decide

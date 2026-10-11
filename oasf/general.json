@@ -1,6 +1,6 @@
 {
   "name": "Council of Sumer: General of the Walls",
-  "description": "Hold and expand land. More acres, more soldiers. Red line: Will never accept selling more than 10% of our land in one year. Proposes or backs tabled plans, records standing accept/veto votes, and participates in sequential discussion and runoff turns over A2A/SLIM in the seven-advisor council.",
+  "description": "Hold and expand land. More acres, more soldiers. Proposes or backs tabled plans, records standing accept votes, and participates in sequential discussion and runoff turns over A2A/SLIM in the seven-advisor council.",
   "version": "1.0.0",
   "schema_version": "1.0.0",
   "authors": [

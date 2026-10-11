@@ -31,7 +31,7 @@ const S = {
   roundBase: {},      // year -> 1 if rounds are 0-based, else 0
   plans: {},          // plan id -> author id
   runoff: null,       // {a, b, votes: {advisor: planId}, decided}
-  stance: {},         // advisor -> "agree" | "disagree" | "redline" | "vote-a" | "vote-b"
+  stance: {},         // advisor -> "agree" | "disagree" | "vote-a" | "vote-b"
   running: false,
   waitingHuman: false,
   expanded: null,     // stat key with an open chart
@@ -113,7 +113,7 @@ function toast(msg, info = false) {
 function buildSeats() {
   const el = $("#seats");
   el.style.setProperty("--n", S.advisors.length);
-  el.innerHTML = S.advisors.map(a => `<div class="seat" id="seat-${a.id}" style="--c:${a.color}" title="${esc(a.title)}${a.red_line ? ` - red line: ${esc(a.red_line)}` : ""}">
+  el.innerHTML = S.advisors.map(a => `<div class="seat" id="seat-${a.id}" style="--c:${a.color}" title="${esc(a.title)}">
     <span class="to-tag">spoken to</span>
     <span class="av">${a.emoji}<span class="badge hidden"></span></span>
     <span class="seat-name">${esc(a.short)}</span>
@@ -133,7 +133,6 @@ function spotlight(speaker, addressed = []) {
 const STANCE = {
   agree: ["agree", "✓", "Agrees with the leading plan"],
   disagree: ["disagree", "✕", "Does not back the leading plan"],
-  redline: ["redline", "!", "Red line: refuses the leading plan"],
   "vote-a": ["vote-a", "A", "Votes for plan A"],
   "vote-b": ["vote-b", "B", "Votes for plan B"],
 };
@@ -160,10 +159,10 @@ function setPhase(title, sub = "") {
   $("#phase").textContent = title;
   $("#phaseSub").innerHTML = sub;
 }
-function voteDots(accept = [], veto = []) {
+function voteDots(accept = []) {
   return `<span class="dots">${S.advisors.map(a => {
-    const cls = veto.includes(a.id) ? "no" : accept.includes(a.id) ? "yes" : "";
-    const t = veto.includes(a.id) ? "red line" : accept.includes(a.id) ? "agrees" : "not yet";
+    const cls = accept.includes(a.id) ? "yes" : "";
+    const t = accept.includes(a.id) ? "agrees" : "not yet";
     return `<span class="dot ${cls}" title="${esc(a.short)}: ${t}">${cls ? a.emoji : ""}</span>`;
   }).join("")}</span>`;
 }
@@ -234,9 +233,7 @@ function renderTurn(d, instant) {
     const plain = d.plain || planText(d.proposal);
     if (plain) foot.push(`<span class="plan-chip"><span class="emoji">📜</span><span>${esc(plain)}</span></span>`);
     const acc = [...new Set((d.accept || []).map(id => planAuthor(id)).filter(Boolean))];
-    const vet = [...new Set((d.veto || []).map(id => planAuthor(id)).filter(Boolean))];
     if (acc.length) foot.push(`<span class="vote-chip" title="Plans ${esc(a.short)} would accept">Backs ${acc.map(x => `<span class="mini" title="${esc(adv(x).short)}'s plan">${adv(x).emoji}</span>`).join("")}</span>`);
-    if (vet.length) foot.push(`<span class="vote-chip veto" title="Plans that cross ${esc(a.short)}'s red line">Red line ${vet.map(x => `<span class="mini" title="${esc(adv(x).short)}'s plan">${adv(x).emoji}</span>`).join("")}</span>`);
   }
   const meta = d.phase === "runoff" ? "Runoff" : d.round != null ? `Round ${dispRound(d.year, d.round)}` : "";
   const src = d.source ? `<span class="tag hood-only">${esc(d.source === "llm" ? "LLM" : d.source)}</span>` : "";
@@ -261,16 +258,15 @@ function renderTurn(d, instant) {
 function renderPoll(d, instant) {
   const rows = (d.rows || []).slice();
   rows.forEach(r => { if (r.id && r.author) S.plans[r.id] = r.author; });
-  rows.sort((x, y) => (y.accept?.length || 0) - (x.accept?.length || 0) || (x.veto?.length || 0) - (y.veto?.length || 0));
+  rows.sort((x, y) => (y.accept?.length || 0) - (x.accept?.length || 0));
   const lead = rows[0];
   // seat stances on the leading plan
   if (lead) {
     S.stance = {};
-    for (const a of S.advisors) S.stance[a.id] = lead.veto?.includes(a.id) ? "redline" : lead.accept?.includes(a.id) ? "agree" : "disagree";
+    for (const a of S.advisors) S.stance[a.id] = lead.accept?.includes(a.id) ? "agree" : "disagree";
     renderStances();
     const n = lead.accept?.length || 0;
-    const vetoNote = lead.veto?.length ? ` <span class="vote-chip veto">red line for ${esc(nameList(lead.veto))}</span>` : "";
-    S.leadHtml = `${voteDots(lead.accept, lead.veto)}<span><b>${n} of ${N()}</b> agree with ${esc(planName(lead.id, lead.author))}</span>${vetoNote}`;
+    S.leadHtml = `${voteDots(lead.accept)}<span><b>${n} of ${N()}</b> agree with ${esc(planName(lead.id, lead.author))}</span>`;
     setPhase($("#phase").textContent, S.leadHtml);
   }
   const top = rows.slice(0, 3);
@@ -279,7 +275,7 @@ function renderPoll(d, instant) {
     const au = planAuthor(r.id, r.author);
     return `<div class="poll-row${i === 0 ? " lead" : ""}">
       <div class="poll-plan">${avatar(au, "mini")}<span class="who">${esc(planName(r.id, au))}</span><span class="what">${esc(r.plain || "")}</span></div>
-      ${voteDots(r.accept, r.veto)}
+      ${voteDots(r.accept)}
       <span class="poll-count">${r.accept?.length || 0} of ${N()} agree</span></div>`;
   }).join("");
   const label = d.phase === "runoff" ? "Runoff count" : `Where the votes stand after round ${dispRound(d.year, d.round)}`;
@@ -408,14 +404,13 @@ function hideRunoff() { $("#runoff").classList.add("hidden"); S.runoff = null; }
 function showEscalation(d) {
   S.waitingHuman = true;
   const opts = (d.options || []).slice();
-  if (!opts.some(o => o.id === "safe")) opts.push({ id: "safe", plain: "Play it safe: feed everyone and plant as much as we can", accept: [], veto: [], note: "Agreed in advance as the fallback" });
-  $("#escReason").textContent = d.reason || "No plan has enough support, and some plans cross an advisor's red line.";
+  if (!opts.some(o => o.id === "safe")) opts.push({ id: "safe", plain: "Play it safe: feed everyone and plant as much as we can", accept: [], note: "Agreed in advance as the fallback" });
+  $("#escReason").textContent = d.reason || "No plan has enough support.";
   $("#escOptions").innerHTML = opts.map(o => {
     const safe = o.id === "safe";
     const au = safe ? null : planAuthor(o.id, o.author);
     const why = [];
-    if (!safe) why.push(`${voteDots(o.accept, o.veto)} <span>${(o.accept || []).length} of ${N()} agree</span>`);
-    if (o.veto?.length) why.push(`<span class="vote-chip veto">Red line for ${esc(nameList(o.veto))}</span>`);
+    if (!safe) why.push(`${voteDots(o.accept)} <span>${(o.accept || []).length} of ${N()} agree</span>`);
     if (o.note) why.push(`<span>${esc(o.note)}</span>`);
     return `<button class="esc-opt${safe ? " safe" : ""}" type="button" data-choice="${esc(o.id)}">
       ${safe ? `<span class="av" style="--c:var(--ok)">🛟</span>` : avatar(au)}
@@ -424,8 +419,7 @@ function showEscalation(d) {
   }).join("");
   $("#escPositions").innerHTML = (d.positions || []).map(p => {
     const id = p.advisor || p.id;
-    const vetoes = (p.veto || []).map(v => planName(v));
-    return `<div class="pos">${avatar(id)}<div><b>${esc(adv(id).short)}</b>${vetoes.length ? ` <span class="vote-chip veto">red line: ${esc(vetoes.join(", "))}</span>` : ""}<br><i>${esc(p.speech || p.thought || p.position || "")}</i>${p.thought && p.speech ? `<div class="hood-only thought">💭 ${esc(p.thought)}</div>` : ""}</div></div>`;
+    return `<div class="pos">${avatar(id)}<div><b>${esc(adv(id).short)}</b><br><i>${esc(p.speech || p.thought || p.position || "")}</i>${p.thought && p.speech ? `<div class="hood-only thought">💭 ${esc(p.thought)}</div>` : ""}</div></div>`;
   }).join("") || "<i>No positions reported.</i>";
   $(".esc-positions").classList.toggle("hidden", !(d.positions || []).length);
   $$("#escOptions .esc-opt").forEach(btn => btn.onclick = () => choose(btn));
@@ -908,7 +902,7 @@ function wire() {
   setAdvisors(m.advisors);
   if (!S.advisors.length) setAdvisors(Object.keys(FALLBACK_EMOJI).map(id => ({ id })));
   $("#chipTransport").textContent = m.transport === "slim" ? "AGNTCY SLIM" : m.transport ? String(m.transport) : "-";
-  $("#chipLlm").textContent = m.llm === "bayleaf" || m.llm === "llm" ? String(m.model || "LLM").split("/").pop() : m.llm ? "offline policy" : "-";
+  $("#chipLlm").textContent = m.llm === "bayleaf" || m.llm === "llm" ? String(m.model || "LLM").split("/").pop() : m.llm ? "LLM unavailable" : "-";
   if (m.max_rounds) {
     const sel = $("#rounds");
     if (![...sel.options].some(o => +o.value === +m.max_rounds)) sel.insertAdjacentHTML("beforeend", `<option>${m.max_rounds}</option>`);
