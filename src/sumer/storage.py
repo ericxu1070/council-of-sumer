@@ -1,4 +1,4 @@
-"""Append-only SQLite run records, transactional commitments, replay, and exports."""
+"""Append-only SQLite evidence and transactional year commitments."""
 from __future__ import annotations
 
 import csv
@@ -8,7 +8,7 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sumer.protocol import Reply, digest, state_hash, verify
+from sumer.protocol import Ballot, digest, state_hash, verify
 
 
 def stamp() -> str:
@@ -41,7 +41,7 @@ class Store:
                 id TEXT NOT NULL, data TEXT NOT NULL, UNIQUE(run_id,id));
             CREATE TABLE IF NOT EXISTS ballots (
                 id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id),
-                candidate_hash TEXT NOT NULL REFERENCES proposals(hash), data TEXT NOT NULL);
+                candidate_hash TEXT, data TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS years (
                 run_id TEXT NOT NULL REFERENCES runs(id), year INTEGER NOT NULL,
                 data TEXT NOT NULL, PRIMARY KEY(run_id,year));
@@ -49,8 +49,8 @@ class Store:
                 id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), data TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS model_usage (
                 message_id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), data TEXT NOT NULL);
-            CREATE UNIQUE INDEX IF NOT EXISTS ballots_peer ON ballots
-                (run_id,candidate_hash,json_extract(data,'$.advisor'));
+            CREATE UNIQUE INDEX IF NOT EXISTS ballots_request ON ballots
+                (run_id,json_extract(data,'$.reply_to'));
         """)
         for table in ("events", "proposals", "ballots", "years", "human_resolutions", "model_usage"):
             for action in ("UPDATE", "DELETE"):
@@ -76,9 +76,6 @@ class Store:
         data["human_assisted"] = bool(data["human_assisted"])
         return data
 
-    def runs(self) -> list[dict]:
-        return [self.run(r["id"]) for r in self.db.execute(
-            "SELECT id FROM runs ORDER BY created DESC LIMIT 100").fetchall()]
 
     def status(self, run_id: str, status: str, result: dict | None = None):
         with self.db:
@@ -95,24 +92,27 @@ class Store:
         with self.db:
             if kind == "candidates":
                 for candidate in data["candidates"]:
-                    self.db.execute("INSERT INTO proposals VALUES(?,?,?,?)",
-                        (digest(candidate), run_id, candidate["id"], encoded(candidate)))
+                    stored = self.db.execute("SELECT data FROM proposals WHERE run_id=? AND id=?",
+                                             (run_id, candidate["id"])).fetchone()
+                    if stored is not None and stored["data"] != encoded(candidate):
+                        raise ValueError("Conflicting immutable proposal record.")
+                    if stored is None:
+                        self.db.execute("INSERT INTO proposals VALUES(?,?,?,?)",
+                            (digest({"run_id": run_id, "candidate": candidate}), run_id, candidate["id"], encoded(candidate)))
             replies = data.get("responses", data.get("ballots", []))
             if kind in ("receipt", "ballots"):
                 for reply in replies:
-                    if reply["phase"] != "vote":
-                        continue
                     stored = self.db.execute("SELECT data FROM ballots WHERE id=?",
                                              (reply["message_id"],)).fetchone()
                     if stored is not None and stored["data"] != encoded(reply):
                         raise ValueError("Conflicting immutable ballot record.")
                     if stored is None:
                         self.db.execute("INSERT INTO ballots VALUES(?,?,?,?)",
-                                        (reply["message_id"], run_id, reply["candidate_hash"], encoded(reply)))
+                                        (reply["message_id"], run_id, reply.get("candidate_hash"), encoded(reply)))
             keys = self.run(run_id)["manifest"].get("peer_keys", {})
             for reply in replies:
                 usage = reply.get("trace", {}).get("llm")
-                if usage and reply.get("run_id") == run_id and verify(Reply.model_validate(reply), keys):
+                if usage and reply.get("run_id") == run_id and verify(Ballot.model_validate(reply), keys):
                     self.db.execute("INSERT OR IGNORE INTO model_usage VALUES(?,?,?)",
                         (reply["message_id"], run_id, encoded(usage)))
             return self._event(run_id, kind, data)
@@ -149,6 +149,10 @@ class Store:
             return self._event(run_id, "year", data)
 
 
+    def runs(self) -> list[dict]:
+        return [self.run(r["id"]) for r in self.db.execute(
+            "SELECT id FROM runs ORDER BY created DESC LIMIT 100").fetchall()]
+
 
     def exports(self, run_id: str) -> dict[str, str]:
         run = self.run(run_id)
@@ -180,7 +184,8 @@ class Store:
                   "## Decision log"]
         for e in events:
             if e["kind"] in ("responses", "ballots", "year", "human_resolution",
-                             "validation_error", "technical_failure", "escalate"):
+                             "validation_error", "technical_failure", "escalate", "turn", "tally",
+                             "runoff", "runoff_result", "news"):
                 report.extend([f"### Event {e['sequence']}: {e['kind']}",
                                json.dumps(e["data"], indent=2)])
         jsonl = lambda values: "".join(encoded(v) + "\n" for v in values)

@@ -17,7 +17,7 @@ from sumer.protocol import provision_identities
 
 
 def _up(args) -> None:
-    """Start the SLIM node, the four advisor agents, and the web chamber."""
+    """Start the SLIM node, one process per advisor (seven), and the web chamber."""
     py = [sys.executable, "-m", "sumer.cli"]
     env = {**os.environ, "SLIM_SHARED_SECRET": settings.slim_secret}
     provision_identities()
@@ -50,7 +50,7 @@ def main() -> None:
     logging.basicConfig(level=os.getenv("LOG_LEVEL", "WARNING"))
     p = argparse.ArgumentParser(prog="sumer")
     sub = p.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("up", help="run node + 4 advisors + web UI (the demo)")
+    sub.add_parser("up", help="run node + 7 advisor agents + web UI (the demo)")
     sub.add_parser("node", help="run the SLIM node")
     a = sub.add_parser("agent", help="run one advisor agent")
     a.add_argument("advisor", choices=ADVISOR_IDS)
