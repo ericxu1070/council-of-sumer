@@ -82,6 +82,11 @@
         break;
       }
       case "year": debating = false; speaker = ""; break;
+      // The crowd hushes while the human decides, and resumes on the next turn.
+      case "scout_request": case "escalate": case "runoff":
+        debating = false; speaker = "";
+        document.querySelectorAll(".cg-shout").forEach(b => b.remove());
+        break;
       default: break;
     }
     schedule();

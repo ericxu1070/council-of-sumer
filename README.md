@@ -15,7 +15,7 @@ one speaker at a time over **AGNTCY SLIM**, then vote. When they deadlock, you d
 **Result:** with the same model and the same 16 cities, the council of five kept 73% of reigns
 (one LLM alone: 56%) and starved 27% fewer people. See [Results](#results).
 
-![The council debating over SLIM](docs/debate.jpg)
+![The council debating over SLIM, with clamoring on](docs/debate.jpg)
 
 Every advisor plays to maximize the city's final score over the whole reign, and each adds
 its own preference on top:
@@ -68,7 +68,7 @@ uv run sumer bench --seeds 16                      # council vs baselines
    announces your omen (ominous for plague, rats, or a bad harvest, excited for good fortune),
    and a tally on the map follows the re-vote. **Press the seal** (or Enter) to let the vote stand.
 
-   ![Your move: send a scout or let the vote stand](docs/scout.jpg)
+   ![Omens: the winning plan, its support, and six omens to shake the vote](docs/scout.jpg)
 3. **Adoption rules**, checked once you let the vote stand:
    - **Consensus**: everyone backs one plan.
    - **Strong majority**: from round 2, a plan with 4 of 5 votes passes; dissent is recorded.
