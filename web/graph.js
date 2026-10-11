@@ -283,8 +283,16 @@
 
   function layout(instant) {
     if (!root || !W || !H) return;
-    cx = W / 2; cy = H / 2; hx = cx; hy = cy;
-    const n = order.length, minDim = Math.min(W, H);
+    // Fit the whole ring inside the map's meeting square, including portraits and
+    // labels. The map spans the council panel; the graph occupies its middle row.
+    const map = document.getElementById("cityMap"), container = root.parentElement;
+    const left = map ? Math.max(0, map.clientWidth * .255 - container.offsetLeft) : 0;
+    const right = map ? Math.min(W, map.clientWidth * .745 - container.offsetLeft) : W;
+    const top = map ? Math.max(0, map.clientHeight * .195 - container.offsetTop) : 0;
+    const bottom = map ? Math.min(H, map.clientHeight * .73 - container.offsetTop) : H;
+    const ringW = Math.max(80, right - left), ringH = Math.max(80, bottom - top);
+    cx = (left + right) / 2; cy = (top + bottom) / 2; hx = cx; hy = cy;
+    const n = order.length, minDim = Math.min(ringW, ringH);
     let s = Math.min(n <= 5 ? 172 : 172 - (n - 5) * 6, minDim * (n <= 5 ? .24 : .16)), hub, pts;
     if (n === 1) {
       // A lone advisor and the hub stack as a centered vertical pair.
@@ -292,7 +300,7 @@
       let d, span;
       for (let it = 0; it < 12; it++) {
         hub = hubFor(s, minDim); d = s / 2 + 37 + chipDrop(s) + GAP + hub * .66; span = s * .56 + 6 + d + hub * .8;
-        if (span <= H - 2 * PAD || s <= MIN_S) break;
+        if (span <= ringH - 2 * PAD || s <= MIN_S) break;
         s = Math.max(MIN_S, s * .92);
       }
       const ny = cy - span / 2 + s * .56 + 6;
@@ -301,8 +309,8 @@
       let rx, ry, gap = 0;
       for (let it = 0; it < 16; it++) {
         hub = hubFor(s, minDim);
-        ry = Math.max(20, H / 2 - PAD - s / 2 - 37);
-        rx = Math.max(20, Math.min(W / 2 - PAD - s / 2 - 40, ry * 1.5));
+        ry = Math.max(20, ringH / 2 - PAD - s / 2 - 37);
+        rx = Math.max(20, Math.min(ringW / 2 - PAD - s / 2 - 40, ry * 1.5));
         const e = ellipsePoints(Math.max(n, 1), rx, ry); pts = e.pts; gap = e.P / Math.max(n, 1);
         // Every node (not only the axis ones) must clear the hub's orbit by GAP.
         const vFit = ry >= ryNeed(s, hub) && pts.every(([x, y]) => Math.hypot(x, y) - s * .56 - 6 >= hub * .7 + GAP);
@@ -312,8 +320,6 @@
       }
       labelW = clamp(gap - 10, s, 190);
     }
-    // Keep the ring positions while shrinking councilors and their connection anchors.
-    s *= .75;
     size = s; hubSize = hub;
     root.classList.toggle("tight", labelW < 84); // too crowded for every name: label only the active nodes
     hubEl.style.transform = `translate(${hx}px,${hy}px)`;

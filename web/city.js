@@ -51,7 +51,6 @@
       <path d="M-30 50C300 190 380 -30 640 65S990 130 1240 0" fill="none" stroke="#243e42" stroke-width="100"/>
       <path d="M-30 50C300 190 380 -30 640 65S990 130 1240 0" fill="none" stroke="#5c8b90" stroke-width="68" opacity=".65"/>
       <path d="M305 156V865M895 156V865M20 658H1180" fill="none" stroke="#93896d" stroke-width="18" opacity=".6"/>
-      <path d="M288 170V865M913 170V865" stroke="#568084" stroke-width="6" opacity=".8"/>
       <rect x="328" y="175" width="545" height="515" rx="180" fill="#5a604a" opacity=".45"/>
       <rect x="355" y="197" width="490" height="470" rx="165" fill="none" stroke="#a49776" stroke-width="2" opacity=".2"/>
       <g fill="#d7ceb0" font-family="system-ui,sans-serif" font-size="13" letter-spacing="3" text-anchor="middle">
@@ -61,8 +60,6 @@
       <use href="#city-silo" x="378" y="696"/>
       <use href="#city-silo" x="774" y="696"/>
       <g id="city-acres"></g><g id="city-grain"></g><g id="city-population"></g>
-      <path d="M40 798v-40m-8 10 8-10 8 10" fill="none" stroke="#bab394" stroke-width="2"/>
-      <text x="40" y="817" text-anchor="middle" font-family="system-ui" font-size="12" fill="#bab394">N</text>
     </svg>`;
     cards.innerHTML = resources.map(r => `<div class="resource" style="--resource-color:${r.color}" title="1 ${r.noun} = ${r.step} ${r.unit}">
       <span class="resource-head"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round">${r.icon}</svg>${r.label}</span>
