@@ -3,19 +3,24 @@ import os
 os.environ["LLM_MODE"] = "mock"
 os.environ["TRANSPORT"] = "inproc"
 
+import pytest
+
 from sumer.advisors import ADVISOR_IDS, Beliefs, Scorer, mentions, plain, safe_plan
 from sumer.agent import clean, decide
 from sumer.chamber import play_council, play_simple
-from sumer.deliberation import deliberate_year, speaking_order
+from sumer.deliberation import Deadlock, TechnicalFailure, deliberate_year, speaking_order
 from sumer.game import YEARS, Decision, advance, new_game, rating
 from sumer.narrator import summarize
-from sumer.protocol import Ballot, Brief, Plan, sign, verify
+from sumer.protocol import Ballot, Brief, Plan, bind, validate_reply
 from sumer.transport import inproc
 
 A, B, C = (0, 2000, 1000), (0, 2000, 900), (0, 2000, 800)
 
 
 def _ballot(brief, plan=A, back=None, accept=(), veto=(), vote=None, speech="Farmer, I agree."):
+    if brief.phase == "runoff" and vote:
+        plan = next(t.plan for t in brief.runoff if t.id == vote)
+        plan = (plan.land_delta, plan.feed, plan.plant)
     return Ballot(
         advisor=brief.speaker, year=brief.year, round=brief.round, phase=brief.phase,
         proposal=Plan(land_delta=plan[0], feed=plan[1], plant=plan[2]), back=back,
@@ -24,13 +29,13 @@ def _ballot(brief, plan=A, back=None, accept=(), veto=(), vote=None, speech="Far
 
 
 def scripted(fn):
-    """An ask() whose advisors follow a script; ballots are signed like real ones."""
+    """An ask() whose advisors follow a script; ballots are bound to requests like real ones."""
     briefs = []
 
     async def ask(brief):
         briefs.append(brief)
         b = fn(brief)
-        return sign(b) if b else None
+        return bind(b, brief) if b else None
 
     ask.briefs = briefs
     return ask
@@ -99,11 +104,19 @@ def test_mentions_finds_names():
 
 # ---- the wire ----
 
-def test_ballot_signature_detects_tampering():
-    b = sign(Ballot(advisor="priest", year=1, round=0, proposal=Plan(land_delta=0, feed=1, plant=1)))
-    assert verify(b)
-    b.accept = ["farmer-y1-r0"]
-    assert not verify(b)
+@pytest.mark.parametrize("changed", [
+    {"advisor": "merchant"}, {"run_id": "another-run"}, {"state_hash": "stale-state"},
+    {"year": 2}, {"round": 1}, {"phase": "runoff"}, {"reply_to": "old-request"},
+    {"request_hash": "changed-request"},
+])
+def test_ballot_must_match_its_speaker_and_request(changed):
+    state, _ = new_game(1)
+    brief = Brief(seed=1, year=1, round=0, max_rounds=6, state=state.public(),
+                  beliefs={}, speaker="priest")
+    ballot = bind(_ballot(brief), brief)
+    assert validate_reply(ballot, brief) is ballot
+    with pytest.raises(ValueError, match="request"):
+        validate_reply(ballot.model_copy(update=changed), brief)
 
 
 async def test_trace_is_private_and_present():
@@ -212,18 +225,16 @@ async def test_runoff_winner_with_a_red_line_veto_escalates():
     assert any(k == "escalate" for k, _ in events)
 
 
-async def test_deadlock_escalates_with_safe_fallback():
+async def test_deadlock_without_a_human_remains_paused():
     def script(b):
         i = ADVISOR_IDS.index(b.speaker)
         return _ballot(b, (0, 2000, 1000 - 10 * i))  # seven plans, nobody accepts another
 
-    yr, _ = await _year(scripted(script))  # no human: falls back to the safe plan
-    assert yr.outcome == "escalated"
-    assert yr.human_choice is None
-    assert "Deadlock" in yr.reason
+    with pytest.raises(Deadlock, match="Deadlock"):
+        await _year(scripted(script))
 
 
-async def test_forged_ballot_is_dropped():
+async def test_stale_ballot_stops_after_one_retry():
     def script(b):
         return _ballot(b, A, accept=_ids_for(b, A))
 
@@ -232,15 +243,11 @@ async def test_forged_ballot_is_dropped():
     async def ask(brief):
         b = await inner(brief)
         if brief.speaker == "merchant":
-            b.accept = []  # altered after signing
+            b.reply_to = "previous-request"
         return b
 
-    yr, events = await _year(ask)
-    rejected = [d for k, d in events if k == "wire" and d.get("rejected")]
-    assert rejected and all(d["advisor"] == "merchant" for d in rejected)
-    assert all(d["advisor"] != "merchant" for k, d in events if k == "turn")
-    assert yr.outcome == "majority"  # 6 of 7 is a strong majority; the forger is outvoted
-    assert yr.dissent == ["merchant"]
+    with pytest.raises(TechnicalFailure, match="merchant failed after one retry"):
+        await _year(ask)
 
 
 # ---- whole games ----

@@ -4,7 +4,7 @@
 - `serve_advisor()` serves one advisor as an A2A agent over SLIM patterns.
 - `SlimCouncil.ask()` sends one turn's Brief to the one advisor whose turn it
   is, over a SLIM point-to-point session to that advisor's own name, and
-  returns its signed Ballot. If unicast fails it falls back to a one-member
+  returns its Ballot. If unicast fails it falls back to a one-member
   group session (A2A broadcast).
 """
 
@@ -20,7 +20,7 @@ import uuid
 from sumer.advisors import ADVISOR_IDS, ADVISORS
 from sumer.agent import decide
 from sumer.config import settings
-from sumer.protocol import Ballot, Brief
+from sumer.protocol import Ballot, Brief, Delivery, endpoint
 
 log = logging.getLogger(__name__)
 NAMESPACE = "sumer/council"
@@ -52,7 +52,7 @@ def agent_card(advisor_id: str):
             AgentSkill(
                 id="deliberate",
                 name="Deliberate on a council brief",
-                description="Reads a council Brief and returns a signed Ballot.",
+                description="Reads a council Brief and returns a Ballot.",
                 tags=["council", "negotiation", "hamurabi"],
             )
         ],
@@ -144,13 +144,13 @@ class SlimCouncil:
             params=MessageSendParams(
                 message=Message(
                     role=Role.user,
-                    messageId=str(uuid.uuid4()),
+                    messageId=brief.message_id,
                     parts=[Part(root=TextPart(text=brief.model_dump_json()))],
                 )
             ),
         )
 
-    async def ask(self, brief: Brief) -> Ballot | None:
+    async def ask(self, brief: Brief) -> Delivery:
         from agntcy_app_sdk.semantic.a2a.client.utils import message_translator
 
         if self._client is None:
@@ -196,4 +196,4 @@ class SlimCouncil:
         }
         if ballot is None:
             log.warning("no ballot from %s", speaker)
-        return ballot
+        return Delivery(speaker, endpoint(speaker), reply=ballot)

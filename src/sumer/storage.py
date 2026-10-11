@@ -1,0 +1,173 @@
+"""Append-only SQLite evidence and transactional year commitments."""
+from __future__ import annotations
+
+import json
+import sqlite3
+from datetime import UTC, datetime
+from pathlib import Path
+
+from sumer.protocol import Ballot, Brief, digest, matches_request, state_hash
+
+
+def stamp() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def encoded(value) -> str:
+    return json.dumps(value, sort_keys=True, ensure_ascii=False)
+
+
+class Store:
+    def __init__(self, path: str | Path):
+        if str(path) != ":memory:":
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
+        self.db = sqlite3.connect(str(path), timeout=10, check_same_thread=False)
+        self.db.row_factory = sqlite3.Row
+        self.db.execute("PRAGMA foreign_keys=ON")
+        self.db.execute("PRAGMA journal_mode=WAL")
+        self.db.executescript("""
+            CREATE TABLE IF NOT EXISTS runs (
+                id TEXT PRIMARY KEY, created TEXT NOT NULL, manifest TEXT NOT NULL,
+                status TEXT NOT NULL, human_assisted INTEGER NOT NULL DEFAULT 0, result TEXT);
+            CREATE TABLE IF NOT EXISTS events (
+                sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id TEXT NOT NULL REFERENCES runs(id), kind TEXT NOT NULL,
+                data TEXT NOT NULL, created TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS events_run ON events(run_id, sequence);
+            CREATE TABLE IF NOT EXISTS proposals (
+                hash TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id),
+                id TEXT NOT NULL, data TEXT NOT NULL, UNIQUE(run_id,id));
+            CREATE TABLE IF NOT EXISTS ballots (
+                id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id),
+                candidate_hash TEXT, data TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS years (
+                run_id TEXT NOT NULL REFERENCES runs(id), year INTEGER NOT NULL,
+                data TEXT NOT NULL, PRIMARY KEY(run_id,year));
+            CREATE TABLE IF NOT EXISTS human_resolutions (
+                id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), data TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS model_usage (
+                message_id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), data TEXT NOT NULL);
+        """)
+        self._migrate_ballots()
+        self.db.execute("DROP INDEX IF EXISTS ballots_peer")
+        self.db.execute("CREATE UNIQUE INDEX IF NOT EXISTS ballots_request ON ballots "
+                        "(run_id,json_extract(data,'$.reply_to')) "
+                        "WHERE json_extract(data,'$.phase') IN ('discuss','runoff')")
+        for table in ("events", "proposals", "ballots", "years", "human_resolutions", "model_usage"):
+            for action in ("UPDATE", "DELETE"):
+                self.db.execute(
+                    f"CREATE TRIGGER IF NOT EXISTS immutable_{table}_{action.lower()} "
+                    f"BEFORE {action} ON {table} BEGIN SELECT RAISE(ABORT,'append-only record'); END"
+                )
+        self.db.execute("CREATE TRIGGER IF NOT EXISTS immutable_manifest BEFORE UPDATE OF "
+                        "id,created,manifest ON runs BEGIN SELECT RAISE(ABORT,'immutable manifest'); END")
+
+    def _migrate_ballots(self):
+        """Retain earlier vote records while allowing sequential turn receipts."""
+        with self.db:
+            self.db.execute("BEGIN IMMEDIATE")
+            columns = self.db.execute("PRAGMA table_info(ballots)").fetchall()
+            if not any(c["name"] == "candidate_hash" and c["notnull"] for c in columns):
+                return
+            # Earlier versions required a recorded candidate before accepting a vote.
+            # Discussion turns now arrive before the clerk records their proposals.
+            self.db.execute("CREATE TABLE ballots_migrated ("
+                            "id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), "
+                            "candidate_hash TEXT, data TEXT NOT NULL)")
+            self.db.execute("INSERT INTO ballots_migrated (id,run_id,candidate_hash,data) "
+                            "SELECT id,run_id,candidate_hash,data FROM ballots")
+            self.db.execute("DROP TABLE ballots")
+            self.db.execute("ALTER TABLE ballots_migrated RENAME TO ballots")
+
+    def create_run(self, run_id: str, manifest: dict):
+        with self.db:
+            self.db.execute("INSERT INTO runs(id,created,manifest,status) VALUES(?,?,?,?)",
+                            (run_id, stamp(), encoded(manifest), "running"))
+
+    def run(self, run_id: str) -> dict:
+        row = self.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
+        if row is None:
+            raise KeyError(run_id)
+        data = dict(row)
+        data["manifest"] = json.loads(data["manifest"])
+        data["result"] = json.loads(data["result"]) if data["result"] else None
+        data["human_assisted"] = bool(data["human_assisted"])
+        return data
+
+
+    def status(self, run_id: str, status: str, result: dict | None = None):
+        with self.db:
+            self.db.execute("UPDATE runs SET status=?,result=COALESCE(?,result) WHERE id=?",
+                            (status, encoded(result) if result is not None else None, run_id))
+
+    def _event(self, run_id: str, kind: str, data: dict) -> dict:
+        cursor = self.db.execute("INSERT INTO events(run_id,kind,data,created) VALUES(?,?,?,?)",
+                                 (run_id, kind, encoded(data), stamp()))
+        return {"sequence": cursor.lastrowid, "run_id": run_id, "kind": kind,
+                "data": json.loads(encoded(data))}
+
+    def append(self, run_id: str, kind: str, data: dict) -> dict:
+        with self.db:
+            if kind == "candidates":
+                for candidate in data["candidates"]:
+                    stored = self.db.execute("SELECT data FROM proposals WHERE run_id=? AND id=?",
+                                             (run_id, candidate["id"])).fetchone()
+                    if stored is not None and stored["data"] != encoded(candidate):
+                        raise ValueError("Conflicting immutable proposal record.")
+                    if stored is None:
+                        self.db.execute("INSERT INTO proposals VALUES(?,?,?,?)",
+                            (digest({"run_id": run_id, "candidate": candidate}), run_id, candidate["id"], encoded(candidate)))
+            replies = data.get("responses", data.get("ballots", []))
+            if kind in ("receipt", "ballots"):
+                for reply in replies:
+                    stored = self.db.execute("SELECT data FROM ballots WHERE id=?",
+                                             (reply["message_id"],)).fetchone()
+                    if stored is not None and stored["data"] != encoded(reply):
+                        raise ValueError("Conflicting immutable ballot record.")
+                    if stored is None:
+                        self.db.execute("INSERT INTO ballots VALUES(?,?,?,?)",
+                                        (reply["message_id"], run_id, reply.get("candidate_hash"), encoded(reply)))
+            for reply in replies:
+                usage = reply.get("trace", {}).get("llm")
+                if not usage or reply.get("run_id") != run_id:
+                    continue
+                request = self.db.execute(
+                    "SELECT data FROM events WHERE run_id=? AND kind='phase' "
+                    "AND json_extract(data,'$.request_id')=?",
+                    (run_id, reply.get("reply_to"))).fetchone()
+                if request and matches_request(Ballot.model_validate(reply),
+                                               Brief.model_validate(json.loads(request["data"])["brief"])):
+                    self.db.execute("INSERT OR IGNORE INTO model_usage VALUES(?,?,?)",
+                        (reply["message_id"], run_id, encoded(usage)))
+            return self._event(run_id, kind, data)
+
+    def events(self, run_id: str, after: int = 0, year: int | None = None) -> list[dict]:
+        self.run(run_id)
+        rows = self.db.execute(
+            "SELECT sequence,kind,data FROM events WHERE run_id=? AND sequence>? ORDER BY sequence",
+            (run_id, after)).fetchall()
+        values = [{"sequence": r["sequence"], "run_id": run_id, "kind": r["kind"],
+                   "data": json.loads(r["data"])} for r in rows]
+        return values if year is None else [e for e in values if e["data"].get("year") == year]
+
+    def commit_year(self, run_id: str, data: dict) -> dict:
+        """Atomic state check + unique year + event; duplicate delivery cannot advance twice."""
+        with self.db:
+            self.db.execute("BEGIN IMMEDIATE")
+            run = self.run(run_id)
+            if run["status"] not in ("running", "deadlock"):
+                raise ValueError("Run is not active.")
+            last = self.db.execute("SELECT data FROM years WHERE run_id=? ORDER BY year DESC LIMIT 1",
+                                   (run_id,)).fetchone()
+            previous = json.loads(last["data"])["state"] if last else run["manifest"]["initial_state"]
+            if state_hash(previous) != state_hash(data["start_state"]):
+                raise ValueError("State has already advanced or does not match persisted state.")
+            self.db.execute("INSERT INTO years VALUES(?,?,?)", (run_id, data["year"], encoded(data)))
+            if data.get("human_resolution"):
+                resolution = data["human_resolution"]
+                self.db.execute("INSERT INTO human_resolutions VALUES(?,?,?)",
+                                (resolution["id"], run_id, encoded(resolution)))
+                self.db.execute("UPDATE runs SET human_assisted=1 WHERE id=?", (run_id,))
+                self._event(run_id, "human_resolution", resolution)
+            self.db.execute("UPDATE runs SET status='running' WHERE id=?", (run_id,))
+            return self._event(run_id, "year", data)

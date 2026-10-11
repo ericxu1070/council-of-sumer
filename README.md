@@ -69,7 +69,7 @@ See [DEMO.md](DEMO.md) for the step-by-step live demo script.
                       +---------------------- AGNTCY SLIM node (:46357) ----------------------+
  Browser <--SSE--  Clerk (web.py) --A2A unicast, one Brief per turn-->  farmer priest general merchant
  (glass box,       relays + tallies     (only the speaker is asked)      builder healer diplomat
-  narrator)        never chooses   <-------- one signed Ballot ---------  7 separate A2A agent processes
+  narrator)        never chooses   <------------ one Ballot ------------  7 separate A2A agent processes
                                                                         (agent.py: policy or LLM mind)
 ```
 
@@ -79,13 +79,14 @@ See [DEMO.md](DEMO.md) for the step-by-step live demo script.
   advisor whose turn it is, over a SLIM point-to-point session to that advisor's own name (with a
   one-member group session as fallback), and collects its `Ballot`. It relays and applies a
   public rule. It never ranks plans by its own judgment, so there is no central decision-maker.
-- **Ballots are HMAC-signed** per advisor (`protocol.py`), every turn and every runoff vote. A
-  forged or altered ballot is dropped and flagged in the glass box.
+- **Ballots are validated** against the addressed advisor, run, state, and exact request
+  (`protocol.py`). Invalid or stale responses are rejected and flagged in the glass box.
+  This local demo relies on the SLIM transport identity; it does not provision signing keys.
 - **Reasoning**: with `LLM_MODE=bayleaf`, each advisor asks an LLM (default
   `deepseek-v4.1-flash` via UCSC Bayleaf, thinking off) for a private thought, a proposal, its
   votes, and a public speech. Red lines are enforced in code, so a model cannot argue its own
   advisor past one. With `LLM_MODE=mock`, the same advisors use a deterministic concession
-  strategy, which powers the benchmarks and is the automatic fallback.
+  strategy, which powers explicitly selected mock mode and the benchmarks. Live failures are retried once and then stop the run.
 - **The game** (`game.py`) pre-rolls every die from the seed, so every decider faces exactly the
   same harvests, rats, and plagues.
 - **The narrator** (`narrator.py`) closes each year with one or two plain-English sentences for a
@@ -154,7 +155,7 @@ The right-hand column traces the whole system as it thinks:
 - for every advisor, every turn: its **private thought** (LLM stated reasoning or the policy's
   explanation), the forecast it used, its self vs group weight, its acceptance threshold, and a
   per-plan table of score, threshold, red lines hit, and vote, plus LLM latency and cost
-- signature verification for every ballot, and alerts for rejected or missing ballots
+- turn validation for every ballot, and alerts for rejected or missing ballots
 - scout news and the exact belief update it caused
 
 Advisors only hear each other's public **speeches**. The private thoughts are for humans. Click
@@ -208,12 +209,28 @@ Honest caveats about the policy minds:
   crossed nobody's red line (typically the Priest's granary against the General's land in a
   locust year), so a vote could not settle it.
 
+## Verified turns and decision evidence
+
+Each response binds to its run, year, round, speaker, state, and exact request (including the
+frozen runoff finalists). Invalid or missing turns are retried once for the addressed speaker;
+a second failure records a technical failure. A deadlock requires an explicit human selection,
+including an explicit choice of the safe plan. Model failures never become policy votes.
+
+SQLite stores immutable proposals, turn receipts, requests, model usage, and annual
+commitments. Before advancing, the engine reconstructs the standing table and independently
+checks the seven-advisor consensus, majority, runoff, or human-resolution evidence. A unique
+run/year transaction prevents duplicate delivery from advancing twice. The journal defaults
+to `.cache/runs.sqlite3`. Private thoughts remain available to humans without entering peers' briefs.
+
+Checked-in benchmark results predate the corrected accounting and are historical until
+regenerated. Paused deadlocks and technical failures do not receive completed-reign scores.
+
 ## Cost and offline safety
 
 - Every LLM reply is cached in `.cache/llm/` by prompt hash. Rehearse a seed once and the demo
   replays it with no network.
 - `LLM_BUDGET_USD` (default $3.00) is a hard cap tracked from the cost Bayleaf reports per call.
-  Past it, advisors fall back to the offline policy.
+  Past it, advisors record a technical failure after one retry; mock mode must be selected explicitly.
 - A full 5-year LLM game costs a few cents (up to 49 short LLM calls per year).
 
 ## Project layout
@@ -228,7 +245,7 @@ src/sumer/
   chamber.py       plays whole games
   baselines.py     lone ruler, averaging, dictators, lone LLM
   bench.py         evidence generation
-  protocol.py      Brief / Ballot wire format, HMAC signing
+  protocol.py      Brief / Ballot wire format, turn validation and request binding
   transport/       slim.py (AGNTCY) and inproc.py (tests)
   web.py           FastAPI + SSE chamber, human escalation
   voice.py         optional ElevenLabs voices (advisors and narrator)

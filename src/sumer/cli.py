@@ -19,7 +19,8 @@ def _up(args) -> None:
     """Start the SLIM node, one process per advisor (seven), and the web chamber."""
     py = [sys.executable, "-m", "sumer.cli"]
     env = {**os.environ, "SLIM_SHARED_SECRET": settings.slim_secret}
-    procs = [subprocess.Popen([*py, "node"], env=env)]
+    procs = []
+    procs.append(subprocess.Popen([*py, "node"], env=env))
     time.sleep(2)
     procs += [subprocess.Popen([*py, "agent", a], env=env) for a in ADVISOR_IDS]
     time.sleep(3)
@@ -29,6 +30,11 @@ def _up(args) -> None:
     def stop(*_):
         for p in procs:
             p.terminate()
+        for p in procs:
+            try:
+                p.wait(timeout=8)
+            except subprocess.TimeoutExpired:
+                p.kill()
         sys.exit(0)
 
     signal.signal(signal.SIGINT, stop)
@@ -60,7 +66,6 @@ def main() -> None:
         asyncio.run(run_node())
     elif args.cmd == "agent":
         from sumer.transport.slim import serve_advisor
-
         asyncio.run(serve_advisor(args.advisor))
     elif args.cmd == "web":
         import uvicorn

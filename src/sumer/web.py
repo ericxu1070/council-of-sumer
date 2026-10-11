@@ -13,38 +13,48 @@ import asyncio
 import json
 import logging
 import time
+from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from sumer import voice
 from sumer.advisors import ADVISORS, REPORT_KINDS, scout_report
-from sumer.chamber import play_council
+from sumer.chamber import DEFAULT_DB, play_council
 from sumer.config import RESULTS_DIR, ROOT, settings
 from sumer.game import YEARS, roll_game
-from sumer.protocol import Ballot, Brief
+from sumer.protocol import Ballot, Brief, Delivery, uid
+from sumer.storage import Store
 
 log = logging.getLogger(__name__)
-app = FastAPI(title="Council of Sumer")
+store = Store(DEFAULT_DB)
+
+@asynccontextmanager
+async def lifespan(app):
+    yield
+    if live.task and not live.task.done():
+        live.task.cancel()
+        try:
+            await live.task
+        except asyncio.CancelledError:
+            pass
+
+
+app = FastAPI(title="Council of Sumer", lifespan=lifespan)
 WEB = ROOT / "web"
 
 
 class Hub:
-    """Fan-out of game events to every open browser tab, with replay."""
-
     def __init__(self):
-        self.backlog: list[dict] = []
-        self.subscribers: set[asyncio.Queue] = set()
+        self.subscribers: set[tuple[str, asyncio.Queue]] = set()
 
-    async def emit(self, kind: str, data: dict) -> None:
-        ev = {"kind": kind, "data": data}
-        self.backlog.append(ev)
-        for q in list(self.subscribers):
-            q.put_nowait(ev)
-
-    def reset(self) -> None:
-        self.backlog.clear()
+    async def emit(self, kind: str, data: dict):
+        event = {"kind": kind, "run_id": data["_run_id"], "sequence": data["_sequence"],
+                 "data": {k: v for k, v in data.items() if not k.startswith("_")}}
+        for rid, q in list(self.subscribers):
+            if rid == event["run_id"]:
+                q.put_nowait(event)
 
 
 hub = Hub()
@@ -54,6 +64,8 @@ class Live:
     """The single game this server is running."""
 
     def __init__(self):
+        self.run_id = ""
+        self.options: set[str] = set()
         self.task: asyncio.Task | None = None
         self.seed = 0
         self.year = 1
@@ -94,7 +106,7 @@ async def _narrate(year: int, text: str) -> str | None:
     return f"/api/narration/{year}?game={live.game_no}"
 
 
-async def _ask(brief: Brief) -> Ballot | None:
+async def _ask(brief: Brief) -> Ballot | Delivery | None:
     """Send one turn's brief to its speaker, over SLIM or in process."""
     live.year = brief.year
     if live.council is None:
@@ -113,22 +125,29 @@ async def _ask(brief: Brief) -> Ballot | None:
     wire.setdefault("transport", "in-process (no network)")
     wire.setdefault("recipients", [brief.speaker])
     wire.setdefault("elapsed_s", round(time.monotonic() - t0, 2))
-    wire.setdefault("replies", int(ballot is not None))
-    await hub.emit("wire", {"year": brief.year, "round": brief.round, "phase": brief.phase,
-                            "advisor": brief.speaker, "turn": brief.turn, **wire})
+    wire.setdefault("replies", int((ballot.reply if isinstance(ballot, Delivery) else ballot) is not None))
+    await journal_emit("wire", {"year": brief.year, "round": brief.round, "phase": brief.phase,
+                               "advisor": brief.speaker, "turn": brief.turn, **wire})
     return ballot
 
 
+async def journal_emit(kind, data):
+    record = store.append(live.run_id, kind, data)
+    await hub.emit(kind, {**data, "_sequence": record["sequence"], "_run_id": live.run_id})
+
+
 async def _ask_human(options: list[dict], reason: str) -> str | None:
+    live.options = {o["id"] for o in options}
     live.pending = asyncio.get_running_loop().create_future()
     timeout = settings.escalation_timeout_s if settings.escalation_timeout_s > 0 else None
     try:
         return await asyncio.wait_for(live.pending, timeout)
     except TimeoutError:
-        await hub.emit("escalation_timeout", {"fallback": "safe"})
+        await journal_emit("escalation_timeout", {"message": "Human selection timed out; run remains paused."})
         return None
     finally:
         live.pending = None
+        live.options.clear()
 
 
 async def _run(seed: int, reveal: bool, max_rounds: int) -> None:
@@ -142,25 +161,27 @@ async def _run(seed: int, reveal: bool, max_rounds: int) -> None:
             emit=paced_emit,
             injected_news=live.injected,
             narrate=_narrate,
+            store=store, run_id=live.run_id,
         )
     except asyncio.CancelledError:
         raise
     except Exception as e:  # surface transport or model failures in the UI
         log.exception("game failed")
-        await hub.emit("error", {"message": f"{type(e).__name__}: {e}"})
+        await journal_emit("error", {"message": f"{type(e).__name__}: {e}"})
 
 
 class StartReq(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     seed: int = 7
     reveal_news: bool = True
-    max_rounds: int | None = None
+    max_rounds: int | None = Field(default=None, ge=1, le=20)
 
 
 @app.post("/api/game")
 async def start(req: StartReq):
     if live.task and not live.task.done():
-        live.task.cancel()
-    hub.reset()
+        raise HTTPException(409, "A live run is already active.")
+    live.run_id = uid()
     live.injected.clear()
     live.seed, live.year = req.seed, 1
     live.game_no += 1
@@ -168,22 +189,31 @@ async def start(req: StartReq):
     live.task = asyncio.create_task(
         _run(req.seed, req.reveal_news, req.max_rounds or settings.max_rounds)
     )
-    return {"ok": True}
+    await asyncio.sleep(0)
+    require_run(live.run_id)
+    return {"ok": True, "run_id": live.run_id}
 
 
 @app.post("/api/stop")
 async def stop():
     if live.task and not live.task.done():
         live.task.cancel()
+        try:
+            await live.task
+        except asyncio.CancelledError:
+            pass
     return {"ok": True}
 
 
 class NewsReq(BaseModel):
     kind: str
+    run_id: str
 
 
 @app.post("/api/news")
 async def news(req: NewsReq):
+    if req.run_id != live.run_id or not live.task or live.task.done():
+        raise HTTPException(409, "No matching live run.")
     if req.kind not in REPORT_KINDS:
         raise HTTPException(400, "unknown report kind")
     rolls = roll_game(live.seed)
@@ -194,13 +224,16 @@ async def news(req: NewsReq):
 
 
 class ChoiceReq(BaseModel):
+    run_id: str
     choice: str
 
 
 @app.post("/api/escalation")
 async def choose(req: ChoiceReq):
-    if not live.pending or live.pending.done():
+    if req.run_id != live.run_id or not live.pending or live.pending.done():
         raise HTTPException(409, "no escalation pending")
+    if req.choice not in live.options:
+        raise HTTPException(400, "Choose a latest valid option.")
     live.pending.set_result(req.choice)
     return {"ok": True}
 
@@ -218,6 +251,7 @@ async def pace(req: PaceReq):
 @app.get("/api/meta")
 async def meta():
     return {
+        "active_run": live.run_id if live.task and not live.task.done() else "",
         "advisors": [a.public() for a in ADVISORS.values()],
         "years": YEARS,
         "pace_s": live.pace_s,
@@ -239,24 +273,49 @@ async def spend():
     return {"spent_usd": llm.spent_usd(), "budget_usd": settings.llm_budget_usd}
 
 
+def require_run(run_id: str):
+    try:
+        return store.run(run_id)
+    except KeyError:
+        raise HTTPException(404, "Unknown run.") from None
+
+
+
 @app.get("/api/events")
-async def events():
+async def events(request: Request, run_id: str):
+    require_run(run_id)
+    after = 0
+    last_id = request.headers.get("last-event-id", "")
+    if last_id.startswith(run_id + ":"):
+        try:
+            after = int(last_id.split(":")[-1])
+        except ValueError:
+            pass
     q: asyncio.Queue = asyncio.Queue()
-    backlog = list(hub.backlog)
-    hub.subscribers.add(q)
+    subscription = (run_id, q)
+    hub.subscribers.add(subscription)
+    backlog = store.events(run_id, after=after)
 
     async def stream():
+        cursor = after
+        def frame(event):
+            return f"id: {run_id}:{event['sequence']}\ndata: {json.dumps(event)}\n\n"
         try:
-            for ev in backlog:
-                yield f"data: {json.dumps(ev)}\n\n"
+            for event in backlog:
+                cursor = event["sequence"]
+                yield frame(event)
             while True:
+                if await request.is_disconnected():
+                    break
                 try:
-                    ev = await asyncio.wait_for(q.get(), 15)
-                    yield f"data: {json.dumps(ev)}\n\n"
+                    event = await asyncio.wait_for(q.get(), 15)
+                    if event["sequence"] > cursor:
+                        cursor = event["sequence"]
+                        yield frame(event)
                 except TimeoutError:
                     yield ": keepalive\n\n"
         finally:
-            hub.subscribers.discard(q)
+            hub.subscribers.discard(subscription)
 
     return StreamingResponse(stream(), media_type="text/event-stream")
 
@@ -266,7 +325,10 @@ async def bench():
     p = RESULTS_DIR / "bench.json"
     if not p.exists():
         return JSONResponse({"missing": True})
-    return JSONResponse(json.loads(p.read_text()))
+    data = json.loads(p.read_text())
+    if not data.get("rule_version"):
+        return JSONResponse({"historical": True, "message": "Historical benchmark; regenerate for current game rules."})
+    return JSONResponse(data)
 
 
 @app.get("/api/voice/{advisor}")

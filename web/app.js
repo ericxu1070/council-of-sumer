@@ -21,6 +21,7 @@ const reduced = matchMedia("(prefers-reduced-motion: reduce)");
 /* ---------------- state ---------------- */
 const S = {
   meta: null,
+  runId: "",
   advisors: [],
   years: 5,
   year: 0,            // year being decided
@@ -439,7 +440,7 @@ async function choose(btn) {
   // Show the ruling before the POST resolves: the server may stream the year result first.
   const note = append(`<span class="emoji">👑</span><div><b>You decided</b>${btn.dataset.choice === "safe" ? "You chose to play it safe." : `You chose ${esc(label)}.`}</div>`, "note you", {});
   try {
-    await api("/api/escalation", { choice: btn.dataset.choice });
+    await api("/api/escalation", { run_id: S.runId, choice: btn.dataset.choice });
   } catch (e) {
     note.remove();
     btn.classList.remove("chosen");
@@ -616,8 +617,12 @@ function sleepUntil(t) {
   if (ms <= 0) return Promise.resolve();
   return new Promise(r => { const id = setTimeout(r, ms); wake = () => { clearTimeout(id); r(); }; });
 }
+const seen = new Set();
 function onEvent(ev) {
   if (!ev || !ev.kind) return;
+  if (ev.run_id && ev.run_id !== S.runId) return;
+  if (ev.sequence != null && seen.has(ev.sequence)) return;
+  if (ev.sequence != null) seen.add(ev.sequence);
   ev.instant = replay;
   if (ev.kind === "game") { Q.length = 0; gen++; wake?.(); }
   Q.push(ev);
@@ -706,7 +711,7 @@ function render(kind, d, instant) {
     case "escalate": showEscalation(d); break;
     case "escalation_timeout":
       closeEscalation();
-      append(`<span class="emoji">🛟</span><div><b>No answer in time</b>The council falls back to the safe plan.</div>`, "note you", { instant });
+      append(`<span class="emoji">🛟</span><div><b>Selection timed out</b>The council remains paused until a valid choice is made.</div>`, "note you", { instant });
       break;
     case "year":
       closeEscalation();
@@ -720,11 +725,18 @@ function render(kind, d, instant) {
       hideRunoff();
       break;
     case "end":
-      S.running = false; S.completed = S.years; renderYear();
+      S.running = false; S.completed = d.years?.length || 0; renderYear();
       closeEscalation(); spotlight(null);
+      if (d.status && !["completed", "overthrown", "depopulated"].includes(d.status)) {
+        setPhase(cap(d.status.replaceAll("_", " ")), "<span>The run retains its recorded city and decisions.</span>");
+        append(`<div class="card-kicker">${esc(d.status.replaceAll("_", " "))}</div>`, "card", { instant });
+        break;
+      }
       setPhase("Reign complete", `<span>${esc(d.rating?.verdict_reason ? cap(d.rating.verdict_reason) : "The council has finished its rule.")}</span>`);
       renderEnd(d, instant);
       break;
+    case "technical_failure":
+    case "stopped":
     case "error":
       append(`<span class="emoji">⚠️</span><div><b>Something went wrong</b>${esc(d.message)}</div>`, "note error", { instant });
       if (!instant) toast(d.message);
@@ -739,17 +751,21 @@ function armReplay() {
   clearTimeout(replayQuiet);
   replayQuiet = setTimeout(() => { replay = false; }, REPLAY_QUIET);
 }
-function connect() {
-  es = new EventSource("/api/events");
+function connect(id) {
+  if (!id) return;
+  es?.close();
+  if (S.runId !== id) seen.clear();
+  S.runId = id;
+  es = new EventSource(`/api/events?run_id=${encodeURIComponent(id)}`);
   replay = true;
   armReplay();
   clearTimeout(replayCapT);
   replayCapT = setTimeout(() => { replay = false; }, REPLAY_CAP);
   es.onmessage = m => {
     if (replay) armReplay();
-    try { onEvent(JSON.parse(m.data)); } catch (e) { console.error("bad event", e); }
+    try { const ev = JSON.parse(m.data); onEvent(ev); if (ev.kind === "end") es.close(); } catch (e) { console.error("bad event", e); }
   };
-  es.onerror = () => { es.close(); setTimeout(connect, 1500); };
+  es.onerror = () => { es.close(); setTimeout(() => connect(id), 1500); };
 }
 
 /* ---------------- controls ---------------- */
@@ -766,7 +782,7 @@ async function start() {
   const body = { seed: +$("#seed").value || 0, reveal_news: $("#reveal").value === "1" };
   const rounds = +$("#rounds").value;
   if (rounds) body.max_rounds = rounds;
-  try { await api("/api/game", body); } catch (e) { toast(`Could not start: ${e.message}`); }
+  try { const result = await api("/api/game", body); connect(result.run_id); } catch (e) { toast(`Could not start: ${e.message}`); }
 }
 function setHood(on) {
   S.hood = on;
@@ -827,7 +843,7 @@ function wire() {
   };
   $$("[data-news]").forEach(b => b.onclick = async () => {
     b.disabled = true;
-    try { await api("/api/news", { kind: b.dataset.news }); toast("Scout sent. The report reaches the council next round.", true); }
+    try { await api("/api/news", { run_id: S.runId, kind: b.dataset.news }); toast("Scout sent. The report reaches the council next round.", true); }
     catch (e) { toast(`Scout could not leave: ${e.message}`); }
     finally { setTimeout(() => { b.disabled = false; }, 1500); }
   });
@@ -863,5 +879,5 @@ function wire() {
     if (![...sel.options].some(o => +o.value === +m.max_rounds)) sel.insertAdjacentHTML("beforeend", `<option>${m.max_rounds}</option>`);
     sel.value = String(m.max_rounds);
   }
-  connect();
+  if (S.meta?.active_run) connect(S.meta.active_run);
 })();
