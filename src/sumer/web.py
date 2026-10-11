@@ -31,7 +31,7 @@ from sumer.advisors import (
 )
 from sumer.chamber import DEFAULT_DB, play_council
 from sumer.config import CACHE_DIR, RESULTS_DIR, ROOT, settings
-from sumer.game import YEARS
+from sumer.game import RULE_VERSION, YEARS
 from sumer.protocol import Ballot, Brief, Delivery, uid
 from sumer.scouts import SCOUT_IDS, SCOUT_OPTIONS
 from sumer.storage import Store
@@ -454,7 +454,7 @@ async def bench():
     if not p.exists():
         return JSONResponse({"missing": True})
     data = json.loads(p.read_text())
-    if not data.get("rule_version"):
+    if data.get("rule_version") != RULE_VERSION:
         return JSONResponse({"historical": True, "message": "Historical benchmark; regenerate for current game rules."})
     return JSONResponse(data)
 
