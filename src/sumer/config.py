@@ -20,7 +20,7 @@ def _bool(name: str, default: bool) -> bool:
 @dataclass(frozen=True)
 class Settings:
     # LLM: any OpenAI-compatible endpoint. Bayleaf (UCSC) is the default.
-    llm_mode: str = os.getenv("LLM_MODE", "mock")  # "bayleaf" or "mock"
+    llm_mode: str = os.getenv("LLM_MODE", "bayleaf")  # live LLM decisions only
     llm_base_url: str = os.getenv("BAYLEAF_BASE_URL", "")
     llm_api_key: str = os.getenv("BAYLEAF_API_KEY", "")
     llm_model: str = os.getenv("BAYLEAF_MODEL", "")

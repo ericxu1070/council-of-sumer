@@ -35,19 +35,19 @@ TMP = Path(tempfile.mkdtemp(prefix="fake-chamber-"))
 
 ADVISORS = [
     {"id": "farmer", "title": "Voice of the Farmers", "short": "Farmer", "emoji": "🌾", "color": "#5f8f3a",
-     "mandate": "Grow the population. Nobody starves.", "red_line": "Never let more than 10% starve"},
+     "mandate": "Grow the population. Nobody starves."},
     {"id": "priest", "title": "High Priest of Enlil", "short": "Priest", "emoji": "🔮", "color": "#7a4fa3",
-     "mandate": "Keep the granaries full for a bad year.", "red_line": "Never leave under half a year of food"},
+     "mandate": "Keep the granaries full for a bad year."},
     {"id": "general", "title": "General of the Walls", "short": "General", "emoji": "🛡️", "color": "#a33a32",
-     "mandate": "Hold and expand our land.", "red_line": "Never sell more than 10% of land in a year"},
+     "mandate": "Hold and expand our land."},
     {"id": "merchant", "title": "Chief Merchant", "short": "Merchant", "emoji": "💰", "color": "#b5862a",
-     "mandate": "Buy land cheap, sell it dear.", "red_line": "None. Everything has a price."},
+     "mandate": "Buy land cheap, sell it dear."},
     {"id": "builder", "title": "Master Builder", "short": "Builder", "emoji": "🧱", "color": "#b2622f",
-     "mandate": "Plant every acre we can work.", "red_line": "Never leave more than half the fields fallow"},
+     "mandate": "Plant every acre we can work."},
     {"id": "healer", "title": "Royal Healer", "short": "Healer", "emoji": "🌿", "color": "#2f8a7c",
-     "mandate": "Keep people healthy and well fed.", "red_line": "Never feed anyone under 20 bushels"},
+     "mandate": "Keep people healthy and well fed."},
     {"id": "diplomat", "title": "Envoy to Kish", "short": "Diplomat", "emoji": "🕊️", "color": "#2f5ea8",
-     "mandate": "Keep the peace inside the council.", "red_line": "None. Keeps everyone talking."},
+     "mandate": "Keep the peace inside the council."},
 ]
 IDS = [a["id"] for a in ADVISORS]
 SHORT = {a["id"]: a["short"] for a in ADVISORS}
@@ -129,7 +129,7 @@ LINES = {
                "A full ration is medicine. I will not sign anything that cuts it.",
                "{to}, the sick cannot plant or fight. Feed the city first."],
     "diplomat": ["{to}, you both want a strong city. Let us meet in the middle.",
-               "Nobody gets everything this year. Can we agree on a plan that crosses no red line?",
+               "Nobody gets everything this year. Can we agree on a plan the city can afford?",
                "I hear the Priest and the Farmer. {to}, would you accept a smaller purchase?"],
 }
 
@@ -171,9 +171,9 @@ async def maybe_news(year, rnd, scripted=None):
         await hub.emit("news", {"year": year, "round": rnd, "kind": k, "text": NEWS_TEXT[k], "injected": True})
 
 
-async def discuss_round(year, rnd, max_rounds, support: dict[str, list[str]], veto: dict[str, list[str]],
+async def discuss_round(year, rnd, max_rounds, support: dict[str, list[str]],
                         burst=False, rng: random.Random | None = None):
-    """support: plan author -> advisors accepting it. veto: plan author -> advisors vetoing it."""
+    """support: plan author -> advisors accepting it."""
     rng = rng or RNG
     await hub.emit("round", {"year": year, "round": rnd, "phase": "discuss", "max_rounds": max_rounds})
     await pause(0.5)
@@ -188,23 +188,22 @@ async def discuss_round(year, rnd, max_rounds, support: dict[str, list[str]], ve
         speech = rng.choice(LINES[a]).format(to=to)
         speech = re.sub(r"(^|[.!?] )([a-z])", lambda m: m.group(1) + m.group(2).upper(), speech)
         acc = [f"{au}-y{year}-r{rnd}" for au, who in support.items() if a in who]
-        vet = [f"{au}-y{year}-r{rnd}" for au, who in veto.items() if a in who]
         await hub.emit("turn", {
             "year": year, "round": rnd, "phase": "discuss", "advisor": a, "speech": speech,
-            "proposal": prop, "plan_id": pid, "plain": plain(prop), "accept": acc, "veto": vet,
+            "proposal": prop, "plan_id": pid, "plain": plain(prop), "accept": acc,
             "runoff_vote": None, "addressed": addressed, "thought": THOUGHTS[a],
             "trace": {"forecast": {"yield": 3, "rat_chance": 0.4, "plague_chance": 0.15},
                       "llm": {"latency_s": round(rng.uniform(0.6, 2.4), 2), "cached": True, "cost_usd": 0.0004},
-                      "scores": {p: round(rng.uniform(0.2, 0.9), 2) for p in acc + vet}},
-            "source": "llm" if i % 3 else "policy",
+                      "scores": {p: round(rng.uniform(0.2, 0.9), 2) for p in acc}},
+            "source": "scripted",
         })
         if not burst:
             await pause(0.7)
     rows = []
     for au in IDS:
         rows.append({"id": f"{au}-y{year}-r{rnd}", "author": au, "plain": plain(PROPOSALS[au]),
-                     "accept": support.get(au, []), "veto": veto.get(au, [])})
-    rows.sort(key=lambda r: (-len(r["accept"]), len(r["veto"])))
+                     "accept": support.get(au, [])})
+    rows.sort(key=lambda r: -len(r["accept"]))
     await hub.emit("wire", {"year": year, "round": rnd, "transport": "AGNTCY SLIM", "topic": f"sumer/council/y{year}r{rnd}",
                             "recipients": IDS, "bytes_out": 2148, "replies": 7, "elapsed_s": 1.84})
     await hub.emit("tally", {"year": year, "round": rnd, "phase": "discuss", "rows": rows[:4]})
@@ -232,21 +231,20 @@ async def run(narration: str | None) -> None:
     await hub.emit("year_start", {"year": 1, "state": STATES[0]})
     await maybe_news(1, 0)
     await discuss_round(1, 0, 4, {"farmer": ["farmer", "healer", "diplomat"], "builder": ["builder", "general", "diplomat"],
-                                  "general": ["general", "merchant"]}, {"merchant": ["farmer", "healer"]})
+                                  "general": ["general", "merchant"]})
     await maybe_news(1, 1, scripted="harvest")
-    await discuss_round(1, 1, 4, {"farmer": IDS}, {})
+    await discuss_round(1, 1, 4, {"farmer": IDS})
     await finish_year(1, "consensus", "farmer", [], 2,
                       "All seven advisors agreed to feed everyone and keep our land. The city grew by four people.", narration)
 
     # Year 2: majority with dissent, one round in a burst.
     await hub.emit("year_start", {"year": 2, "state": STATES[1]})
     await maybe_news(2, 0)
-    await discuss_round(2, 0, 4, {"general": ["general", "merchant", "builder"], "farmer": ["farmer", "healer"]},
-                        {"merchant": ["priest", "healer"]}, burst=True)
+    await discuss_round(2, 0, 4, {"general": ["general", "merchant", "builder"], "farmer": ["farmer", "healer"]}, burst=True)
     await maybe_news(2, 1)
-    await discuss_round(2, 1, 4, {"general": ["general", "merchant", "builder", "diplomat"]}, {"merchant": ["priest"]})
+    await discuss_round(2, 1, 4, {"general": ["general", "merchant", "builder", "diplomat"]})
     await maybe_news(2, 2)
-    await discuss_round(2, 2, 4, {"builder": ["general", "builder", "diplomat", "farmer", "healer"]}, {})
+    await discuss_round(2, 2, 4, {"builder": ["general", "builder", "diplomat", "farmer", "healer"]})
     await finish_year(2, "majority", "builder", ["merchant", "priest"], 3,
                       "Five of seven backed the Builder's plan to buy land and plant more. Rats ate 450 bushels and six people starved.", narration)
 
@@ -254,10 +252,9 @@ async def run(narration: str | None) -> None:
     await hub.emit("year_start", {"year": 3, "state": STATES[2]})
     await maybe_news(3, 0, scripted="rats")
     await discuss_round(3, 0, 4, {"builder": ["builder", "general", "merchant"], "farmer": ["farmer", "healer"],
-                                  "priest": ["priest"]}, {"merchant": ["healer"]})
+                                  "priest": ["priest"]})
     await maybe_news(3, 1)
-    await discuss_round(3, 1, 4, {"builder": ["builder", "general", "merchant"], "farmer": ["farmer", "healer", "diplomat"]},
-                        {"general": ["priest"]})
+    await discuss_round(3, 1, 4, {"builder": ["builder", "general", "merchant"], "farmer": ["farmer", "healer", "diplomat"]})
     await hub.emit("round", {"year": 3, "round": 2, "phase": "runoff", "max_rounds": 4})
     a = {"id": "builder-y3-r1", "author": "builder", "plain": plain(PROPOSALS["builder"])}
     b = {"id": "farmer-y3-r1", "author": "farmer", "plain": plain(PROPOSALS["farmer"])}
@@ -269,8 +266,8 @@ async def run(narration: str | None) -> None:
     for adv in IDS:
         v = votes[adv]
         await hub.emit("turn", {"year": 3, "round": 2, "phase": "runoff", "advisor": adv, "speech": why[v["id"]],
-                                "proposal": None, "plan_id": None, "plain": None, "accept": [], "veto": [],
-                                "runoff_vote": v["id"], "addressed": [], "thought": THOUGHTS[adv], "trace": {}, "source": "llm"})
+                                "proposal": None, "plan_id": None, "plain": None, "accept": [],
+                                "runoff_vote": v["id"], "addressed": [], "thought": THOUGHTS[adv], "trace": {}, "source": "scripted"})
         await pause(0.6)
     await hub.emit("runoff_result", {"year": 3, "votes": {k: v["id"] for k, v in votes.items()}, "winner": a["id"],
                                      "count": {a["id"]: 4, b["id"]: 3}})
@@ -281,24 +278,21 @@ async def run(narration: str | None) -> None:
     # Year 4: deadlock, the human decides.
     await hub.emit("year_start", {"year": 4, "state": STATES[3]})
     await maybe_news(4, 0, scripted="plague")
-    await discuss_round(4, 0, 4, {"healer": ["healer", "farmer"], "general": ["general", "merchant"]},
-                        {"general": ["healer", "farmer", "priest"], "healer": ["general"]})
+    await discuss_round(4, 0, 4, {"healer": ["healer", "farmer"], "general": ["general", "merchant"]})
     await maybe_news(4, 1)
-    await discuss_round(4, 1, 4, {"healer": ["healer", "farmer", "priest"], "general": ["general", "merchant", "builder"]},
-                        {"general": ["healer", "farmer"], "healer": ["general"]})
+    await discuss_round(4, 1, 4, {"healer": ["healer", "farmer"], "general": ["general", "merchant"]})
     options = [
         {"id": "healer-y4-r1", "plan": PROPOSALS["healer"], "plain": plain(PROPOSALS["healer"]),
-         "accept": ["healer", "farmer", "priest"], "veto": ["general"]},
+         "accept": ["healer", "farmer"]},
         {"id": "general-y4-r1", "plan": PROPOSALS["general"], "plain": plain(PROPOSALS["general"]),
-         "accept": ["general", "merchant", "builder"], "veto": ["healer", "farmer"]},
+         "accept": ["general", "merchant"]},
         {"id": "safe", "plan": {"land_delta": -10, "feed": 2100, "plant": 900},
-         "plain": "Play it safe: feed everyone, sell a little land, plant the most we can", "accept": [], "veto": [],
+         "plain": "Play it safe: feed everyone, sell a little land, plant the most we can", "accept": [],
          "note": "Agreed in advance as the fallback"},
     ]
-    positions = [{"advisor": a, "speech": LINES[a][0].format(to="friends"), "thought": THOUGHTS[a],
-                  "veto": ["general-y4-r1"] if a in ("healer", "farmer") else ["healer-y4-r1"] if a == "general" else []}
+    positions = [{"advisor": a, "speech": LINES[a][0].format(to="friends"), "thought": THOUGHTS[a]}
                  for a in IDS]
-    await hub.emit("escalate", {"year": 4, "reason": "Red lines block both leading plans: the Healer and Farmer refuse to cut rations, the General refuses to sell land.",
+    await hub.emit("escalate", {"year": 4, "reason": "The council remains divided over food and land, with no plan reaching three accepts.",
                                 "options": options, "positions": positions})
     live.pending = asyncio.get_running_loop().create_future()
     try:
@@ -315,7 +309,7 @@ async def run(narration: str | None) -> None:
     # Year 5: quick consensus.
     await hub.emit("year_start", {"year": 5, "state": STATES[4]})
     await maybe_news(5, 0, scripted="market")
-    await discuss_round(5, 0, 4, {"diplomat": IDS}, {})
+    await discuss_round(5, 0, 4, {"diplomat": IDS})
     await finish_year(5, "consensus", "diplomat", [], 1,
                       "In the final year everyone agreed on the Diplomat's balanced plan. The city ends larger than it began.", narration)
 
