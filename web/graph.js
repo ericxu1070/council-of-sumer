@@ -182,7 +182,7 @@
         <circle class="orbit2" cx="50" cy="50" r="66" fill="none" stroke="var(--cg-listen)" stroke-width="1" stroke-dasharray="18 10 2 10"/>
         <path class="hex" d="${hexPath(50, 50, 46, 9)}"/>
       </svg>
-      <div class="cg-hub-core"><div class="cg-hub-label">SLIM</div><div class="cg-hub-sub">message bus</div></div></div>`);
+      <div class="cg-hub-core"><div class="cg-hub-label"></div><div class="cg-hub-sub"></div></div></div>`);
     ripple = el("div", "cg-ripple"); hubEl.appendChild(ripple);
     hubBody = hubEl.querySelector(".cg-hub-body");
     hubLabel = hubEl.querySelector(".cg-hub-label"); hubSub = hubEl.querySelector(".cg-hub-sub");
@@ -312,6 +312,8 @@
       }
       labelW = clamp(gap - 10, s, 190);
     }
+    // Keep the ring positions while shrinking councilors and their connection anchors.
+    s *= .75;
     size = s; hubSize = hub;
     root.classList.toggle("tight", labelW < 84); // too crowded for every name: label only the active nodes
     hubEl.style.transform = `translate(${hx}px,${hy}px)`;
@@ -608,7 +610,7 @@
 
   function setHub({ label, sub } = {}) {
     if (!root) return;
-    if (label != null) hubLabel.textContent = label || "SLIM";
+    if (label != null) hubLabel.textContent = label;
     if (sub != null) { hubSub.textContent = sub; hubSub.title = sub; }
   }
 
