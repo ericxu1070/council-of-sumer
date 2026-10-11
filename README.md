@@ -262,5 +262,5 @@ runoff, and year summaries without model or voice calls. Recorded replay is read
 **Show live run** returns to an active negotiation. Live choices and scouts identify that run.
 
 **Export run** downloads `events.jsonl`, `decisions.csv`, `summary.json`, and `report.md`.
-The files include signed turn evidence, dissent, human choices, yearly resources, recorded
+The files include recorded turn evidence, dissent, human choices, yearly resources, recorded
 random inputs, and reported model usage. Past random inputs are recorded after commitment.
