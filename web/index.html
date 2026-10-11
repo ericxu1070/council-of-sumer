@@ -14,6 +14,7 @@
 <body>
 <div class="app" id="app">
   <header class="top">
+    <div class="top-left">
     <div class="brand">
       <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect x=".5" y=".5" width="31" height="31" fill="#20251f" stroke="#b59454"/><path d="M5 25h22M8 25v-6h16v6M11 19v-6h10v6M14 13V7h4v6" fill="none" stroke="#dcc080" stroke-width="1.8"/><path d="M5 6l4 2-4 2M23 6l4 2-4 2" fill="#b59454"/></svg>
       <div class="brand-text"><h1 class="brand-name">Council of Sumer</h1></div>
@@ -26,6 +27,7 @@
       <div class="year-heading"><div class="year-label" id="yearLabel">4005 BCE - 4000 BCE</div></div>
       <div class="year-steps" id="yearSteps" aria-hidden="true"></div>
     </div>
+    </div>
     <div class="top-actions">
       <span class="chip hood-only" id="chipTransport" title="How the advisors talk to each other">-</span>
       <span class="chip hood-only" id="chipLlm" title="Language model">-</span>
@@ -37,7 +39,8 @@
         <span>Clamoring</span><span class="switch" aria-hidden="true"></span>
       </button>
       <button class="icon-btn" id="muteBtn" type="button" aria-pressed="false" title="Mute voices" aria-label="Mute voices">🔊</button>
-      <button class="btn primary convene" id="conveneBtn" type="button">Convene the council</button>
+      <button class="btn primary convene" id="conveneBtn" type="button">Convene</button>
+      <button class="btn" id="stopBtn" type="button" disabled>Stop</button>
       <button class="btn" id="pauseBtn" type="button" disabled aria-pressed="false">Pause</button>
       <button class="icon-btn" id="setupBtn" type="button" title="Setup" aria-label="Open setup" aria-expanded="false">☰</button>
     </div>
@@ -96,10 +99,6 @@
   <label class="field"><span>Rounds per year</span><select id="rounds"><option>3</option><option>4</option><option selected>5</option><option>6</option></select></label>
   <label class="field"><span>Pace <b id="paceVal">0.8 s</b></span><input id="pace" type="range" min="0" max="4" step="0.2" value="0.8"></label>
   <label class="check"><input id="autoContinue" type="checkbox" checked><span>Let votes stand after 12 s unless you act</span></label>
-  <div class="drawer-actions drawer-foot">
-    <button class="btn primary big" id="startBtn" type="button">Convene</button>
-    <button class="btn big" id="stopBtn" type="button" disabled>Stop</button>
-  </div>
 </aside>
 
 <div class="modal-back hidden" id="escalation" role="dialog" aria-modal="true" aria-labelledby="escTitle">

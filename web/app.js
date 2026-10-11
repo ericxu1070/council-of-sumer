@@ -1356,12 +1356,11 @@ function setupError(message = "") {
 function syncSetupLock() {
   const locked = setup.starting || setup.stopping || !!setup.liveRunId;
   $("#councilSetup").disabled = locked || !setup.ready;
-  for (const id of ["seed", "rounds", "startBtn", "conveneBtn"]) {
+  for (const id of ["seed", "rounds", "conveneBtn"]) {
     const el = document.getElementById(id);
     if (el) el.disabled = locked || !setup.ready;
   }
   $("#setupLocked").classList.toggle("hidden", !locked);
-  $("#conveneBtn").classList.toggle("hidden", locked || !setup.ready);
   $("#pauseBtn").disabled = !setup.liveRunId;
   $("#stopBtn").disabled = !setup.liveRunId || setup.stopping;
 }
@@ -1524,7 +1523,6 @@ function wire() {
   $("#setupBtn").onclick = () => openDrawer(!$("#drawer").classList.contains("open"));
   $("#drawerClose").onclick = () => openDrawer(false);
   $("#drawerBack").onclick = () => openDrawer(false);
-  $("#startBtn").onclick = start;
   $("#conveneBtn").onclick = start;
   $("#stopBtn").onclick = async () => {
     if (!setup.liveRunId || setup.stopping) return;

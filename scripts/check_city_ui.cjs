@@ -55,6 +55,22 @@ const os = require('node:os');
       document.querySelector('#defaultVoters').click();
       check(setup.seats.every(seat => seat.rulebook === S.meta.example_rulebooks[seat.preset]), 'Reset must reload defaults');
     });
+    assert.equal(await page.locator('.top #conveneBtn').count(), 1);
+    assert.equal(await page.locator('.top #stopBtn').count(), 1);
+    assert.equal(await page.locator('.top #pauseBtn').count(), 1);
+    assert.equal(await page.locator('.drawer #stopBtn, .drawer #startBtn').count(), 0);
+    assert.equal(await page.locator('.top-left #phase, .top-left #yearLabel').count(), 2);
+    await page.evaluate(() => {
+      setup.liveRunId = 'test-controls'; syncSetupLock(); setPaused(true);
+    });
+    assert.equal(await page.locator('#pauseBtn').textContent(), 'Resume');
+    assert.equal(await page.locator('#stopBtn').isEnabled(), true);
+    assert.equal(await page.locator('#conveneBtn').isVisible(), true);
+    assert.equal(await page.locator('#conveneBtn').isDisabled(), true);
+    await page.evaluate(() => { setup.liveRunId = ''; setPaused(false); syncSetupLock(); });
+    assert.equal(await page.locator('#pauseBtn').textContent(), 'Pause');
+    assert.equal(await page.locator('#conveneBtn').isEnabled(), true);
+    assert.equal(await page.locator('#stopBtn').isDisabled(), true);
     await page.evaluate(() => {
       const check = (ok, message) => { if (!ok) throw new Error(message); };
       const original = setup.seats;
