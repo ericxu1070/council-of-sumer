@@ -155,17 +155,30 @@ async def _call(messages: list[dict], temperature: float) -> Reply:
     return Reply(content, settings.llm_model, False, time.monotonic() - t0, cost)
 
 
+def _trim_object_keys(pairs: list[tuple[str, object]]) -> dict:
+    """Remove surrounding Unicode whitespace without hiding ambiguous fields."""
+    result = {}
+    for key, value in pairs:
+        key = key.strip()
+        if key in result:
+            raise ValueError(f"Duplicate JSON key after trimming whitespace: {key!r}")
+        result[key] = value
+    return result
+
+
 def parse_json(text: str, *, strict: bool = False) -> dict:
     """Pull the first JSON object out of a model reply (tolerates code fences).
 
     If the reply was cut off mid-object, salvage the complete fields before the
-    cut. The proposal comes first in our schema, so it usually survives."""
+    cut. The proposal comes first in our schema, so it usually survives.
+    Strict replies trim surrounding whitespace from object keys, including
+    nested proposal keys, but reject duplicates and leave values unchanged."""
     if strict:
         # Live council decisions must be complete objects, never salvaged fragments.
         body = text.strip()
         if body.startswith("```") and body.endswith("```"):
             body = re.sub(r"^```(?:json)?\s*", "", body)[:-3].strip()
-        value = json.loads(body)
+        value = json.loads(body, object_pairs_hook=_trim_object_keys)
         if not isinstance(value, dict):
             raise ValueError("Model response must be a JSON object.")
         return value
