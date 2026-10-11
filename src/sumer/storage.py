@@ -1,6 +1,8 @@
-"""Append-only SQLite evidence and transactional year commitments."""
+"""Append-only SQLite run records, transactional commitments, replay, and exports."""
 from __future__ import annotations
 
+import csv
+import io
 import json
 import sqlite3
 from datetime import UTC, datetime
@@ -74,6 +76,9 @@ class Store:
         data["human_assisted"] = bool(data["human_assisted"])
         return data
 
+    def runs(self) -> list[dict]:
+        return [self.run(r["id"]) for r in self.db.execute(
+            "SELECT id FROM runs ORDER BY created DESC LIMIT 100").fetchall()]
 
     def status(self, run_id: str, status: str, result: dict | None = None):
         with self.db:
@@ -145,3 +150,40 @@ class Store:
 
 
 
+    def exports(self, run_id: str) -> dict[str, str]:
+        run = self.run(run_id)
+        events = self.events(run_id)
+        years = [json.loads(r["data"]) for r in self.db.execute(
+            "SELECT data FROM years WHERE run_id=? ORDER BY year", (run_id,)).fetchall()]
+        output = io.StringIO()
+        columns = ["year", "outcome", "land_delta", "feed", "plant", "yes_voters", "no_voters",
+                   "starved", "plague_deaths", "population", "grain", "acres", "rounds"]
+        writer = csv.DictWriter(output, fieldnames=columns)
+        writer.writeheader()
+        for y in years:
+            writer.writerow({
+                "year": y["year"], "outcome": y["outcome"], **y["plan"],
+                "yes_voters": ";".join(y["yes_voters"]), "no_voters": ";".join(y["dissent"]),
+                "starved": y["report"]["starved"], "plague_deaths": y["report"]["plague_deaths"],
+                "population": y["state"]["population"], "grain": y["state"]["grain"],
+                "acres": y["state"]["acres"], "rounds": y["rounds"],
+            })
+        usage = [json.loads(r["data"]) for r in self.db.execute(
+            "SELECT data FROM model_usage WHERE run_id=?", (run_id,)).fetchall()]
+        summary = {**run, "model_usage": usage,
+                   "cost_usd": sum(u.get("cost_usd", 0) for u in usage)}
+        report = [f"# Council run {run_id}", f"Status: {run['status']}",
+                  f"Human-assisted: {run['human_assisted']}",
+                  f"Recorded cost: {summary['cost_usd']:.6f} USD",
+                  "## Manifest", json.dumps(run["manifest"], indent=2),
+                  "## Final result", json.dumps(run["result"], indent=2),
+                  "## Decision log"]
+        for e in events:
+            if e["kind"] in ("responses", "ballots", "year", "human_resolution",
+                             "validation_error", "technical_failure", "escalate"):
+                report.extend([f"### Event {e['sequence']}: {e['kind']}",
+                               json.dumps(e["data"], indent=2)])
+        jsonl = lambda values: "".join(encoded(v) + "\n" for v in values)
+        return {"events.jsonl": jsonl(events), "decisions.csv": output.getvalue(),
+                "summary.json": json.dumps(summary, indent=2),
+                "report.md": "\n\n".join(report) + "\n"}

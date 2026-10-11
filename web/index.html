@@ -207,6 +207,7 @@ button, select, input { font: inherit; color: inherit; }
     <div class="controls">
       <div class="row"><label for="seed">Seed</label><input id="seed" type="number" value="7" min="0"></div>
       <div class="row"><label for="rounds">Rounds</label><select id="rounds"><option>3</option><option>4</option><option selected>5</option><option>6</option></select></div>
+      <div class="row"><label for="savedRuns">Replay</label><select id="savedRuns"><option value="">Select a saved run</option></select></div><div class="row"><button class="btn small" id="liveBtn">Show live run</button><a class="btn small hidden" id="exportBtn">Export run</a></div>
       <div class="row"><label for="pace">Pace</label><input id="pace" type="range" min="0" max="4" step="0.2" value="1.2"></div>
       <div class="row hidden" id="voiceRow"><label for="voiceOn">Voice</label><select id="voiceOn"><option value="0">Off</option><option value="1">ElevenLabs</option></select></div>
       <div class="row"><button class="btn primary" id="startBtn" style="flex:1">Convene</button><button class="btn" id="stopBtn">Stop</button></div>
@@ -276,7 +277,7 @@ const SHORT = { farmer: "Farmer", priest: "Priest", general: "General", merchant
 const EMOJI = { farmer: "🌾", priest: "🔮", general: "🛡️", merchant: "💰" };
 const OUTCOME = { consensus: ["✅", "Consensus"], majority: ["🤝", "Majority; dissent recorded"], human_resolution: ["⚖️", "Human resolution"] };
 const CLERK = { name: "Clerk", avatar: "📜", c: "#5865f2", tag: '<span class="tag">bot</span>' };
-let meta, prevState = null, curYear = 0, glass = false, runId = "", replay = false, stream = null;
+let meta, prevState = null, curYear = 0, glass = false, runId = "", replay = true, stream = null;
 const seen = new Set();
 const color = id => meta.advisors.find(a => a.id === id)?.color || "var(--blurple)";
 
@@ -436,14 +437,22 @@ function handle(event) {
     message({...CLERK, time: finished ? "end of reign" : "run status", html: `<div class="embed outcome"><div class="etitle">${esc(d.status.replaceAll("_", " "))}</div>
       ${finished ? `<div class="esub">Verdict: ${esc(r.verdict)} · ${esc(r.verdict_reason)}</div>` : ""}
       <div class="stats"><span>people <b>${fmt(r.population)}</b></span><span>acres <b>${fmt(r.acres)}</b></span><span>grain <b>${fmt(r.grain)}</b></span><span>avg starved <b>${r.avg_starved_pct}%</b></span></div></div>`});
-    if (!replay) { stream?.close(); }
+    if (!replay) { stream?.close(); loadRuns().catch(e => toast(e.message)); }
   }
+}
+async function loadRuns() {
+  const runs = await api("/api/runs");
+  $("#savedRuns").innerHTML = '<option value="">Select a saved run</option>' + runs.map(r => `<option value="${esc(r.id)}">seed ${r.manifest.seed} · ${esc(r.status)} · ${r.id.slice(0, 8)}</option>`).join("");
+  $("#savedRuns").value = runId;
+  return runs;
 }
 function setRun(id, isReplay) {
   audioQ.length = 0;
   if (activeAudio) { activeAudio.onended = activeAudio.onerror = null; activeAudio.pause(); activeAudio = null; }
   playing = false;
   stream?.close(); seen.clear(); runId = id; replay = isReplay; setTyping([]);
+  $("#exportBtn").href = `/api/runs/${runId}/export`;
+  $("#exportBtn").classList.remove("hidden");
   $("#alertbar").classList.remove("show");
 }
 function connect(id) {
@@ -451,6 +460,13 @@ function connect(id) {
   stream = new EventSource(`/api/events?run_id=${encodeURIComponent(id)}`);
   stream.onmessage = m => handle(JSON.parse(m.data));
   // EventSource retains Last-Event-ID when reconnecting; seen also suppresses duplicates.
+}
+async function replayRun(id) {
+  setRun(id, true);
+  const events = await api(`/api/runs/${id}/events`);
+  if (runId !== id || !replay) return;
+  for (const event of events) handle(event);
+  $("#feed").scrollTop = 0;
 }
 $("#app").addEventListener("click", e => {
   const ch = e.target.closest(".ch"); if (!ch) return;
@@ -471,12 +487,17 @@ async function start() {
   try {
     const result = await api("/api/game", {seed: +$("#seed").value, max_rounds: +$("#rounds").value});
     $("#chatView").classList.remove("hidden"); $("#evidenceView").classList.add("hidden");
-    connect(result.run_id);
+    connect(result.run_id); await loadRuns();
   } catch (e) { toast(e.message); }
 }
 $("#startBtn").onclick = start; $("#startBtnMobile").onclick = start;
-$("#stopBtn").onclick = () => api("/api/stop", {}).catch(e => toast(e.message));
+$("#stopBtn").onclick = () => api("/api/stop", {}).then(loadRuns).catch(e => toast(e.message));
 $("#pace").oninput = e => api("/api/pace", {pace_s: +e.target.value}).catch(() => {});
+$("#savedRuns").onchange = e => { if (e.target.value) replayRun(e.target.value).catch(e => toast(e.message)); };
+$("#liveBtn").onclick = async () => {
+  const current = await api("/api/meta");
+  if (current.active_run) connect(current.active_run); else toast("There is no active run.");
+};
 async function loadBench() {
   const b = await api("/api/bench");
   if (b.missing || b.historical) { $("#benchMeta").textContent = b.message || "No results yet. Run: uv run sumer bench"; return; }
@@ -495,7 +516,9 @@ async function pollSpend() { try { const r = await api("/api/spend"); $("#spend"
   if (meta.voice) $("#voiceRow").classList.remove("hidden");
   if (meta.llm === "bayleaf") { $("#chipSpend").classList.remove("hidden"); pollSpend(); setInterval(pollSpend, 5000); }
   buildMembers();
+  const saved = await loadRuns();
   if (meta.active_run) connect(meta.active_run);
+  else if (saved.length) await replayRun(saved[0].id);
 })().catch(e => toast(e.message));
 
 </script>

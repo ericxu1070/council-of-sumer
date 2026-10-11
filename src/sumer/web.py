@@ -1,10 +1,12 @@
-"""One live council game with verified, recorded event streams."""
+"""One live game, durable event streams, and recorded replay with no model calls."""
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import logging
 import time
+import zipfile
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
@@ -25,6 +27,12 @@ store = Store(DEFAULT_DB)
 
 @asynccontextmanager
 async def lifespan(app):
+    # A restarted server retains the journal but cannot silently resume a partial negotiation.
+    for run in store.runs():
+        if run["status"] in ("running", "deadlock"):
+            store.append(run["id"], "technical_failure", {
+                "message": "Server restarted before the live run finished."})
+            store.status(run["id"], "technical_failure")
     yield
     if live.task and not live.task.done():
         live.task.cancel()
@@ -179,10 +187,20 @@ def require_run(run_id: str):
         raise HTTPException(404, "Unknown run.") from None
 
 
+@app.get("/api/runs")
+async def runs():
+    return store.runs()
 
 
+@app.get("/api/runs/{run_id}")
+async def run_details(run_id: str):
+    return require_run(run_id)
 
 
+@app.get("/api/runs/{run_id}/events")
+async def recorded_events(run_id: str, year: int | None = None, after: int = 0):
+    require_run(run_id)
+    return store.events(run_id, after=after, year=year)
 
 
 @app.get("/api/events")
@@ -228,6 +246,15 @@ async def events(request: Request, run_id: str):
 
 
 
+@app.get("/api/runs/{run_id}/export")
+async def export(run_id: str):
+    require_run(run_id)
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name, content in store.exports(run_id).items():
+            archive.writestr(name, content)
+    return Response(output.getvalue(), media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="sumer-{run_id}.zip"'})
 
 
 @app.get("/api/bench")

@@ -37,7 +37,8 @@ No Docker is required.
 
 For an offline rehearsal, set `LLM_MODE=mock`. This is an explicitly selected fixture mode.
 Live model failures never switch to it. The existing model, request settings, prompt cache,
-spend log, and usage display remain configured as before. Each run keeps a decision journal independent of the prompt cache.
+spend log, and usage display remain configured as before. Saved-run replay reads the journal
+without making model or voice calls, independent of the prompt cache.
 
 ```bash
 uv run pytest
@@ -96,14 +97,27 @@ one transaction, preventing duplicate delivery from advancing the game twice.
 These are local development credentials. The four processes share a machine and file
 permissions; this does not claim isolated production identities or remote attestation.
 
-## Decision evidence
+## Persistence, replay, and exports
 
 SQLite at `.cache/runs.sqlite3` stores immutable run manifests, append-only events,
-proposals, ballots, year results, human resolutions, and reported model usage. Valid ballots
-are stored as they arrive, even if another voter ultimately fails. Completed years record
-their random inputs for audit without disclosing future rolls to advisors. Manifests include
-application, rule, and dependency versions. Live human selection accepts only a pending
-latest proposal for the current run.
+proposals, ballots, year results, human resolutions, model usage,.
+Valid ballots are stored as they arrive, even if another voter ultimately fails. Manifests
+include the application version as well as the rule and dependency versions. Stopped runs
+retain their final recorded resources and mortality in the summary export.
+Completed years record their random inputs for audit, without disclosing future rolls
+to advisors. A server restart retains history and marks an interrupted live run as a
+technical failure.
+
+Select a saved run in the UI to replay it. Year channels navigate the recorded report,
+proposal exchange, ballots, and outcome. Replay is read-only. Live selection includes
+the run ID and accepts only a pending latest proposal.
+
+**Export run** downloads a ZIP containing:
+
+- `events.jsonl`: ordered events, signed replies, candidates, ballots, and random inputs
+- `decisions.csv`: annual budgets, votes, dissent, resources, and deaths
+- `summary.json`: manifest, status, human assistance, results, and recorded model usage
+- `report.md`: manifest, decisions, failed ballots, human resolutions, and failures
 
 The original benchmark command remains available. Offline scores and fairness are computed
 after a run; they do not steer live decisions. Paused deadlocks and technical failures are
@@ -116,6 +130,6 @@ is historical evidence, and the UI labels it accordingly until regenerated.
 - `agent.py`: phase-specific live model decisions and explicit offline fixtures
 - `advisors.py`, `baselines.py`, `bench.py`: mandates and offline comparison policies
 - `protocol.py`, `deliberation.py`, `engine.py`: signed phases, voting, and verified commitment
-- `storage.py`: immutable evidence and transactional commitments
+- `storage.py`: immutable journal, replay, and exports
 - `transport/`: A2A/SLIM and in-process test transport
-- `web.py`, `web/index.html`: live chamber and human selection
+- `web.py`, `web/index.html`: live chamber, human selection, saved replay

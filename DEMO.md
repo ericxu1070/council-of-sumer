@@ -37,6 +37,12 @@ Future events remain unknown to the advisors; no scouting controls disclose them
 
 - Use year channels to inspect proposals, objections, completed failed ballots, dissent, and
   the committed year's harvest, rats, starvation, immigration, and plague deaths.
+- **Export run** saves events, decisions, summary, and a Markdown report in one ZIP.
+- Select a saved run to replay its recorded messages. Replay makes no model or voice calls
+  and cannot resolve a live human choice. **Show live run** returns to an active negotiation.
+- Restart the server and show that saved runs remain available. An interrupted run is
+  retained with technical-failure status.
+
 The existing offline benchmark command is `uv run sumer bench --seeds 30`. Historical
 checked-in results are labeled as such until regenerated. Deadlocks remain paused in a
 benchmark without a human; do not describe them as completed autonomous reigns.
@@ -46,5 +52,5 @@ benchmark without a human; do not describe them as completed autonomous reigns.
 The automated suite checks integer accounting, invalid budget rejection, three-of-four
 adoption with all four ballots, signatures and identity, stale/wrong candidate rejection,
 one retry, genuine deadlock selection, certificate verification, exactly-once commitment,
-and retained model usage. Mock mode exercises the transport
+durable replay and exports. Mock mode exercises the transport
 without requiring paid model calls.
