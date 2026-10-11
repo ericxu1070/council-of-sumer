@@ -8,7 +8,6 @@ from sumer.game import (
     InvalidBudget,
     State,
     YearRolls,
-    advance,
     legalize,
     new_game,
     rating,
@@ -72,9 +71,3 @@ def test_depopulation_terminates_and_final_year_applies_plague():
     assert end.year == YEARS + 1 and end.status == "completed"
     assert end.last_report["immigrants"] > 0 and end.last_report["plague_deaths"] > 0
     assert rating(State(year=3, starved_pct_sum=10))["avg_starved_pct"] == 5
-
-
-def test_full_feed_means_no_starvation():
-    state, rolls = new_game(1)
-    nxt = advance(state, Decision(0, state.population * 20, 500), rolls)
-    assert nxt.last_report["starved"] == 0

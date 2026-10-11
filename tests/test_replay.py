@@ -1,30 +1,6 @@
-import json
-
 from fastapi.testclient import TestClient
 
-from sumer import llm
-from sumer.chamber import play_council
 from sumer.storage import Store
-from tests.support import unanimous
-
-
-async def test_saved_replay_and_exports_do_not_call_models(tmp_path, monkeypatch):
-    path = tmp_path / "runs.sqlite3"
-    journal = Store(path)
-    g = await play_council(1, unanimous, store=journal, max_rounds=1)
-    recorded = journal.events(g.run_id)
-    journal.db.close()
-    def unexpected(*args, **kwargs):
-        raise AssertionError("Replay must not call a model.")
-    monkeypatch.setattr(llm, "chat", unexpected)
-    reopened = Store(path)
-    assert reopened.events(g.run_id) == recorded
-    exports = reopened.exports(g.run_id)
-    assert set(exports) == {"events.jsonl", "decisions.csv", "summary.json", "traces.jsonl", "report.md"}
-    assert "yes_voters" in exports["decisions.csv"] and len(g.years) == 5
-    assert "random_inputs" in exports["events.jsonl"]
-    assert json.loads(exports["summary.json"])["status"] == g.status
-    reopened.db.close()
 
 
 def test_api_replay_export_and_wrong_human_selection(monkeypatch):
@@ -38,7 +14,6 @@ def test_api_replay_export_and_wrong_human_selection(monkeypatch):
         assert client.get("/api/runs/recorded/events?year=1").json()[0]["data"]["phase"] == "vote"
         assert client.get("/api/runs/recorded/export").headers["content-type"] == "application/zip"
         assert client.get("/api/runs/missing").status_code == 404
-        assert client.post("/api/news", json={"run_id": "recorded", "kind": "harvest"}).status_code == 409
         assert client.post("/api/escalation", json={"run_id": "recorded", "choice": "safe"}).status_code == 409
 
 

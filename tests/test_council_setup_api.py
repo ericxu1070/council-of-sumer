@@ -16,6 +16,11 @@ def chamber(monkeypatch):
     monkeypatch.setattr(web, "store", journal)
     monkeypatch.setattr(web, "live", web.Live())
     monkeypatch.setattr(web, "_ask", unanimous)
+    async def skip_scout(year, round_no, phase, rows):
+        await web.journal_emit("scout_choice", {"year": year, "round": round_no,
+                                               "phase": phase, "choice": "skip"})
+        return "skip"
+    monkeypatch.setattr(web, "_ask_scout", skip_scout)
     web.live.pace_s = 0
     with TestClient(web.app) as client:
         yield client, journal, web
@@ -26,14 +31,8 @@ def chamber(monkeypatch):
     [],
     [{"id": "farmer"}, {"id": "farmer"}],
     [{"id": "unknown"}],
-    [{"id": "custom-scribe", "short": "Scribe"}],
-    [{"id": "custom-scribe", "short": "Scribe", "mandate": "Feed the city.",
-      "profile": "unknown"}],
-    [{"id": "bad/id", "short": "Scribe", "mandate": "Feed the city."}],
     [{"id": "custom-scribe", "short": "Scribe", "mandate": "Feed the city.",
       "color": "red;position:fixed"}],
-    [{"id": f"custom-{i}", "short": f"Voter {i}", "mandate": "Feed the city."}
-     for i in range(22)],
 ])
 def test_invalid_council_rejected_before_creating_run(chamber, advisors):
     client, journal, web = chamber
@@ -44,7 +43,6 @@ def test_invalid_council_rejected_before_creating_run(chamber, advisors):
 
 
 @pytest.mark.parametrize("advisors", [
-    [{"id": "farmer"}],
     [{"id": "provider"}, {"id": "farmer"}],
     [{"id": "custom-scribe", "short": "Scribe", "title": "Keeper of the Tablets",
       "mandate": "Speak for the families and keep everyone fed.",

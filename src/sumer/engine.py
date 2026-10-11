@@ -37,6 +37,9 @@ def commit(store: Store, run_id: str, state: State, result: YearResult,
             if (result.certificate is None) == (result.human_resolution is None):
                 raise ValueError("Exactly one certificate or human resolution is required.")
             events = store.events(run_id, year=state.year)
+            interactive = manifest.get("scout_mode") == "after_vote"
+            scout_choices = {(e["data"]["round"], e["data"]["phase"]): e["data"]["choice"]
+                             for e in events if e["kind"] == "scout_choice"}
             for event in events:
                 if event["kind"] != "phase":
                     continue
@@ -67,6 +70,7 @@ def commit(store: Store, run_id: str, state: State, result: YearResult,
                 last_discussion = None
                 moves = {}
                 runoff_votes = {}
+                runoff_round = None
                 pair = None
                 for event in events:
                     if event["kind"] != "receipt":
@@ -88,6 +92,12 @@ def commit(store: Store, run_id: str, state: State, result: YearResult,
                             raise ValueError("Recorded request has a wrong speaking order.")
                         latest[ballot.advisor] = data
                         if brief.phase == "discuss":
+                            if brief.turn == 0:
+                                table.begin_round()
+                            if interactive and brief.round >= manifest["max_rounds"] and (
+                                scout_choices.get((brief.round - 1, "discuss"), "skip") == "skip"
+                            ):
+                                raise ValueError("Extra discussion requires a scout-triggered re-vote.")
                             if runoff_votes:
                                 raise ValueError("Discussion cannot resume after a frozen runoff.")
                             expected = (0, 0) if last_discussion is None else (
@@ -112,16 +122,32 @@ def commit(store: Store, run_id: str, state: State, result: YearResult,
                             if len(lead["accept"]) != runoff_floor and not tied:
                                 raise ValueError("Runoff does not meet its tie or runoff-floor trigger.")
                             news_in_round = any(e["kind"] == "news" and e["data"].get("round") == last_discussion.round for e in events)
-                            if not (last_discussion.round == manifest["max_rounds"] - 1 or last_discussion.round >= 1 and not moves[last_discussion.round] and not news_in_round):
+                            if not (last_discussion.round >= manifest["max_rounds"] - 1 or last_discussion.round >= 1 and not moves[last_discussion.round] and not news_in_round):
                                 raise ValueError("Runoff cannot preempt the negotiation limit or stalemate.")
                             if brief.table != brief.runoff or any(t.model_dump(exclude={"accept", "backers"}) != table.plans[t.id].model_dump(exclude={"accept", "backers"}) for t in brief.runoff if t.id in table.plans):
                                 raise ValueError("Runoff changes a frozen finalist budget.")
-                            if [t.id for t in brief.runoff] != expected_pair or brief.round != last_discussion.round + 1:
+                            if runoff_round is None:
+                                runoff_round = last_discussion.round + 1
+                            if brief.round != runoff_round:
+                                if (not interactive or brief.round != runoff_round + 1
+                                        or len(runoff_votes) != n_advisors
+                                        or scout_choices.get((runoff_round, "runoff"), "skip") == "skip"):
+                                    raise ValueError("Runoff re-vote requires a complete vote and scout event.")
+                                runoff_round = brief.round
+                                runoff_votes = {}
+                            if [t.id for t in brief.runoff] != expected_pair:
                                 raise ValueError("Runoff changes the frozen finalists.")
                             if brief.turn != len(runoff_votes) or ballot.advisor in runoff_votes:
                                 raise ValueError("Runoff is not a complete sequential ballot.")
                             pair = expected_pair
                             runoff_votes[ballot.advisor] = ballot.runoff_vote
+                if interactive:
+                    phase = "runoff" if runoff_votes else "discuss"
+                    final_round = runoff_round if runoff_votes else last_discussion.round
+                    if scout_choices.get((final_round, phase)) != "skip":
+                        raise ValueError("A vote may be committed only after the user skips the scout.")
+                    if last_discussion.turn != n_advisors - 1:
+                        raise ValueError("Interactive voting requires a complete council round.")
                 if set(latest) != set(advisor_ids) or result.certificate != {
                     "candidate_id": result.adopted_id, "ballots": [latest[a] for a in advisor_ids]}:
                     raise ValueError("Certificate requires the unchanged latest ballot from "
@@ -147,7 +173,7 @@ def commit(store: Store, run_id: str, state: State, result: YearResult,
                         last_discussion.round > 1 or last_discussion.turn == n_advisors - 1)
                     news_in_round = any(e["kind"] == "news" and e["data"].get("round") == last_discussion.round for e in events)
                     final = last_discussion.turn == n_advisors - 1 and (
-                        last_discussion.round == manifest["max_rounds"] - 1 or
+                        last_discussion.round >= manifest["max_rounds"] - 1 or
                         last_discussion.round >= 1 and not moves[last_discussion.round] and not news_in_round)
                     if runoff_votes or ranked[0]["id"] != row["id"] or not (
                         strong or final and unique and len(yes) >= majority):

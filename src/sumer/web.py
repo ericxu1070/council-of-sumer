@@ -26,15 +26,14 @@ from sumer import voice
 from sumer.advisors import (
     ADVISORS,
     MAX_ADVISORS,
-    REPORT_KINDS,
     CouncilSeat,
     resolve_council,
-    scout_report,
 )
 from sumer.chamber import DEFAULT_DB, play_council
 from sumer.config import CACHE_DIR, RESULTS_DIR, ROOT, settings
-from sumer.game import YEARS, roll_game
+from sumer.game import YEARS
 from sumer.protocol import Ballot, Brief, Delivery, uid
+from sumer.scouts import SCOUT_IDS, SCOUT_OPTIONS
 from sumer.storage import Store
 
 log = logging.getLogger(__name__)
@@ -49,6 +48,7 @@ async def lifespan(app):
             store.status(run["id"], "technical_failure")
     yield
     if live.task and not live.task.done():
+        live.resume.set()
         live.task.cancel()
         try:
             await live.task
@@ -85,7 +85,11 @@ class Live:
         self.seed = 0
         self.year = 1
         self.pace_s = settings.pace_s
-        self.injected: list[dict] = []
+        self.paused = False
+        self.resume = asyncio.Event()
+        self.resume.set()
+        self.scout_pending: asyncio.Future | None = None
+        self.scout_request: dict | None = None
         self.pending: asyncio.Future | None = None
         self.council = None
         self.game_no = 0
@@ -103,9 +107,11 @@ PACED = {"turn", "news", "runoff", "runoff_result", "escalate"}
 
 
 async def paced_emit(kind: str, data: dict) -> None:
+    await live.resume.wait()
     loop = asyncio.get_running_loop()
     if kind in PACED and live.pace_s > 0:
         await asyncio.sleep(max(0.0, live.next_at - loop.time()))
+    await live.resume.wait()
     await hub.emit(kind, data)
     if live.pace_s <= 0:
         return  # fast-forward
@@ -170,16 +176,16 @@ async def _ask_human(options: list[dict], reason: str) -> str | None:
         live.options.clear()
 
 
-async def _run(seed: int, reveal: bool, max_rounds: int, advisors: dict) -> None:
+async def _run(seed: int, max_rounds: int, advisors: dict) -> None:
     try:
         await play_council(
             seed,
             _ask,
-            reveal_news=reveal,
+            reveal_news=False,
             max_rounds=max_rounds,
             ask_human=_ask_human,
             emit=paced_emit,
-            injected_news=live.injected,
+            ask_scout=_ask_scout,
             narrate=_narrate,
             store=store, run_id=live.run_id,
             advisors=advisors,
@@ -198,7 +204,6 @@ async def _run(seed: int, reveal: bool, max_rounds: int, advisors: dict) -> None
 class StartReq(BaseModel):
     model_config = ConfigDict(extra="forbid")
     seed: int = 7
-    reveal_news: bool = True
     max_rounds: int | None = Field(default=None, ge=1, le=20)
     advisors: list[CouncilSeat] | None = Field(default=None, min_length=1, max_length=MAX_ADVISORS)
 
@@ -214,12 +219,14 @@ async def start(req: StartReq):
         raise HTTPException(409, "A live run is already active.")
     advisors = resolve_council(req.advisors)
     live.run_id = uid()
-    live.injected.clear()
+    live.paused = False
+    live.resume.set()
+    live.scout_request = None
     live.seed, live.year = req.seed, 1
     live.game_no += 1
     live.narration.clear()
     live.task = asyncio.create_task(
-        _run(req.seed, req.reveal_news, req.max_rounds or settings.max_rounds, advisors)
+        _run(req.seed, req.max_rounds or settings.max_rounds, advisors)
     )
     await asyncio.sleep(0)
     require_run(live.run_id)
@@ -229,6 +236,7 @@ async def start(req: StartReq):
 @app.post("/api/stop")
 async def stop():
     if live.task and not live.task.done():
+        live.resume.set()
         live.task.cancel()
         try:
             await live.task
@@ -237,22 +245,59 @@ async def stop():
     return {"ok": True}
 
 
-class NewsReq(BaseModel):
-    kind: str
+async def _ask_scout(year: int, round_no: int, phase: str, rows: list[dict]) -> str:
+    await live.resume.wait()
+    request = {"request_id": uid(), "year": year, "round": round_no,
+               "phase": phase, "rows": rows, "options": SCOUT_OPTIONS}
+    live.scout_request = request
+    live.scout_pending = asyncio.get_running_loop().create_future()
+    try:
+        await journal_emit("scout_request", request)
+        choice = await live.scout_pending
+        await live.resume.wait()
+        await journal_emit("scout_choice", {**request, "choice": choice})
+        return choice
+    finally:
+        live.scout_pending = None
+        live.scout_request = None
+
+
+class ScoutReq(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     run_id: str
+    request_id: str
+    choice: str
 
 
-@app.post("/api/news")
-async def news(req: NewsReq):
+@app.post("/api/scout")
+async def scout(req: ScoutReq):
+    if (req.run_id != live.run_id or not live.scout_pending or live.scout_pending.done()
+            or not live.scout_request or req.request_id != live.scout_request["request_id"]):
+        raise HTTPException(409, "No matching scout choice is waiting.")
+    if req.choice not in SCOUT_IDS:
+        raise HTTPException(422, "Choose a listed event or skip.")
+    if live.paused:
+        raise HTTPException(409, "Resume the council before choosing a scout event.")
+    live.scout_pending.set_result(req.choice)
+    return {"ok": True}
+
+
+class PauseReq(BaseModel):
+    run_id: str
+    paused: bool
+
+
+@app.post("/api/pause")
+async def pause(req: PauseReq):
     if req.run_id != live.run_id or not live.task or live.task.done():
-        raise HTTPException(409, "No matching live run.")
-    if req.kind not in REPORT_KINDS:
-        raise HTTPException(400, "unknown report kind")
-    rolls = roll_game(live.seed)
-    y = live.year
-    report = scout_report(req.kind, rolls[y - 1], rolls[y] if y < len(rolls) else None)
-    live.injected.append({**report, "injected": True})
-    return {"ok": True, "report": report}
+        raise HTTPException(409, "No matching live council.")
+    live.paused = req.paused
+    if req.paused:
+        live.resume.clear()
+    else:
+        live.resume.set()
+    await journal_emit("pause", {"year": live.year, "paused": live.paused})
+    return {"ok": True, "paused": live.paused}
 
 
 class ChoiceReq(BaseModel):
@@ -266,6 +311,8 @@ async def choose(req: ChoiceReq):
         raise HTTPException(409, "no escalation pending")
     if req.choice not in live.options:
         raise HTTPException(400, "Choose a latest valid option.")
+    if live.paused:
+        raise HTTPException(409, "Resume the council before choosing a plan.")
     live.pending.set_result(req.choice)
     return {"ok": True}
 
@@ -295,7 +342,9 @@ async def meta():
         "max_rounds": settings.max_rounds,
         "escalation_timeout_s": settings.escalation_timeout_s,
         "budget_usd": settings.llm_budget_usd,
-        "report_kinds": list(REPORT_KINDS),
+        "scout_options": SCOUT_OPTIONS,
+        "scout_pending": live.scout_request,
+        "paused": live.paused,
     }
 
 

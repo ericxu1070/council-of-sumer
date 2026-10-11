@@ -9,4 +9,4 @@ async def unanimous(brief):
     plan = Plan(**safe_plan(state).as_dict())
     matches = [t.id for t in brief.table if t.plan == plan]
     return bind(Ballot(advisor=brief.speaker, year=brief.year, round=brief.round,
-        phase=brief.phase, proposal=plan, accept=matches, speech="We agree on this budget."), brief)
+        phase=brief.phase, proposal=plan, back=matches[0] if matches else None, accept=matches[:1], speech="We agree on this budget."), brief)

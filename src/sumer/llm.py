@@ -36,6 +36,10 @@ class LLMFailed(LLMUnavailable):
     up", a failure here means the run made a decision the cache cannot replay."""
 
 
+class LLMRejected(LLMUnavailable):
+    """The API rejected the request; repeating it cannot repair its configuration."""
+
+
 ATTEMPTS = 3
 BACKOFF_S = (2.0, 5.0)  # wait before the second and third attempts
 
@@ -59,7 +63,11 @@ def enabled() -> bool:
 
 def _cache_path(messages: list[dict]) -> Path:
     key = hashlib.sha256(
-        json.dumps([settings.llm_model, messages], sort_keys=True).encode()
+        json.dumps(
+            [settings.llm_model, settings.llm_reasoning, settings.llm_reasoning_effort,
+             settings.llm_max_tokens, messages],
+            sort_keys=True,
+        ).encode()
     ).hexdigest()
     return CACHE_DIR / "llm" / f"{key}.json"
 
@@ -113,16 +121,27 @@ async def _call(messages: list[dict], temperature: float) -> Reply:
         "model": settings.llm_model,
         "messages": messages,
         "temperature": temperature,
-        "max_tokens": 700,
+        "max_tokens": settings.llm_max_tokens,
         "response_format": {"type": "json_object"},
-        "reasoning": {"enabled": False},  # thinking tokens cost money and add latency
+        "reasoning": {"enabled": settings.llm_reasoning},
     }
+    if settings.llm_reasoning and settings.llm_reasoning_effort:
+        body["reasoning"]["effort"] = settings.llm_reasoning_effort
     t0 = time.monotonic()
     try:
         async with httpx.AsyncClient(timeout=settings.llm_timeout_s) as client:
             r = await client.post(
                 url, json=body, headers={"Authorization": f"Bearer {settings.llm_api_key}"}
             )
+            if r.is_error:
+                try:
+                    error = r.json().get("error", {})
+                    message = error.get("message") if isinstance(error, dict) else error
+                except (ValueError, AttributeError):
+                    message = None
+                detail = str(message or r.reason_phrase)[:1600]
+                failure = LLMRejected if r.status_code in (400, 401, 402, 403, 404, 405, 422) else LLMFailed
+                raise failure(f"{settings.llm_model}: HTTP {r.status_code}: {detail}")
             r.raise_for_status()
             data = r.json()
             content = data["choices"][0]["message"]["content"]
@@ -136,17 +155,30 @@ async def _call(messages: list[dict], temperature: float) -> Reply:
     return Reply(content, settings.llm_model, False, time.monotonic() - t0, cost)
 
 
+def _trim_object_keys(pairs: list[tuple[str, object]]) -> dict:
+    """Remove surrounding Unicode whitespace without hiding ambiguous fields."""
+    result = {}
+    for key, value in pairs:
+        key = key.strip()
+        if key in result:
+            raise ValueError(f"Duplicate JSON key after trimming whitespace: {key!r}")
+        result[key] = value
+    return result
+
+
 def parse_json(text: str, *, strict: bool = False) -> dict:
     """Pull the first JSON object out of a model reply (tolerates code fences).
 
     If the reply was cut off mid-object, salvage the complete fields before the
-    cut. The proposal comes first in our schema, so it usually survives."""
+    cut. The proposal comes first in our schema, so it usually survives.
+    Strict replies trim surrounding whitespace from object keys, including
+    nested proposal keys, but reject duplicates and leave values unchanged."""
     if strict:
         # Live council decisions must be complete objects, never salvaged fragments.
         body = text.strip()
         if body.startswith("```") and body.endswith("```"):
             body = re.sub(r"^```(?:json)?\s*", "", body)[:-3].strip()
-        value = json.loads(body)
+        value = json.loads(body, object_pairs_hook=_trim_object_keys)
         if not isinstance(value, dict):
             raise ValueError("Model response must be a JSON object.")
         return value

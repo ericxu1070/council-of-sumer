@@ -52,6 +52,7 @@ Emit = Callable[[str, dict], Awaitable[None]]
 Ask = Callable[[Brief], Awaitable[Ballot | Delivery | None]]
 # Called on escalation with (options, reason); returns the chosen option id or None
 AskHuman = Callable[[list[dict], str], Awaitable[str | None]]
+AfterVote = Callable[[int, str, list[dict]], Awaitable[dict | None]]
 
 MAJORITY = N_ADVISORS // 2 + 1  # default council, adopted by the final rule
 STRONG_MAJORITY = max(MAJORITY, ceil(2 * N_ADVISORS / 3))
@@ -137,10 +138,15 @@ class Table:
         self.plans: dict[str, TabledProposal] = {}
         self.current: dict[str, str] = {}  # advisor -> id of the plan it proposes or backs
         self.accepts: dict[str, set[str]] = {}
+        self.cast: set[tuple[int, int, str]] = set()
+
+    def begin_round(self) -> None:
+        self.accepts.clear()
+        self.plans = {pid: plan for pid, plan in self.plans.items()
+                      if pid in self.current.values()}
 
     def support(self, pid: str) -> list[str]:
         acc = {a for a in self.advisor_ids if pid in self.accepts.get(a, ())}
-        acc |= {a for a, p in self.current.items() if p == pid}
         return sorted(acc, key=self.advisor_ids.index)
 
     def snapshot(self) -> list[TabledProposal]:
@@ -180,13 +186,18 @@ class Table:
                     id=pid, author=who, plan=p, speech=b.speech, plain=plain(d, self.state)
                 )
         self.current[who] = pid
-        if prev and prev != pid and prev not in self.current.values():
-            del self.plans[prev]  # nobody backs it any more: withdrawn
+        if (prev and prev != pid and prev not in self.current.values()
+                and prev not in b.accept and not self.support(prev)):
+            del self.plans[prev]  # nobody proposes, backs, or approves it any more
         return pid, pid != prev
 
     def vote(self, who: str, b: Ballot, allowed: set[str]) -> None:
         self._check_voter(who)
-        self.accepts[who] = {i for i in b.accept if i in allowed}
+        key = (b.year, b.round, who)
+        if key in self.cast:
+            raise ValueError("Each agent may submit only one ballot per round.")
+        self.cast.add(key)
+        self.accepts[who] = (set(b.accept) & allowed) | {self.current[who]}
 
 
     def _check_voter(self, who: str) -> None:
@@ -207,6 +218,7 @@ async def deliberate_year(
     emit: Emit = _noop_emit,
     run_id: str | None = None,
     advisors: dict[str, Advisor] | None = None,
+    after_vote: AfterVote | None = None,
 ) -> YearResult:
     advisors = resolve_council() if advisors is None else dict(advisors)
     advisor_ids = list(advisors)
@@ -264,17 +276,23 @@ async def deliberate_year(
         return bool(items)
 
     def finish(outcome, pid, rounds, dissent, reason, runoff=None) -> YearResult:
-        result = _finish(state, beliefs, outcome, table.plans[pid], rounds, dissent, reason, news,
+        final_beliefs = Beliefs()
+        for report in news:
+            final_beliefs = apply_report(final_beliefs, report)
+        result = _finish(state, final_beliefs, outcome, table.plans[pid], rounds, dissent, reason, news,
                          opening, after_news, runoff, n_turns, advisors)
         result.certificate = {"candidate_id": pid, "ballots": [accepted[a].model_dump() for a in advisor_ids]}
         return result
 
     rnd = 0
-    for rnd in range(max_rounds):
-        heard = await take_news(rnd, [scheduled_news] if rnd == 1 and scheduled_news else [])
+    revote = False
+    while rnd < max_rounds or revote:
+        table.begin_round()
+        heard = revote
+        heard |= await take_news(rnd, [scheduled_news] if rnd == 1 and scheduled_news else [])
         order = speaking_order(state.year, rnd, advisor_ids)
         await emit("round", {"year": state.year, "round": rnd, "phase": "discuss",
-                             "max_rounds": max_rounds, "order": order})
+                             "max_rounds": max_rounds, "order": order, "revote": revote})
         this_round: list[dict] = []
         changed = False
         for i, who in enumerate(order):
@@ -317,28 +335,28 @@ async def deliberate_year(
                 "source": ballot.source, "support": table.rows(),
             })
 
-            # Stop rule 1: everyone accepts one plan.
-            for row in table.rows():
-                if len(row["accept"]) == n_advisors:
-                    await _tally(emit, state.year, rnd, table, partial=i < len(order) - 1)
-                    return finish("consensus", row["id"], rnd + 1, [],
-                                  f"All {n_advisors} advisors accepted.")
-            # Stop rule 2: a strong majority, once round 2 is complete.
-            if rnd > STRONG_MAJORITY_FROM_ROUND or (
-                rnd == STRONG_MAJORITY_FROM_ROUND and i == len(order) - 1
-            ):
-                strong = [r for r in table.ranked()
-                          if len(r["accept"]) >= strong_majority]
-                if strong:
-                    best = strong[0]
-                    await _tally(emit, state.year, rnd, table, partial=i < len(order) - 1)
-                    dissent = [a for a in advisor_ids if a not in best["accept"]]
-                    return finish(
-                        "majority", best["id"], rnd + 1, dissent,
-                        f"Strong majority: {len(best['accept'])} of {n_advisors} accepted "
-                        f"with dissent recorded: {_names(dissent, advisors)}.",
-                    )
-
+            if after_vote is None:
+                # Stop rule 1: everyone accepts one plan.
+                for row in table.rows():
+                    if len(row["accept"]) == n_advisors:
+                        await _tally(emit, state.year, rnd, table, partial=i < len(order) - 1)
+                        return finish("consensus", row["id"], rnd + 1, [],
+                                      f"All {n_advisors} advisors accepted.")
+                # Stop rule 2: a strong majority, once round 2 is complete.
+                if rnd > STRONG_MAJORITY_FROM_ROUND or (
+                    rnd == STRONG_MAJORITY_FROM_ROUND and i == len(order) - 1
+                ):
+                    strong = [r for r in table.ranked()
+                              if len(r["accept"]) >= strong_majority]
+                    if strong:
+                        best = strong[0]
+                        await _tally(emit, state.year, rnd, table, partial=i < len(order) - 1)
+                        dissent = [a for a in advisor_ids if a not in best["accept"]]
+                        return finish(
+                            "majority", best["id"], rnd + 1, dissent,
+                            f"Strong majority: {len(best['accept'])} of {n_advisors} accepted "
+                            f"with dissent recorded: {_names(dissent, advisors)}.",
+                        )
         await _tally(emit, state.year, rnd, table)
         plans = {a: table.plans[p].plan for a, p in table.current.items()}
         if rnd == 0:
@@ -346,8 +364,27 @@ async def deliberate_year(
         if news and not after_news and rnd >= 1:
             after_news = dict(plans)
         earlier += this_round
-        if rnd >= 1 and not changed and not heard:
-            break  # stalemate: nobody moved and nothing new was heard
+        if after_vote is not None:
+            report = await after_vote(rnd, "discuss", table.rows())
+            if report is not None:
+                await take_news(rnd + 1, [report])
+                rnd += 1
+                revote = True
+                continue
+            for row in table.rows():
+                if len(row["accept"]) == n_advisors:
+                    return finish("consensus", row["id"], rnd + 1, [],
+                                  f"All {n_advisors} advisors accepted.")
+            strong = [r for r in table.ranked() if len(r["accept"]) >= strong_majority]
+            if rnd >= STRONG_MAJORITY_FROM_ROUND and strong:
+                best = strong[0]
+                return finish("majority", best["id"], rnd + 1,
+                              [a for a in advisor_ids if a not in best["accept"]],
+                              f"Strong majority: {len(best['accept'])} of {n_advisors} accepted.")
+        if rnd >= max_rounds - 1 or rnd >= 1 and not changed and not heard:
+            break  # negotiation ended; a scout can always request an extra re-vote
+        rnd += 1
+        revote = False
 
     # ---- Final rule ----
     rounds = rnd + 1
@@ -367,8 +404,8 @@ async def deliberate_year(
         trigger = (("three" if n_advisors == 7 else "floor")
                    if len(best["accept"]) == runoff_floor else "tie")
         res = await _runoff(seed, state, beliefs, ask, emit, table, best, second, trigger,
-                            rounds, max_rounds, news, history, last_turn, advisors)
-        n_turns += len(res["votes"])
+                            rounds, max_rounds, news, history, last_turn, advisors, after_vote)
+        n_turns += res.get("turns", len(res["votes"]))
         if res["winner"]:
             losers = [a for a in advisor_ids if res["votes"].get(a) != res["winner"]]
             return finish(
@@ -392,7 +429,7 @@ async def deliberate_year(
 
 
 async def _runoff(seed, state, beliefs, ask, emit, table: Table, a_row, b_row, trigger,
-                  rounds, max_rounds, news, history, last_turn, advisors) -> dict:
+                  rounds, max_rounds, news, history, last_turn, advisors, after_vote=None) -> dict:
     """Head to head between the top two plans. Every advisor votes once, in turn."""
     advisor_ids = list(advisors)
     n_advisors = len(advisor_ids)
@@ -415,52 +452,68 @@ async def _runoff(seed, state, beliefs, ask, emit, table: Table, a_row, b_row, t
         "year": state.year, "trigger": trigger, "a": side(a, a_row), "b": side(b, b_row),
         "reason": f"{why}, so the two leading plans go to a runoff.",
     })
-    order = speaking_order(state.year, rounds, advisor_ids)
-    await emit("round", {"year": state.year, "round": rounds, "phase": "runoff",
-                         "max_rounds": max_rounds, "order": order})
-    votes: dict[str, str] = {}
-    said: list[dict] = []
-    for i, who in enumerate(order):
-        brief = Brief(
-            seed=seed, year=state.year, round=rounds, max_rounds=max_rounds,
-            state=state.public(), beliefs=beliefs.__dict__, advisors=[a.public() for a in advisors.values()], speaker=who, phase="runoff",
-            turn=i, order=order, news=news, table=pair, runoff=pair, turns_this_round=said,
-            history=history,
-        )
-        ballot = await ask(brief)
-        if not _valid(ballot, brief) or ballot.runoff_vote not in (a.id, b.id):
-            await emit("wire", {"year": state.year, "round": rounds, "advisor": who,
-                                "rejected": True, "note": "runoff ballot missing or invalid"})
-            continue
-        votes[who] = ballot.runoff_vote
-        t = table.plans[ballot.runoff_vote]
-        turn = {"advisor": who, "round": rounds, "turn": i, "speech": ballot.speech,
-                "runoff_vote": ballot.runoff_vote, "plain": t.plain,
-                "addressed": ballot.addressed}
-        said.append(turn)
-        last_turn[who] = {**last_turn.get(who, {}), "speech": ballot.speech,
-                          "thought": ballot.trace.get("thought", "")}
-        await emit("turn", {
-            "year": state.year, "phase": "runoff", **turn, "plan_id": None,
-            "proposal": t.plan.model_dump(), "accept": [ballot.runoff_vote],
-            "thought": ballot.trace.get("thought", ""), "trace": ballot.trace,
-            "source": ballot.source,
-        })
-    count = {a.id: 0, b.id: 0}
-    for v in votes.values():
-        count[v] += 1
-    lead = max(count, key=lambda k: (count[k], k == a.id))
-    winner, reason = None, ""
-    if count[lead] >= majority:
-        winner = lead
-    else:
-        reason = f"The runoff produced no plan with {majority} of {n_advisors} votes."
-    res = {"a": a.id, "b": b.id, "trigger": trigger, "votes": votes, "count": count,
-           "winner": winner, "reason": reason,
-           "accepts_before": {a.id: len(a_row["accept"]), b.id: len(b_row["accept"])}}
-    await emit("runoff_result", {"year": state.year, "votes": votes, "winner": winner,
-                                 "count": count, "reason": reason, "trigger": trigger})
-    return res
+    cycles = 0
+    while True:
+        order = speaking_order(state.year, rounds, advisor_ids)
+        await emit("round", {"year": state.year, "round": rounds, "phase": "runoff",
+                             "max_rounds": max_rounds, "order": order, "revote": cycles > 0})
+        votes: dict[str, str] = {}
+        said: list[dict] = []
+        for i, who in enumerate(order):
+            brief = Brief(
+                seed=seed, year=state.year, round=rounds, max_rounds=max_rounds,
+                state=state.public(), beliefs=beliefs.__dict__, advisors=[a.public() for a in advisors.values()], speaker=who, phase="runoff",
+                turn=i, order=order, news=news, table=pair, runoff=pair, turns_this_round=said,
+                history=history,
+            )
+            ballot = await ask(brief)
+            if not _valid(ballot, brief) or ballot.runoff_vote not in (a.id, b.id):
+                await emit("wire", {"year": state.year, "round": rounds, "advisor": who,
+                                    "rejected": True, "note": "runoff ballot missing or invalid"})
+                continue
+            votes[who] = ballot.runoff_vote
+            t = table.plans[ballot.runoff_vote]
+            turn = {"advisor": who, "round": rounds, "turn": i, "speech": ballot.speech,
+                    "runoff_vote": ballot.runoff_vote, "plain": t.plain,
+                    "addressed": ballot.addressed}
+            said.append(turn)
+            last_turn[who] = {**last_turn.get(who, {}), "speech": ballot.speech,
+                              "thought": ballot.trace.get("thought", "")}
+            await emit("turn", {
+                "year": state.year, "phase": "runoff", **turn, "plan_id": None,
+                "proposal": t.plan.model_dump(), "accept": [ballot.runoff_vote],
+                "thought": ballot.trace.get("thought", ""), "trace": ballot.trace,
+                "source": ballot.source,
+            })
+        count = {a.id: 0, b.id: 0}
+        for v in votes.values():
+            count[v] += 1
+        lead = max(count, key=lambda k: (count[k], k == a.id))
+        winner, reason = None, ""
+        if count[lead] >= majority:
+            winner = lead
+        else:
+            reason = f"The runoff produced no plan with {majority} of {n_advisors} votes."
+        res = {"a": a.id, "b": b.id, "trigger": trigger, "votes": votes, "count": count,
+               "winner": winner, "reason": reason,
+               "turns": (cycles + 1) * n_advisors, "round": rounds,
+               "accepts_before": {a.id: len(a_row["accept"]), b.id: len(b_row["accept"])}}
+        await emit("runoff_result", {"year": state.year, "votes": votes, "winner": winner,
+                                     "count": count, "reason": reason, "trigger": trigger})
+        if after_vote is None:
+            return res
+        rows = [{"id": t.id, "author": t.author, "plain": t.plain,
+                 "accept": [who for who, vote in votes.items() if vote == t.id]}
+                for t in pair]
+        report = await after_vote(rounds, "runoff", rows)
+        if report is None:
+            return res
+        news.append(report)
+        beliefs = apply_report(beliefs, report)
+        await emit("news", {"year": state.year, "round": rounds + 1, **report})
+        cycles += 1
+        rounds += 1
+
 
 
 async def _escalate(state, beliefs, emit, ask_human, ranked, reason, rounds, news, opening,
