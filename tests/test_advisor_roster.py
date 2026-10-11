@@ -17,7 +17,6 @@ from sumer.advisors import (
 from sumer.game import Decision, new_game
 from sumer.protocol import Brief, validate_reply
 
-
 CUSTOM = {
     "id": "custom-river",
     "short": "River Keeper",
@@ -115,7 +114,7 @@ async def test_single_custom_agent_decides_only_from_the_model(llm_reply):
     assert ballot.trace["chosen"] == {"plan": llm_reply["proposal"]}
     assert not {"group_score", "my_score", "breaks_red_lines_of"} & ballot.trace["chosen"].keys()
     prompt = agent._llm_messages("custom-river", brief)[0]["content"]
-    assert "sole advisor" in prompt and "all 1 accept" in prompt
+    assert "sole advisor" in prompt and "all 1 votes" in prompt
 
 
 @pytest.mark.parametrize("feed", [0, 2000])
@@ -135,8 +134,8 @@ async def test_custom_llm_prompt_and_votes_do_not_use_deterministic_preferences(
     monkeypatch.setattr(llm, "chat", reply)
     ballot = await agent.decide("custom-river", brief)
     system = prompts[0]["content"]
-    assert "3 advisors govern" in system and "all 3 accept" in system
-    assert "2 of 3 accepts" in system
+    assert "3 advisors govern" in system and "all 3 votes" in system
+    assert "2 of 3 votes" in system
     assert CUSTOM["mandate"] in system
     assert "River Keeper" in system and "High Priest" not in system
     for removed in ("suggested_plan", "your score", "threshold", "red line", "policy_vote"):

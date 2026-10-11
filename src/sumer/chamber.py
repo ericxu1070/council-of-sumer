@@ -35,12 +35,14 @@ from sumer.game import RULE_VERSION, YEARS, advance, new_game, rating
 from sumer.narrator import summarize
 from sumer.observability import context_headers, flush, span
 from sumer.protocol import uid
+from sumer.scouts import apply_scout
 from sumer.storage import Store
 
 # Turns the narrator's line for a year into audio; returns its URL or None.
 DEFAULT_DB = os.getenv("SUMER_DB_PATH", str(CACHE_DIR / "runs.sqlite3"))
 
 Narrate = Callable[[int, str], Awaitable[str | None]]
+Scout = Callable[[int, int, str, list[dict]], Awaitable[str]]
 
 
 @dataclass
@@ -84,6 +86,7 @@ async def play_council(
     store: Store | None = None,
     run_id: str | None = None,
     advisors: dict[str, Advisor] | None = None,
+    ask_scout: Scout | None = None,
 ) -> GameResult:
     advisors = resolve_council() if advisors is None else dict(advisors)
     public_advisors = [a.public() for a in advisors.values()]
@@ -95,7 +98,7 @@ async def play_council(
     store.create_run(run_id, {"rule_version": RULE_VERSION, "seed": seed, "initial_state": state.public(),
         "application_version": version("council-of-sumer"),
         "advisors": public_advisors, "advisor_ids": list(advisors), "rules": rules,
-        "reign_years": YEARS,
+        "reign_years": YEARS, "scout_mode": "after_vote" if ask_scout else "legacy",
         "max_rounds": max_rounds or settings.max_rounds, "transport": settings.transport,
         "llm_mode": settings.llm_mode, "model": settings.llm_model,
         "dependencies": {name: version(name) for name in ("agntcy-app-sdk", "ioa-observe-sdk", "pydantic")}})
@@ -119,18 +122,23 @@ async def play_council(
             with span("council.year", run_id=run_id, year=state.year):
                 await emit("year_start", {"year": state.year, "state": state.public()})
                 before = state
+                async def after_vote(round_no, phase, rows, year=state.year):
+                    choice = await ask_scout(year, round_no, phase, rows)
+                    return apply_scout(rolls, year, choice)
+
                 yr = await deliberate_year(
                     seed=seed,
                     state=state,
                     ask=ask,
                     history=history,
                     max_rounds=max_rounds or settings.max_rounds,
-                    scheduled_news=scheduled_news(seed, state.year, rolls, reveal_news),
+                    scheduled_news=None if ask_scout else scheduled_news(seed, state.year, rolls, reveal_news),
                     injected_news=injected_news,
                     ask_human=ask_human,
                     emit=emit,
                     run_id=run_id,
                     advisors=advisors,
+                    after_vote=after_vote if ask_scout else None,
                 )
                 preview = advance(state, yr.plan, rolls)
                 yr.summary = summarize(yr, before, preview, advisors=advisors)

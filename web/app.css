@@ -377,3 +377,13 @@ body:not(.hood) .hood-only { display: none !important; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; scroll-behavior: auto !important; }
 }
+
+/* Scout decisions and comparisons stay beside the recorded vote. */
+.scout-card h3 { margin: 4px 0; font: 700 1.3rem var(--serif); }
+.scout-card p { margin: 8px 0; color: var(--muted); }
+.scout-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
+.scout-option { display: flex; flex-direction: column; align-items: flex-start; text-align: left; white-space: normal; padding: 10px 12px; }
+.scout-option small { margin-top: 3px; font-weight: 400; }
+.vote-summary-row { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; }
+.vote-comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+@media (max-width: 600px) { .vote-comparison, .scout-options { grid-template-columns: 1fr; } }

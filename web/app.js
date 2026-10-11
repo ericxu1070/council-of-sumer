@@ -22,7 +22,9 @@ const reduced = matchMedia("(prefers-reduced-motion: reduce)");
 const S = {
   meta: null,
   runId: "",
-  saved: false,
+  paused: false,
+  scoutRequest: null,
+  compareVote: null,
   advisors: [],
   years: 5,
   year: 0,            // year being decided
@@ -40,9 +42,9 @@ const S = {
 
 const FALLBACK_COLORS = ["#5f8f3a", "#7a4fa3", "#a33a32", "#b5862a", "#b2622f", "#2f8a7c", "#2f5ea8", "#6b5a45"];
 const FALLBACK_EMOJI = { provider: "🍞", farmer: "🌾", merchant: "⚖️", profiteer: "💰", imposter: "🎭" };
-// The draft belongs to the next council. Replaying a run changes S.advisors only.
+// Setup belongs to the next council; the live council keeps its own roster.
 const setup = { templates: [], seats: [], serial: 0, starting: false, ready: false, max: 21, liveRunId: "" };
-const PERSONA_MANDATES = { provider: "Feed everyone.", farmer: "Plant as many acres as possible.", merchant: "Make profitable land trades.", profiteer: "Deliberately sacrifice lives if it increases wealth.", imposter: "Depopulate and ruin the city." };
+const PERSONA_MANDATES = { provider: "Feed everyone.", farmer: "Plant as many acres as possible.", merchant: "Maximize acres of land per person.", profiteer: "Deliberately sacrifice lives if it increases wealth.", imposter: "Depopulate and ruin the city." };
 const safeColor = (color, i) => /^#[\da-f]{6}$/i.test(String(color || "")) ? color : FALLBACK_COLORS[i % FALLBACK_COLORS.length];
 
 function normAdvisor(a, i) {
@@ -178,7 +180,9 @@ function typing(html) { $("#typing").innerHTML = html || ""; }
 const bounce = `<span class="bounce" aria-hidden="true"><i></i><i></i><i></i></span>`;
 function typingFor(id) { typing(`${avatar(id, "mini")}<span><b>${esc(adv(id).short)}</b> is typing</span>${bounce}`); }
 function idleTyping() {
-  if (S.waitingHuman) typing(`<span>Waiting for <b>your decision</b></span>`);
+  if (S.paused) typing(`<span>The council is paused</span>`);
+  else if (S.scoutRequest) typing(`<span>Choose a scout event or skip</span>`);
+  else if (S.waitingHuman) typing(`<span>Waiting for <b>your decision</b></span>`);
   else if (narrating) typing(`<span>🔊 The narrator is speaking</span>`);
   else if (S.running) typing(`<span>The council is thinking</span>${bounce}`);
   else typing("");
@@ -257,7 +261,6 @@ function renderTurn(d, instant) {
       ${foot.length ? `<div class="msg-foot">${foot.join("")}</div>` : ""}
       ${d.thought ? `<div class="thought"${S.hood ? "" : " hidden"}>💭 ${esc(d.thought)}</div>` : ""}
       ${trace}
-      ${d.trace?.trace_id ? `<button class="btn hood-only" type="button" data-trace="${esc(d.trace.trace_id)}">Open trace</button>` : ""}
     </div>`, "msg", { instant, latest: true });
   const btn = $(".think-btn", el);
   if (btn) btn.onclick = () => { const t = $(".thought", el); t.hidden = !t.hidden; btn.setAttribute("aria-expanded", String(!t.hidden)); };
@@ -439,7 +442,6 @@ function showEscalation(d) {
   idleTyping();
 }
 async function choose(btn) {
-  if (S.saved) { toast("Recorded replay is read-only."); return; }
   const all = $$("#escOptions .esc-opt");
   all.forEach(b => b.disabled = true);
   btn.classList.add("chosen");
@@ -631,7 +633,8 @@ function onEvent(ev) {
   if (ev.run_id && ev.run_id !== S.runId) return;
   if (ev.sequence != null && seen.has(ev.sequence)) return;
   if (ev.sequence != null) seen.add(ev.sequence);
-  ev.instant = S.saved || replay;
+  ev.instant = replay;
+  if (ev.kind === "pause") { setPaused(ev.data.paused); return; }
   if (ev.kind === "game") { Q.length = 0; gen++; wake?.(); }
   Q.push(ev);
   pump();
@@ -641,6 +644,7 @@ async function pump() {
   pumping = true;
   try {
     while (Q.length) {
+      if (S.paused && !Q[0].instant && Q[0].kind !== "game") break;
       const ev = Q.shift();
       try { await process(ev, gen); } catch (e) { console.error("render failed", ev.kind, e); }
     }
@@ -663,6 +667,7 @@ async function process(ev, g) {
     await sleepUntil(holdUntil);
   }
   if (g !== gen && kind !== "game") return;
+  if (S.paused && !instant && kind !== "game") { Q.unshift(ev); return; }
   render(kind, d, instant);
   if (PACED.has(kind) && !instant) lastShown = now();
   if (kind === "year" && !instant) holdUntil = now() + HOLD_AFTER_YEAR;
@@ -672,6 +677,7 @@ async function process(ev, g) {
 function resetGame(d) {
   stopNarration();
   closeEscalation();
+  S.scoutRequest = null; S.compareVote = null;
   hideRunoff();
   Object.assign(S, { leadHtml: "", year: 0, completed: 0, hist: [], roundBase: {}, plans: {}, stance: {}, running: true, waitingHuman: false });
   S.years = d.years || S.meta?.years || 5;
@@ -702,21 +708,44 @@ function render(kind, d, instant) {
       break;
     case "round": {
       if (d.year && d.year !== S.year) { S.year = d.year; renderYear(); }
-      if (d.phase === "runoff") { setPhase("Runoff vote", `<span>The top two plans go head to head</span>`); break; }
+      if (d.phase === "runoff") {
+        if (d.revote && S.runoff) {
+          S.runoff.votes = {}; S.runoff.decided = false;
+          $("#runoff").classList.remove("decided");
+          for (const side of ["a", "b"]) {
+            $(`#ro-${side}`).classList.remove("win");
+            $(`#ro-${side} .ro-votes`).innerHTML = "";
+            $(`#ro-${side} .ro-count`).textContent = "0";
+          }
+          S.stance = {}; renderStances();
+        }
+        setPhase(d.revote ? "Runoff re-vote" : "Runoff vote", `<span>The top two plans go head to head</span>`); break; }
       const r = dispRound(d.year, d.round);
       const max = d.max_rounds || S.meta?.max_rounds;
-      setPhase(`Discussing - round ${r}`, S.leadHtml || `<span>The council is discussing${max ? ` · up to ${max} rounds to agree` : ""}</span>`);
-      append(`Round ${r}${max ? ` of ${max}` : ""}`, "divider", { instant });
+      setPhase(d.revote ? `Re-vote after scout · round ${r}` : `Discussing - round ${r}`, S.leadHtml || `<span>The council is discussing${max ? ` · up to ${max} rounds to agree` : ""}</span>`);
+      append(d.revote ? `Re-vote after scout · round ${r}` : `Round ${r}${max ? ` of ${max}` : ""}`, "divider", { instant });
       break;
     }
     case "turn": renderTurn(d, instant); break;
-    case "tally": renderPoll(d, instant); break;
+    case "tally": renderPoll(d, instant); compareVotes(d.rows, instant); break;
+    case "scout_request": showScout(d, instant); break;
+    case "scout_choice":
+      if (S.scoutRequest?.request_id === d.request_id) S.scoutRequest = null;
+      if (d.choice !== "skip") S.compareVote = d.rows;
+      $$("[data-scout-request]").filter(el => el.dataset.scoutRequest === d.request_id).forEach(el => {
+        $$("button", el).forEach(b => b.disabled = true);
+        $(".scout-status", el).textContent = d.choice === "skip" ? "Skipped · council continues" : "Scout sent · the council will re-vote";
+      });
+      break;
     case "news": renderNews(d, instant); break;
     case "wire":
       append(`📡 ${esc(d.transport || "wire")}${d.topic ? ` · ${esc(d.topic)}` : ""}${d.recipients ? ` · to ${d.recipients.length} agents` : ""}${d.bytes_out ? ` · ${(d.bytes_out / 1024).toFixed(1)} kB` : ""}${d.replies != null ? ` · ${d.replies} replies` : ""}${d.elapsed_s != null ? ` in ${d.elapsed_s}s` : ""}`, "wire hood-only", { instant: true });
       break;
     case "runoff": showRunoff(d, instant); break;
-    case "runoff_result": runoffResult(d, instant); break;
+    case "runoff_result":
+      runoffResult(d, instant);
+      compareVotes(Object.entries(d.count).map(([id]) => ({ id, accept: Object.entries(d.votes).filter(([, vote]) => vote === id).map(([who]) => who) })), instant);
+      break;
     case "escalate": showEscalation(d); break;
     case "escalation_timeout":
       closeEscalation();
@@ -737,8 +766,8 @@ function render(kind, d, instant) {
       hideRunoff();
       break;
     case "end":
-      if (!S.saved) loadRuns().catch(e => toast(e.message));
-      if (!S.saved) setup.liveRunId = "";
+      setup.liveRunId = "";
+      S.scoutRequest = null; setPaused(false);
       S.running = false; S.completed = d.years?.length || 0; renderYear(); syncSetupLock();
       closeEscalation(); spotlight(null);
       if (d.status && !["completed", "overthrown", "depopulated"].includes(d.status)) {
@@ -771,11 +800,10 @@ function connect(id) {
   es?.close();
   if (S.runId !== id) seen.clear();
   S.runId = id;
-  S.saved = false;
+  S.paused = !!(S.meta?.active_run === id && S.meta?.paused);
   S.running = true;
   setup.liveRunId = id;
   syncSetupLock();
-  setExport(id);
   es = new EventSource(`/api/events?run_id=${encodeURIComponent(id)}`);
   replay = true;
   armReplay();
@@ -788,29 +816,47 @@ function connect(id) {
   es.onerror = () => { es.close(); setTimeout(() => connect(id), 1500); };
 }
 
-async function loadRuns() {
-  const runs = await api("/api/runs");
-  $("#savedRuns").innerHTML = '<option value="">Select a recorded run</option>' + runs.map(r => `<option value="${esc(r.id)}">seed ${r.manifest.seed} · ${esc(r.status)} · ${esc(r.id.slice(0, 8))}</option>`).join("");
-  $("#savedRuns").value = S.runId;
-  return runs;
+function voteSummary(rows) {
+  return [...(rows || [])].sort((a, b) => (b.accept?.length || 0) - (a.accept?.length || 0))
+    .map(row => `<div class="vote-summary-row"><span>${esc(planName(row.id, row.author))}</span><b>${row.accept?.length || 0} of ${N()}</b></div>`).join("") || "No votes";
 }
-function setExport(id) {
-  $("#exportBtn").href = `/api/runs/${encodeURIComponent(id)}/export`;
-  $("#exportBtn").classList.toggle("hidden", !id);
+function compareVotes(rows, instant) {
+  if (!S.compareVote) return;
+  const before = S.compareVote;
+  const votes = values => Object.fromEntries(values.flatMap(row => (row.accept || []).map(who => [who, row.id])));
+  const oldVotes = votes(before), newVotes = votes(rows);
+  const changed = S.advisors.filter(a => oldVotes[a.id] !== newVotes[a.id]).map(a => a.short);
+  append(`<div class="card-kicker">Re-vote comparison</div><p>${changed.length ? `${esc(changed.join(", "))} changed their vote.` : "Every agent kept the same vote."}</p>
+    <div class="vote-comparison"><div><b>Before the scout</b>${voteSummary(before)}</div><div><b>After the scout</b>${voteSummary(rows)}</div></div>`, "card", { instant });
+  S.compareVote = null;
 }
-async function replayRun(id) {
-  const events = await api(`/api/runs/${encodeURIComponent(id)}/events`);
-  es?.close(); stopNarration(); Q.length = 0; gen++; wake?.(); seen.clear();
-  S.runId = id; S.saved = true; setExport(id);
-  syncSetupLock();
-  for (const event of events) onEvent(event);
+function showScout(d, instant) {
+  S.scoutRequest = d;
+  const card = append(`<div class="card-kicker">The votes are in</div><h3>Send a scout, or keep this vote?</h3>
+    <p>Choose an event to change the conditions and let every agent vote again.</p>
+    ${voteSummary(d.rows)}
+    <div class="scout-options">${d.options.map(option => `<button class="btn scout-option${option.id === "skip" ? " primary" : ""}" type="button" data-scout="${esc(option.id)}"><b>${esc(option.label)}</b><small>${esc(option.detail)}</small></button>`).join("")}</div>
+    <p class="scout-status" role="status">Waiting for your choice</p>`, "card scout-card", { instant });
+  card.dataset.scoutRequest = d.request_id;
+  $$("[data-scout]", card).forEach(button => button.onclick = async () => {
+    $$("button", card).forEach(b => b.disabled = true);
+    try { await api("/api/scout", { run_id: S.runId, request_id: d.request_id, choice: button.dataset.scout }); }
+    catch (e) { toast(e.message); $$("button", card).forEach(b => b.disabled = S.paused); }
+  });
+  setPhase("Voting complete", "<span>Choose a scout event for a re-vote, or skip.</span>");
+  idleTyping();
 }
-
-async function showTraces(traceId = "") {
-  if (!S.runId) return;
-  const spans = await api(`/api/runs/${encodeURIComponent(S.runId)}/traces${traceId ? "" : "?year=" + S.year}`);
-  const selected = traceId ? spans.filter(s => s.traceId === traceId) : spans;
-  append(`<div class="card-kicker">Recorded traces</div>${selected.length ? selected.map(s => `<div><b>${esc(s.name)}</b> · trace ${esc(s.traceId)} · span ${esc(s.spanId)} · parent ${esc(s.parentSpanId || "root")}</div>`).join("") : "No imported spans yet. The collector may still be flushing."}`, "card", { instant: true });
+function setPaused(paused) {
+  S.paused = paused;
+  const button = $("#pauseBtn");
+  button.textContent = paused ? "Resume" : "Pause";
+  button.setAttribute("aria-pressed", String(paused));
+  $$("#escOptions button").forEach(b => b.disabled = paused);
+  if (paused) { narrator.pause(); wake?.(); }
+  else { if (narrating && !muted) narrator.play().catch(() => {}); pump(); }
+  $$("[data-scout-request]").filter(el => el.dataset.scoutRequest === S.scoutRequest?.request_id)
+    .forEach(el => $$("button", el).forEach(b => b.disabled = paused));
+  idleTyping();
 }
 
 /* ---------------- controls ---------------- */
@@ -828,11 +874,12 @@ function setupError(message = "") {
 function syncSetupLock() {
   const locked = setup.starting || !!setup.liveRunId;
   $("#councilSetup").disabled = locked || !setup.ready;
-  for (const id of ["seed", "rounds", "reveal", "startBtn", "welcomeStart"]) {
+  for (const id of ["seed", "rounds", "startBtn", "welcomeStart"]) {
     const el = document.getElementById(id);
     if (el) el.disabled = locked || !setup.ready;
   }
   $("#setupLocked").classList.toggle("hidden", !locked);
+  $("#pauseBtn").disabled = !setup.liveRunId;
 }
 function renderVoters() {
   const n = setup.seats.length, rules = votingThresholds(n);
@@ -916,14 +963,14 @@ async function start() {
   if (!setup.ready || setup.starting || setup.liveRunId) return;
   if (!validateVoters()) return;
   unlockAudio();
-  const body = { seed: +$("#seed").value || 0, reveal_news: $("#reveal").value === "1", advisors: configuredAdvisors() };
+  const body = { seed: +$("#seed").value || 0, advisors: configuredAdvisors() };
   const rounds = +$("#rounds").value;
   if (rounds) body.max_rounds = rounds;
   setup.starting = true;
   setupError(); syncSetupLock();
   try {
     const result = await api("/api/game", body);
-    connect(result.run_id); openDrawer(false); await loadRuns();
+    connect(result.run_id); openDrawer(false);
   } catch (e) { setupError(`Could not start: ${e.message}`); openDrawer(true); }
   finally { setup.starting = false; syncSetupLock(); }
 }
@@ -977,7 +1024,14 @@ function wire() {
   $("#drawerClose").onclick = () => openDrawer(false);
   $("#drawerBack").onclick = () => openDrawer(false);
   $("#startBtn").onclick = start;
-  $("#stopBtn").onclick = () => api("/api/stop", {}).then(() => { S.running = false; setup.liveRunId = ""; syncSetupLock(); idleTyping(); toast("Stopped.", true); }).catch(e => toast(e.message));
+  $("#pauseBtn").onclick = async () => {
+    const button = $("#pauseBtn"); button.disabled = true;
+    try {
+      const result = await api("/api/pause", { run_id: S.runId, paused: !S.paused });
+      setPaused(result.paused);
+    } catch (e) { toast(e.message); }
+    finally { syncSetupLock(); }
+  };
   $("#hoodToggle").onclick = () => setHood(!S.hood);
   $("#muteBtn").onclick = () => {
     muted = !muted;
@@ -1000,13 +1054,6 @@ function wire() {
     clearTimeout(paceT);
     paceT = setTimeout(() => api("/api/pace", { pace_s: +e.target.value }).catch(err => toast(err.message)), 200);
   };
-  $$("[data-news]").forEach(b => b.onclick = async () => {
-    b.disabled = true;
-    if (S.saved) { toast("Recorded replay is read-only."); return; }
-    try { await api("/api/news", { run_id: S.runId, kind: b.dataset.news }); toast("Scout sent. The report reaches the council next round.", true); }
-    catch (e) { toast(`Scout could not leave: ${e.message}`); }
-    finally { setTimeout(() => { b.disabled = false; }, 1500); }
-  });
   addEventListener("keydown", e => {
     if (e.key !== "Escape") return;
     openDrawer(false);
@@ -1045,18 +1092,6 @@ function wire() {
     if (![...sel.options].some(o => +o.value === +m.max_rounds)) sel.insertAdjacentHTML("beforeend", `<option>${m.max_rounds}</option>`);
     sel.value = String(m.max_rounds);
   }
-  $("#savedRuns").onchange = e => { if (e.target.value) replayRun(e.target.value).catch(e => toast(e.message)); };
-  $("#liveBtn").onclick = async () => {
-    const current = await api("/api/meta");
-    if (current.active_run) { stopNarration(); seen.clear(); connect(current.active_run); }
-    else toast("There is no active run.");
-  };
-  $("#tracesBtn").onclick = () => showTraces().catch(e => toast(e.message));
-  $("#app").addEventListener("click", e => {
-    const button = e.target.closest("[data-trace]");
-    if (button) showTraces(button.dataset.trace).catch(err => toast(err.message));
-  });
-  const saved = await loadRuns();
-  if (S.meta?.active_run) connect(S.meta.active_run);
-  else if (saved.length) await replayRun(saved[0].id);
+  setPaused(!!m.paused);
+  if (m.active_run) connect(m.active_run);
 })();

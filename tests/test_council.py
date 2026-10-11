@@ -18,6 +18,8 @@ A, B, C = (0, 2000, 1000), (0, 2000, 900), (0, 2000, 800)
 
 
 def _ballot(brief, plan=A, back=None, accept=(), vote=None, speech="Farmer, I agree."):
+    if brief.phase == "discuss" and back is None and len(accept) == 1:
+        back = accept[0]
     if brief.phase == "runoff" and vote:
         plan = next(t.plan for t in brief.runoff if t.id == vote)
         plan = (plan.land_delta, plan.feed, plan.plant)

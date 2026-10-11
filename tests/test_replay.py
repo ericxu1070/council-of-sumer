@@ -38,7 +38,8 @@ def test_api_replay_export_and_wrong_human_selection(monkeypatch):
         assert client.get("/api/runs/recorded/events?year=1").json()[0]["data"]["phase"] == "vote"
         assert client.get("/api/runs/recorded/export").headers["content-type"] == "application/zip"
         assert client.get("/api/runs/missing").status_code == 404
-        assert client.post("/api/news", json={"run_id": "recorded", "kind": "harvest"}).status_code == 409
+        assert client.post("/api/scout", json={"run_id": "recorded", "request_id": "old",
+                                               "choice": "good_harvest"}).status_code == 409
         assert client.post("/api/escalation", json={"run_id": "recorded", "choice": "safe"}).status_code == 409
 
 

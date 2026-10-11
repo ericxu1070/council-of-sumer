@@ -115,7 +115,7 @@ class Advisor:
             case "farmer":
                 return f.plant
             case "merchant":
-                return f.wealth
+                return f.acres / f.population if f.population > 0 else 0.0
             case "profiteer":
                 # Wealth decides; starvation breaks an otherwise equal result.
                 return f.wealth + 0.000001 * f.starved_frac
@@ -167,14 +167,15 @@ ADVISORS: dict[str, Advisor] = {
             title='Merchant',
             short='Merchant',
             mandate=(
-                "Grow the city's wealth through profitable land trades and long-term returns. Buy "
-                'land when it is cheap relative to expected future prices and productive value; sell '
-                'when prices are high or grain can earn more elsewhere. Weigh harvest income, seed '
-                'costs, rat losses, reserves, and future workforce productivity as investments. '
-                'Negotiate bargains that improve total grain plus land value over time, avoiding '
-                'wasteful deals and short-lived gains that undermine future returns.'
+                'Maximize acres of land owned per living resident: total acres divided by population, '
+                'especially at the end of the reign. Buy land cheaply and retain acreage. Sell land '
+                'only when the proceeds support a strategy that yields more acres per person later. '
+                'Account for how starvation, immigration, and plague change the population and '
+                'therefore the ratio. Judge bargains by acres per person, not grain profits or total '
+                'wealth alone. A city with no living residents has no meaningful acres-per-person '
+                'success.'
             ),
-            voice="measured, persuasive, commercially shrewd; weighs prices, investment, and tomorrow's returns",
+            voice='measured, persuasive, commercially shrewd; measures every deal in acres per resident',
             color='#c0911e',
             emoji='💰',
         ),

@@ -74,8 +74,9 @@ async def test_majority_threshold_uses_selected_council(count):
     async def ask(brief):
         camp = 1000 if list(roster).index(brief.speaker) < majority else 900
         plan = Plan(land_delta=0, feed=2000, plant=camp)
+        matching = next((t.id for t in brief.table if t.plan == plan), None)
         return bind(Ballot(advisor=brief.speaker, year=brief.year, round=brief.round,
-            proposal=plan, accept=[t.id for t in brief.table if t.plan == plan],
+            proposal=plan, back=matching, accept=[matching] if matching else [],
             speech="I back our plan."), brief)
     state, rolls, journal, result = await record_year(roster, ask)
     assert result.outcome == "majority"
@@ -94,8 +95,9 @@ async def test_even_council_runoff_requires_strict_majority(count):
                 speech="I prefer the first finalist."), brief)
         plan = Plan(land_delta=0, feed=2000,
             plant=1000 if list(roster).index(brief.speaker) < count // 2 else 900)
+        matching = next((t.id for t in brief.table if t.plan == plan), None)
         return bind(Ballot(advisor=brief.speaker, year=brief.year, round=brief.round,
-            proposal=plan, accept=[t.id for t in brief.table if t.plan == plan],
+            proposal=plan, back=matching, accept=[matching] if matching else [],
             speech="I back our plan."), brief)
     state, rolls, journal, result = await record_year(roster, ask)
     assert result.outcome == "runoff" and result.runoff["trigger"] == "floor"
