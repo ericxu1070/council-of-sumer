@@ -491,6 +491,7 @@ button.panel-head:hover { background: rgba(255, 255, 255, .025); }
 .spot-lead { display: flex; align-items: center; justify-content: center; gap: 14px; flex-wrap: wrap; margin-top: 14px; font-size: 1.35rem; color: var(--ink-2); }
 .spot-lead b { color: var(--ink); }
 /* scout events */
+.spot-card.scout .spot-kicker { font-size: clamp(2rem, 3.4vw, 3.2rem); line-height: 1.08; }
 .scout-plans { display: grid; gap: 8px; margin-top: 16px; }
 .scout-plan-heading { font-size: .9rem; font-weight: 700; color: var(--muted); }
 .scout-plans .spot-plan { display: flex; margin: 0; }
