@@ -6,9 +6,15 @@ Protocol (public, so every advisor can check the clerk's tally):
   current support), what the earlier speakers said this round, and the rounds
   before. It then tables a proposal (or backs a plan already on the table),
   votes accept / veto on the tabled plans, and says a few words to the others.
-  A new proposal is tabled at once, so later speakers in the same round can
+  An advisor stands behind one plan and may accept one other as its second
+  choice; extra accepts are ignored. A new proposal is tabled at once, so later speakers in the same round can
   accept it. An advisor's latest votes stand until its next turn, and a plan
   nobody backs any more is withdrawn.
+
+  Each round has a public bar: the least score for its own mandate at which
+  an advisor may propose, back, or accept a plan (enforced by the advisor's
+  own code, like its red line). The bar falls every round, so the council
+  concedes step by step and a three-way split can survive to the end.
 
   News scheduled for the year arrives at the start of round 2, so the opening
   proposals and the reaction to the news are both visible. News a human sends
@@ -16,10 +22,11 @@ Protocol (public, so every advisor can check the clerk's tally):
 
   Stop rules, checked after every turn:
     CONSENSUS       a tabled plan is accepted by all seven.           -> adopt it
-    STRONG MAJORITY once round 2 is complete, a plan with 5+ of 7
+    STRONG MAJORITY once round 3 is complete, a plan with 5+ of 7
                     accepts and no red-line veto.                     -> adopt it,
                                                                          record dissent
-    stalemate       a whole round with no proposal change and no news -> final rule
+    stalemate       a whole round in which no proposal or vote moved
+                    and no news arrived                               -> final rule
   Final rule (stalemate, or the last round ends):
     MAJORITY        the best plan has 4+ of 7 accepts, no veto, and no
                     tie.                                              -> adopt it,
@@ -64,10 +71,16 @@ Ask = Callable[[Brief], Awaitable[Ballot | None]]
 # Called on escalation with (options, reason); returns the chosen option id or None
 AskHuman = Callable[[list[dict], str], Awaitable[str | None]]
 
-STRONG_MAJORITY = 5  # of 7, adopted early once round 2 is complete
+# Each advisor stands behind one plan (its own or one it backs) and may accept at
+# most this many others as second choices. Endorsements are scarce, so support
+# counts mean something and the council can split three ways.
+SECOND_CHOICES = 1
+STRONG_MAJORITY = 5  # of 7, adopted early once round 3 is complete
 MAJORITY = 4  # of 7, adopted by the final rule
 RUNOFF_FLOOR = 3  # of 7, the least support that earns a runoff
-STRONG_MAJORITY_FROM_ROUND = 1  # 0-based: from the end of round 2
+# 0-based: from the end of round 3. Cloture: every advisor speaks three times
+# before a supermajority can close the debate, so a minority gets its hearing.
+STRONG_MAJORITY_FROM_ROUND = 2
 
 
 @dataclass
@@ -99,6 +112,7 @@ class YearResult:
             "adopted": self.adopted_id,
             "author": self.adopted_author,
             "rounds": self.rounds,
+            "turns": self.turns,
             "dissent": self.dissent,
             "reason": self.reason,
             "runoff_trigger": (self.runoff or {}).get("trigger"),
@@ -153,6 +167,12 @@ class Table:
         return sorted(self.rows(), key=lambda r: (-len(r["accept"]), len(r["veto"]),
                                                   order.index(r["id"])))
 
+    def positions(self) -> tuple:
+        """Every advisor's proposal and votes, to tell whether a round moved anything."""
+        return (dict(self.current),
+                {a: frozenset(v) for a, v in self.accepts.items()},
+                {a: frozenset(v) for a, v in self.vetoes.items()})
+
     def place(self, who: str, b: Ballot, year: int, rnd: int) -> tuple[str, bool]:
         """Table or back the speaker's proposal. Returns (plan id, changed)."""
         prev = self.current.get(who)
@@ -175,7 +195,10 @@ class Table:
 
     def vote(self, who: str, b: Ballot, allowed: set[str]) -> None:
         self.vetoes[who] = {i for i in b.veto if i in allowed}
-        self.accepts[who] = {i for i in b.accept if i in allowed} - self.vetoes[who]
+        mine = self.current.get(who)
+        others = [i for i in dict.fromkeys(b.accept)
+                  if i in allowed and i != mine and i not in self.vetoes[who]]
+        self.accepts[who] = set(others[:SECOND_CHOICES]) | ({mine} if mine else set())
 
 
 async def deliberate_year(
@@ -219,7 +242,7 @@ async def deliberate_year(
         await emit("round", {"year": state.year, "round": rnd, "phase": "discuss",
                              "max_rounds": max_rounds, "order": order})
         this_round: list[dict] = []
-        changed = False
+        stand = table.positions()
         for i, who in enumerate(order):
             if injected_news:
                 fresh = list(injected_news)
@@ -239,9 +262,8 @@ async def deliberate_year(
                 continue
             allowed = set(table.plans)
             prev = table.current.get(who)
-            pid, moved = table.place(who, ballot, state.year, rnd)
+            pid, _ = table.place(who, ballot, state.year, rnd)
             table.vote(who, ballot, allowed)
-            changed |= moved
             n_turns += 1
             t = table.plans[pid]
             turn = {
@@ -265,7 +287,7 @@ async def deliberate_year(
                     await _tally(emit, state.year, rnd, table, partial=i < len(order) - 1)
                     return finish("consensus", row["id"], rnd + 1, [],
                                   f"All {N_ADVISORS} advisors accepted.")
-            # Stop rule 2: a strong majority, once round 2 is complete.
+            # Stop rule 2: a strong majority, once round 3 is complete.
             if rnd > STRONG_MAJORITY_FROM_ROUND or (
                 rnd == STRONG_MAJORITY_FROM_ROUND and i == len(order) - 1
             ):
@@ -288,8 +310,8 @@ async def deliberate_year(
         if news and not after_news and rnd >= 1:
             after_news = dict(plans)
         earlier += this_round
-        if rnd >= 1 and not changed and not heard:
-            break  # stalemate: nobody moved and nothing new was heard
+        if rnd >= 1 and table.positions() == stand and not heard:
+            break  # stalemate: no proposal or vote moved and nothing new was heard
 
     # ---- Final rule ----
     rounds = rnd + 1

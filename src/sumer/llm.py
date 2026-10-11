@@ -8,6 +8,7 @@ their deterministic policies.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -25,6 +26,17 @@ log = logging.getLogger(__name__)
 
 class LLMUnavailable(Exception):
     pass
+
+
+class LLMFailed(LLMUnavailable):
+    """A real call was attempted and failed (network, timeout, server error).
+
+    Retried before it reaches a caller. Unlike "no credentials" or "budget used
+    up", a failure here means the run made a decision the cache cannot replay."""
+
+
+ATTEMPTS = 3
+BACKOFF_S = (2.0, 5.0)  # wait before the second and third attempts
 
 
 @dataclass
@@ -69,14 +81,32 @@ def _record_spend(usd: float) -> None:
 
 
 async def chat(messages: list[dict], temperature: float = 0.4) -> Reply:
+    """One chat completion, from the cache if possible. A live call is tried up
+    to ATTEMPTS times, so a slow or dropped request does not silently turn into
+    an uncached policy fallback that the next replay would not reproduce."""
     path = _cache_path(messages)
     if settings.llm_cache and path.exists():
         return Reply(json.loads(path.read_text())["content"], settings.llm_model, True, 0.0, 0.0)
     if not enabled():
         raise LLMUnavailable("LLM_MODE is not bayleaf or credentials are missing")
-    if spent_usd() >= settings.llm_budget_usd:
-        raise LLMUnavailable(f"LLM budget of ${settings.llm_budget_usd} used up")
+    for attempt in range(ATTEMPTS):
+        if spent_usd() >= settings.llm_budget_usd:
+            raise LLMUnavailable(f"LLM budget of ${settings.llm_budget_usd} used up")
+        try:
+            reply = await _call(messages, temperature)
+            break
+        except LLMFailed as e:
+            if attempt == ATTEMPTS - 1:
+                raise
+            log.warning("LLM call failed (attempt %d of %d): %s", attempt + 1, ATTEMPTS, e)
+            await asyncio.sleep(BACKOFF_S[min(attempt, len(BACKOFF_S) - 1)])
+    if settings.llm_cache:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"content": reply.content}))
+    return reply
 
+
+async def _call(messages: list[dict], temperature: float) -> Reply:
     url = settings.llm_base_url.rstrip("/") + "/chat/completions"
     body = {
         "model": settings.llm_model,
@@ -95,18 +125,13 @@ async def chat(messages: list[dict], temperature: float = 0.4) -> Reply:
             r.raise_for_status()
             data = r.json()
             content = data["choices"][0]["message"]["content"]
-    except (httpx.HTTPError, KeyError, IndexError, ValueError) as e:
-        raise LLMUnavailable(str(e)) from e
+    except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as e:
+        raise LLMFailed(f"{type(e).__name__}: {e}") from e
     cost = float((data.get("usage") or {}).get("cost") or 0.0)
     _record_spend(cost)
     if not content:
-        raise LLMUnavailable("empty reply")
-    reply = Reply(content, settings.llm_model, False, time.monotonic() - t0, cost)
-
-    if settings.llm_cache:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"content": content}))
-    return reply
+        raise LLMFailed("empty reply")
+    return Reply(content, settings.llm_model, False, time.monotonic() - t0, cost)
 
 
 def parse_json(text: str) -> dict:

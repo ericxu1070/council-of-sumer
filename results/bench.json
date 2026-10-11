@@ -1,9 +1,9 @@
 {
-  "generated": "2026-10-11T02:13:01",
+  "generated": "2026-10-11T02:55:21",
   "seeds": 30,
   "transport": "inproc",
   "llm": "mock",
-  "seconds": 65.8,
+  "seconds": 370.3,
   "rows": [
     {
       "policy": "Farmer alone",
@@ -24,31 +24,6 @@
       }
     },
     {
-      "policy": "Council (7 agents, negotiated)",
-      "key": "council",
-      "score": 1216.6,
-      "survived": "30/30",
-      "starved": 0.4,
-      "population": 102.5,
-      "fairness": 0.386,
-      "satisfaction": {
-        "farmer": 0.932,
-        "priest": 0.386,
-        "general": 0.894,
-        "merchant": 0.779,
-        "builder": 0.981,
-        "healer": 0.552,
-        "diplomat": 0.798
-      },
-      "consensus": 0,
-      "majority": 123,
-      "runoff": 6,
-      "escalated": 21,
-      "years": 150,
-      "mean_rounds": 2.93,
-      "mean_turns": 20.1
-    },
-    {
       "policy": "General alone",
       "key": "dictator_general",
       "score": 1215.6,
@@ -65,6 +40,31 @@
         "healer": 0.354,
         "diplomat": 0.712
       }
+    },
+    {
+      "policy": "Council (7 agents, negotiated)",
+      "key": "council",
+      "score": 1210.1,
+      "survived": "30/30",
+      "starved": 0.4,
+      "population": 102.1,
+      "fairness": 0.381,
+      "satisfaction": {
+        "farmer": 0.93,
+        "priest": 0.381,
+        "general": 0.865,
+        "merchant": 0.752,
+        "builder": 0.959,
+        "healer": 0.629,
+        "diplomat": 0.76
+      },
+      "consensus": 1,
+      "majority": 127,
+      "runoff": 4,
+      "escalated": 18,
+      "years": 150,
+      "mean_rounds": 3.55,
+      "mean_turns": 24.3
     },
     {
       "policy": "Physician alone",
@@ -196,9 +196,9 @@
   "info": [
     {
       "decider": "Council",
-      "score with scouts": 1216.6,
-      "score silent": 1198.5,
-      "plans changed by news": "59/140 years"
+      "score with scouts": 1210.1,
+      "score silent": 1208.9,
+      "plans changed by news": "77/140 years"
     },
     {
       "decider": "Lone ruler",
@@ -209,6 +209,36 @@
   ],
   "info_examples": [
     {
+      "seed": 1,
+      "year": 1,
+      "news": "The river flooded richly. Expect a strong harvest, 4 to 5 bushels per acre.",
+      "without": {
+        "land_delta": 0,
+        "feed": 2000,
+        "plant": 1000
+      },
+      "with": {
+        "land_delta": 0,
+        "feed": 2300,
+        "plant": 1000
+      }
+    },
+    {
+      "seed": 1,
+      "year": 5,
+      "news": "Plague has reached Ur and is coming up the river. Half the city may fall sick.",
+      "without": {
+        "land_delta": 0,
+        "feed": 1540,
+        "plant": 770
+      },
+      "with": {
+        "land_delta": 0,
+        "feed": 1771,
+        "plant": 770
+      }
+    },
+    {
       "seed": 2,
       "year": 1,
       "news": "Locusts sighted in the east. Expect a poor harvest, 1 to 2 bushels per acre.",
@@ -218,91 +248,61 @@
         "plant": 1000
       },
       "with": {
-        "land_delta": -50,
-        "feed": 2300,
-        "plant": 950
+        "land_delta": -100,
+        "feed": 2000,
+        "plant": 900
       }
     },
     {
-      "seed": 3,
-      "year": 2,
-      "news": "The river flooded richly. Expect a strong harvest, 4 to 5 bushels per acre.",
-      "without": {
-        "land_delta": 0,
-        "feed": 2120,
-        "plant": 1000
-      },
-      "with": {
-        "land_delta": 50,
-        "feed": 2438,
-        "plant": 1050
-      }
-    },
-    {
-      "seed": 3,
-      "year": 5,
-      "news": "Locusts sighted in the east. Expect a poor harvest, 1 to 2 bushels per acre.",
-      "without": {
-        "land_delta": 110,
-        "feed": 2875,
-        "plant": 1212
-      },
-      "with": {
-        "land_delta": 0,
-        "feed": 2500,
-        "plant": 1102
-      }
-    },
-    {
-      "seed": 4,
-      "year": 2,
-      "news": "Locusts sighted in the east. Expect a poor harvest, 1 to 2 bushels per acre.",
-      "without": {
-        "land_delta": 0,
-        "feed": 2200,
-        "plant": 1000
-      },
-      "with": {
-        "land_delta": -50,
-        "feed": 2530,
-        "plant": 950
-      }
-    },
-    {
-      "seed": 5,
-      "year": 2,
-      "news": "Locusts sighted in the east. Expect a poor harvest, 1 to 2 bushels per acre.",
-      "without": {
-        "land_delta": 0,
-        "feed": 1288,
-        "plant": 560
-      },
-      "with": {
-        "land_delta": 0,
-        "feed": 1120,
-        "plant": 560
-      }
-    },
-    {
-      "seed": 5,
+      "seed": 2,
       "year": 3,
       "news": "Locusts sighted in the east. Expect a poor harvest, 1 to 2 bushels per acre.",
       "without": {
         "land_delta": 0,
-        "feed": 759,
-        "plant": 330
+        "feed": 2220,
+        "plant": 900
+      },
+      "with": {
+        "land_delta": -45,
+        "feed": 2220,
+        "plant": 855
+      }
+    },
+    {
+      "seed": 2,
+      "year": 5,
+      "news": "Locusts sighted in the east. Expect a poor harvest, 1 to 2 bushels per acre.",
+      "without": {
+        "land_delta": -41,
+        "feed": 2520,
+        "plant": 771
+      },
+      "with": {
+        "land_delta": -81,
+        "feed": 2520,
+        "plant": 731
+      }
+    },
+    {
+      "seed": 3,
+      "year": 1,
+      "news": "The river flooded richly. Expect a strong harvest, 4 to 5 bushels per acre.",
+      "without": {
+        "land_delta": 0,
+        "feed": 2000,
+        "plant": 1000
       },
       "with": {
         "land_delta": 0,
-        "feed": 660,
-        "plant": 330
+        "feed": 2300,
+        "plant": 1000
       }
     }
   ],
   "lessons": [
-    "Negotiation beats averaging: the council scored 1216.6 vs -238.5 for averaging each advisor's selfish plan (30/30 reigns survived vs 30/30).",
-    "A single equal-weight ruler scored 1157.6 vs the council's 1216.6 (the council is ahead). The council's worst-served advisor averaged 0.386 satisfaction vs 0.375 under the lone ruler.",
-    "News changed the adopted plan in 59 of 140 years where it arrived. Scouts moved the council's mean score from 1198.5 (silent) to 1216.6.",
-    "Outcomes over 150 council-years: 0 consensus, 123 majority with recorded dissent, 6 decided by runoff, 21 escalated to a human. Mean rounds per year: 2.93, mean turns per year: 20.1."
+    "Negotiation beats averaging: the council scored 1210.1 vs -238.5 for averaging each advisor's selfish plan (30/30 reigns survived vs 30/30).",
+    "A single equal-weight ruler scored 1157.6 vs the council's 1210.1 (the council is ahead). The council's worst-served advisor averaged 0.381 satisfaction vs 0.375 under the lone ruler.",
+    "News changed the adopted plan in 77 of 140 years where it arrived. Scouts moved the council's mean score from 1208.9 (silent) to 1210.1.",
+    "Outcomes over 150 council-years: 1 consensus, 127 majority with recorded dissent, 4 decided by runoff, 18 escalated to a human. Mean rounds per year: 3.55, mean turns per year: 24.3."
   ]
 }

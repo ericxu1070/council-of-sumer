@@ -1,4 +1,6 @@
+import itertools
 import os
+from types import SimpleNamespace
 
 os.environ["LLM_MODE"] = "mock"
 os.environ["TRANSPORT"] = "inproc"
@@ -163,17 +165,17 @@ async def test_consensus_when_all_seven_back_one_plan():
     assert yr.plan == Decision(*A)
 
 
-async def test_strong_majority_after_round_two_records_dissent():
+async def test_strong_majority_after_round_three_records_dissent():
     def script(b):
-        if b.speaker == "priest":
-            return _ballot(b, B)
+        if b.speaker == "priest":  # keeps changing its plan, so the talk never stalls
+            return _ballot(b, B if b.round % 2 else (0, 2000, 850))
         if b.speaker == "merchant":
             return _ballot(b, C)
         return _ballot(b, A, accept=_ids_for(b, A))
 
     yr, _ = await _year(scripted(script))
     assert yr.outcome == "majority"
-    assert yr.rounds == 2  # adopted the moment round 2 completes
+    assert yr.rounds == 3  # adopted the moment round 3 completes
     assert set(yr.dissent) == {"priest", "merchant"}
 
 
@@ -290,7 +292,8 @@ async def test_narrator_is_plain_prose():
     text = summarize(yr, state, after)
     assert text.startswith("Year 1. ")
     assert "\u2014" not in text
-    assert text.count(".") <= 3  # "Year 1." plus at most two sentences
+    assert text.count(".") <= 4  # "Year 1." plus two or three short sentences
+    assert len(text.split()) <= 32
     assert "Farmer" in text and str(after.population) in text
 
 
@@ -304,3 +307,129 @@ def test_parse_json_salvages_truncated_reply():
     cut = '{"proposal": {"land_delta": -81, "feed": 1940, "plant": 770},\n "accept": ["x"],\n "spee'
     assert parse_json(cut)["proposal"]["feed"] == 1940
     assert parse_json('```json\n{"a": 1}\n```') == {"a": 1}
+
+
+# ---- the bar: gradual, enforced concession ----
+
+def test_bar_falls_round_by_round_to_the_floor():
+    from sumer.agent import BAR_FLOOR, BAR_START, bar_schedule
+
+    for rounds in (4, 5, 6):
+        bars = bar_schedule(rounds)
+        assert bars[0] == BAR_START and bars[-1] == BAR_FLOOR
+        assert all(a > b for a, b in itertools.pairwise(bars))
+
+
+async def test_policy_never_accepts_below_its_bar():
+    turns = []
+
+    async def emit(kind, data):
+        if kind == "turn" and data["phase"] == "discuss":
+            turns.append(data)
+
+    state, _ = new_game(1)
+    await deliberate_year(seed=1, state=state, ask=inproc.ask, history=[], max_rounds=5,
+                          scheduled_news=None, emit=emit)
+    assert turns
+    for t in turns:
+        scores = {e["id"]: e for e in t["trace"]["evaluations"]}
+        for pid in t["accept"]:
+            if pid in scores:  # plans tabled before this turn
+                assert scores[pid]["my_score"] >= t["trace"]["threshold"]
+                assert not scores[pid]["breaks_my_red_line"]
+        assert t["trace"]["chosen"]["my_score"] >= t["trace"]["threshold"]
+
+
+def _llm_case(rnd):
+    """A brief with two tabled plans: one the Priest loves, one it hates."""
+    from sumer.agent import Mind
+    from sumer.protocol import TabledProposal
+
+    state, _ = new_game(1)
+    need = state.population * 20
+    plans = {"keep": Plan(land_delta=0, feed=need, plant=300),
+             "spend": Plan(land_delta=0, feed=need, plant=1000)}
+    table = [TabledProposal(id=k, author="farmer", plan=p) for k, p in plans.items()]
+    brief = Brief(seed=1, year=1, round=rnd, max_rounds=5, state=state.public(),
+                  beliefs=Beliefs().__dict__, speaker="priest", table=table)
+    m = Mind("priest", brief)
+    return m, brief
+
+
+def test_llm_accepts_below_the_bar_are_dropped():
+    from sumer.agent import _llm_turn
+    from sumer.llm import Reply
+
+    m, _ = _llm_case(0)
+    evals = m.evaluate(m.value(m.best()))
+    low = [e["id"] for e in evals if not e["clears_my_bar"]]
+    assert low, "the setup needs a plan below the Priest's opening bar"
+    data = {"back": low[0], "proposal": {"land_delta": 0, "feed": 0, "plant": 0},
+            "accept": ["keep", "spend"], "speech": "Farmer, fine.", "thought": "ok"}
+    b = _llm_turn(m, evals, data, Reply("{}", "m", True, 0, 0))
+    assert b.back is None and not set(b.accept) & set(low)
+    assert m.acceptable(Decision(b.proposal.land_delta, b.proposal.feed, b.proposal.plant))
+    assert "override" in b.trace
+
+
+async def test_a_round_where_votes_move_is_not_a_stalemate():
+    def script(b):
+        i = ADVISOR_IDS.index(b.speaker)
+        plan = (0, 2000, 1000 - 10 * i)  # seven fixed plans
+        acc = _ids_for(b, (0, 2000, 990)) if b.speaker == "farmer" and b.round % 2 else []
+        return _ballot(b, plan, accept=acc)
+
+    yr, _ = await _year(scripted(script))
+    assert yr.rounds == 6  # the Farmer's vote moves every round, so the talk runs to the end
+    assert yr.outcome == "escalated"
+
+
+# ---- replay safety ----
+
+async def test_llm_call_is_retried_then_cached(monkeypatch, tmp_path):
+    from sumer import llm
+
+    calls = []
+
+    async def flaky(messages, temperature):
+        calls.append(1)
+        if len(calls) < 3:
+            raise llm.LLMFailed("timeout")
+        return llm.Reply('{"ok": 1}', "m", False, 0.1, 0.0)
+
+    monkeypatch.setattr(llm, "_call", flaky)
+    monkeypatch.setattr(llm, "enabled", lambda: True)
+    monkeypatch.setattr(llm, "spent_usd", lambda: 0.0)
+    monkeypatch.setattr(llm, "BACKOFF_S", (0.0, 0.0))
+    monkeypatch.setattr(llm, "_cache_path", lambda m: tmp_path / "reply.json")
+    r = await llm.chat([{"role": "user", "content": "hi"}])
+    assert r.content == '{"ok": 1}' and len(calls) == 3
+    again = await llm.chat([{"role": "user", "content": "hi"}])
+    assert again.cached and len(calls) == 3
+
+
+async def test_failed_llm_call_is_flagged_not_silent(monkeypatch):
+    from sumer import agent, llm
+
+    async def down(messages, temperature=0.4):
+        raise llm.LLMFailed("timeout")
+
+    monkeypatch.setattr(agent, "settings", SimpleNamespace(llm_mode="bayleaf"))
+    monkeypatch.setattr(llm, "chat", down)
+    state, _ = new_game(1)
+    brief = Brief(seed=1, year=1, round=0, max_rounds=5, state=state.public(),
+                  beliefs=Beliefs().__dict__, speaker="general")
+    b = await decide("general", brief)
+    assert b.source == "policy" and b.trace["fallback_kind"] == "failed"
+
+
+async def test_one_second_choice_counts():
+    def script(b):
+        i = ADVISOR_IDS.index(b.speaker)
+        plan = (0, 2000, 1000 - 10 * i)
+        return _ballot(b, plan, accept=[t.id for t in b.table])  # tries to accept everything
+
+    _, events = await _year(scripted(script))
+    for tally in (d for k, d in events if k == "tally"):
+        # each advisor counts for its own plan plus one second choice: 14 endorsements at most
+        assert sum(len(r["accept"]) for r in tally["rows"]) <= 2 * len(ADVISOR_IDS)

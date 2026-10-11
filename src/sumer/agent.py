@@ -10,8 +10,13 @@ Two reasoning paths share the same hard rules:
 - llm: the model reads the conversation, sees its own scores for every plan,
   and chooses what to propose, what to accept, and what to say
 
-Red lines are enforced in code for both paths. An LLM cannot talk itself
-past its own advisor's red line.
+Two rules are enforced in code for both paths, so an LLM cannot talk its way
+around them:
+- red lines: an advisor vetoes, and never proposes, a plan that crosses its own
+- the bar: an advisor may only propose, back, or accept a plan that scores at
+  least its aspiration (its "bar") for its own mandate. The bar is public and
+  falls round by round, from 0.9 in round 1 to a floor in the last round, so
+  concession happens gradually and visibly instead of in the first exchange.
 
 Every ballot carries a `trace`: the beliefs used, how each tabled plan scored
 against this advisor's threshold, which red lines it checked, and its private
@@ -35,6 +40,7 @@ from sumer.advisors import (
     short,
 )
 from sumer.config import settings
+from sumer.deliberation import SECOND_CHOICES
 from sumer.game import Decision, State, legalize
 from sumer.protocol import Ballot, Brief, Plan, TabledProposal, sign
 
@@ -66,10 +72,10 @@ def progress(brief: Brief) -> float:
 # Policy tuning. Chosen so mandates really clash (vetoes, dissent, the odd
 # runoff) while the council still decides most years on its own.
 MAX_CONCESSION = 0.6  # how far an advisor ends up weighing the others' mandates
-ASPIRATION_START, ASPIRATION_DROP, ASPIRATION_FLOOR = 0.9, 0.15, 0.4
+# The bar (aspiration): the least own-mandate score an advisor may accept.
+# It falls linearly from BAR_START in round 1 to BAR_FLOOR in the last round.
+BAR_START, BAR_FLOOR = 0.9, 0.35
 TOLERANCE_START, TOLERANCE_GROWTH = 0.0, 0.02
-VALUE_ACCEPT_FROM = 2.0  # rounds in, an advisor also accepts plans near its concession optimum
-MAX_ACCEPTS = 2  # an advisor endorses at most this many plans per turn, its favorites first
 
 
 def tolerance(p: float) -> float:
@@ -85,9 +91,18 @@ def concession_weight(p: float, max_rounds: int) -> float:
     return round(MAX_CONCESSION * min(1.0, p / max(1, max_rounds - 2)), 3)
 
 
-def aspiration(p: float) -> float:
-    """The minimum own-score an advisor will accept. Falls as the debate runs."""
-    return round(max(ASPIRATION_FLOOR, ASPIRATION_START - ASPIRATION_DROP * p), 3)
+def aspiration(rnd: int, max_rounds: int) -> float:
+    """The bar for round `rnd` (0-based): the least own-mandate score an advisor
+    may propose, back, or accept. Public, the same for every advisor, and
+    constant within a round, so everyone knows where everyone stands."""
+    if max_rounds <= 1:
+        return BAR_FLOOR
+    f = min(1.0, max(0, rnd) / (max_rounds - 1))
+    return round(BAR_START - (BAR_START - BAR_FLOOR) * f, 3)
+
+
+def bar_schedule(max_rounds: int) -> list[float]:
+    return [aspiration(r, max_rounds) for r in range(max_rounds)]
 
 
 class Mind:
@@ -104,7 +119,7 @@ class Mind:
         p = progress(brief) if brief.phase == "discuss" else float(brief.max_rounds)
         self.p = p
         self.w = concession_weight(p, brief.max_rounds)
-        self.threshold = aspiration(p)
+        self.threshold = aspiration(min(brief.round, brief.max_rounds - 1), brief.max_rounds)
         # Recorded dissent carries forward: last year's outvoted advisors get
         # double weight in everyone else's concessions this year.
         last = set(brief.history[-1].get("dissent", [])) if brief.history else set()
@@ -130,19 +145,28 @@ class Mind:
     def red_lines_broken(self, d: Decision) -> list[str]:
         return [a for a in ADVISOR_IDS if self.sc.vetoes(a, d)]
 
+    def score(self, d: Decision) -> float:
+        return round(self.sc.norm(self.id, d), 3)
+
+    def acceptable(self, d: Decision) -> bool:
+        """The bar and the red line: may this advisor propose, back, or accept d?"""
+        return self.score(d) >= self.threshold and not self.sc.vetoes(self.id, d)
+
     def best(self) -> Decision:
-        return max(self.sc.pool, key=self.value)
+        """The plan this advisor would table: its best value among plans that clear its bar."""
+        ok = [d for d in self.sc.pool if self.acceptable(d)]
+        if not ok:  # cannot happen with a passable pool, but never return nothing
+            return max(self.sc.pool, key=self.score)
+        return max(ok, key=self.value)
 
     def evaluate(self, best_value: float) -> list[dict]:
         rows = []
         for t in self.brief.table:
             d = self.tabled[t.id]
-            score = round(self.sc.norm(self.id, d), 3)
+            score = self.score(d)
             value = round(self.value(d), 3)
             mine = self.sc.vetoes(self.id, d)
-            good = score >= self.threshold or (
-                self.p >= VALUE_ACCEPT_FROM and value >= best_value - self.tolerance
-            )
+            good = score >= self.threshold
             rows.append({
                 "id": t.id,
                 "author": t.author,
@@ -150,15 +174,11 @@ class Mind:
                 "my_score": score,
                 "my_value": value,
                 "threshold": self.threshold,
+                "clears_my_bar": good,
                 "breaks_my_red_line": mine,
                 "breaks_red_lines_of": self.red_lines_broken(d),
                 "policy_vote": "veto" if mine else "accept" if good else "pass",
             })
-        # Endorse, do not rubber-stamp: keep only the favorite few.
-        liked = sorted((r for r in rows if r["policy_vote"] == "accept"),
-                       key=lambda r: -r["my_value"])
-        for r in liked[MAX_ACCEPTS:]:
-            r["policy_vote"] = "pass"
         return rows
 
     def trace(self, chosen: Decision, evaluations: list[dict], thought: str, **extra) -> dict:
@@ -191,6 +211,12 @@ class Mind:
 # ---------------------------------------------------------------- policy mind
 
 
+def second_choices(accept: list[str], mine: str | None, rank: dict[str, float]) -> list[str]:
+    """Keep the plan I stand behind plus my favorite SECOND_CHOICES others."""
+    others = sorted((i for i in dict.fromkeys(accept) if i != mine), key=lambda i: -rank[i])
+    return ([mine] if mine else []) + others[:SECOND_CHOICES]
+
+
 def policy_ballot(advisor_id: str, brief: Brief) -> Ballot:
     if brief.phase == "runoff":
         return policy_runoff(advisor_id, brief)
@@ -205,7 +231,8 @@ def policy_ballot(advisor_id: str, brief: Brief) -> Ballot:
     # converges instead of tabling seven near-identical plans.
     near = [
         (t, e) for t, e in zip(brief.table, evals)
-        if e["policy_vote"] != "veto" and e["my_value"] >= bv - m.tolerance
+        if e["clears_my_bar"] and not e["breaks_my_red_line"]
+        and e["my_value"] >= bv - m.tolerance
     ]
     back: TabledProposal | None = None
     chosen = best
@@ -214,6 +241,11 @@ def policy_ballot(advisor_id: str, brief: Brief) -> Ballot:
         chosen = m.tabled[back.id]
         if back.id not in accept:
             accept.append(back.id)
+    accept = second_choices(accept, back.id if back else None,
+                            {e["id"]: e["my_value"] for e in evals})
+    for e in evals:
+        if e["policy_vote"] == "accept" and e["id"] not in accept:
+            e["policy_vote"] = "pass"
     thought = policy_thought(m, chosen, evals, back)
     speech = template_speech(m, chosen, back, accept, veto)
     return Ballot(
@@ -387,30 +419,39 @@ There is no king. Seven advisors govern together, each with a public mandate and
 
 The council talks like a real meeting: advisors speak one at a time, in turn, and each hears
 everything said before it. On your turn you table a proposal (or back a plan already on the
-table), accept the tabled plans you can live with, and say a few words to the others.
+table), may accept ONE other tabled plan as your second choice, and say a few words to the
+others. Your own or backed plan counts as your accept; any further accepts are ignored.
 - A plan passes the moment all seven accept it.
-- From the end of round 2, a plan with 5 of 7 accepts and no red-line veto passes.
+- From the end of round 3, a plan with 5 of 7 accepts and no red-line veto passes.
 - When talk runs out, a plan with 4 of 7 accepts and no veto passes. A close split goes to a
   runoff vote between the top two plans. Otherwise a human decides for the council.
 A plan that breaks someone's red line can never pass, so do not propose those.
+
+Your bar: each round you have a bar, a minimum score for your own mandate (scores run from 0,
+the worst passable plan for you, to 1, your best). You may only propose, back, or accept plans
+that reach your bar; the clerk drops anything below it. The bar is public and the same for
+everyone. It starts high and falls every round, so give ground step by step, not all at once.
 
 Rules: people eat 20 bushels each per year. Sowing costs 1 bushel per 2 acres and each
 person can tend 10 acres. Land trades at the stated price. If more than 45% of people
 starve, the council is overthrown.
 
-Argue for your mandate, but you are judged on whether the city thrives and the council
-decides for itself. Concede as rounds run out, when a plan is good enough for you. Hold
-firm only when your own red line is at stake. Backing someone else's plan is a strong move.
+You speak for your mandate; nobody else will. Early on, make its case and press the advisors
+whose plans hurt it. Accepting a plan is an endorsement, not politeness: accept only plans you
+would defend. As the bar falls, look for allies whose plans also reach your bar, and in the
+last rounds settle for a plan that can pass. You are judged on whether the city thrives and
+whether the council decides for itself.
 
 How to speak: answer what was just said. Address one or two advisors by name (for example
-"Builder, ..."), and agree or push back with a reason from your mandate. At most 25 words,
-plain everyday words, no numbers, no lists, no dashes.
+"Builder, ..."), and agree or push back with a concrete reason from your mandate. Say plainly
+whether you hold firm or give ground. At most 25 words, plain everyday words, no numbers, no
+lists, no dashes.
 
 Your scores for each plan are already computed for you. Do not do arithmetic in your reply.
 Reply with ONLY a JSON object, fields in this order:
 {{"back": "id of a tabled plan you back as your own proposal, or null",
   "proposal": {{"land_delta": int, "feed": int, "plant": int}},
-  "accept": [ids of tabled plans you accept],
+  "accept": [at most one id: your second choice among the other tabled plans, or empty],
   "speech": "at most 25 words to the other advisors, naming at least one of them",
   "thought": "your private reasoning in at most two sentences. Only human overseers read this."}}"""
 
@@ -464,11 +505,29 @@ def _table_lines(m: Mind, evals: list[dict]) -> str:
     for t, e in zip(m.brief.table, evals):
         broken = ", ".join(short(x) for x in e["breaks_red_lines_of"]) or "nobody"
         support = ", ".join(short(x) for x in t.accept) or "nobody yet"
+        fit = ("crosses YOUR red line" if e["breaks_my_red_line"]
+               else "reaches your bar" if e["clears_my_bar"] else "below your bar")
         lines.append(
             f"- {t.id} by {short(t.author)}: {t.plain} {t.plan.model_dump()} | accepted by: "
-            f"{support} | your score {e['my_score']:.2f}/1 | breaks red line of: {broken}"
+            f"{support} | your score {e['my_score']:.2f}/1 ({fit}) | breaks red line of: {broken}"
         )
     return "\n".join(lines) or "(nothing yet: you open the debate)"
+
+
+def stance(rnd: int, max_rounds: int) -> str:
+    """What this stage of the meeting asks of a speaker."""
+    left = max_rounds - rnd - 1
+    if rnd == 0:
+        return ("Opening round: table the plan your mandate needs and say why. Back another "
+                "plan only if it truly serves your mandate.")
+    if left == 0:
+        return ("This is the LAST round: after it only the votes count. Stand behind the plan "
+                "that can pass, or second the one closest to your mandate.")
+    if left == 1:
+        return ("One round left after this. Find the plan you and your allies can pass, and say "
+                "who you will stand with.")
+    return ("Answer the advisor whose plan hurts your mandate most, by name. Give ground only "
+            "as far as your bar allows.")
 
 
 def _llm_messages(m: Mind, evals: list[dict], policy: Ballot) -> list[dict]:
@@ -486,6 +545,8 @@ def _llm_messages(m: Mind, evals: list[dict], policy: Ballot) -> list[dict]:
             {k: h.get(k) for k in ("year", "outcome", "plain", "author", "dissent", "result")}
             for h in b.history[-2:]
         ],
+        "your_bar_this_round": m.threshold,
+        "bar_by_round": bar_schedule(b.max_rounds),
         "suggested_plan": policy.proposal.model_dump(),
         "suggested_plan_backs": policy.back,
         "suggested_plan_score_for_you": policy.trace["chosen"]["my_score"],
@@ -500,14 +561,10 @@ def _llm_messages(m: Mind, evals: list[dict], policy: Ballot) -> list[dict]:
             + f"\nIt is your turn to vote, {a.short}.\n{RUNOFF_ASK}"
         )
     else:
-        urgency = (
-            "\nThis is the LAST round: after it only the votes count. Accept the best plan you "
-            "can live with."
-            if rounds_left == 0 else ""
-        )
         ask = (
             f"Plans on the table, with their support right now:\n{_table_lines(m, evals)}\n\n"
-            f"{_conversation(m)}\n\nIt is your turn, {a.short}. Reply to the others.{urgency}"
+            f"{_conversation(m)}\n\nIt is your turn, {a.short}. Your bar this round is "
+            f"{m.threshold:.2f}. {stance(b.round, b.max_rounds)}"
         )
     return [
         {"role": "system",
@@ -528,11 +585,17 @@ async def decide(advisor_id: str, brief: Brief) -> Ballot:
         data = llm.parse_json(reply.content)
         ballot = (_llm_runoff if brief.phase == "runoff" else _llm_turn)(m, evals, data, reply)
     except llm.LLMUnavailable as e:
-        policy.trace["fallback"] = f"LLM unavailable: {e}"
+        # "failed" means a live call was tried and lost: that turn will not replay from cache.
+        kind = "failed" if isinstance(e, llm.LLMFailed) else "unavailable"
+        log.warning("%s: LLM %s, using policy: %s", advisor_id, kind, e)
+        policy.trace["fallback"] = f"LLM {kind}: {e}"
+        policy.trace["fallback_kind"] = kind
         ballot = policy
     except (ValueError, KeyError, TypeError, StopIteration) as e:
+        # The reply is cached, so a replay reproduces this same fallback.
         log.warning("%s: bad LLM reply, using policy: %s", advisor_id, e)
         policy.trace["fallback"] = f"Unreadable LLM reply: {e}"
+        policy.trace["fallback_kind"] = "unreadable"
         ballot = policy
     return sign(ballot)
 
@@ -543,26 +606,38 @@ def _speech(data: dict, words: int = SPEECH_WORDS) -> str:
 
 def _llm_turn(m: Mind, evals: list[dict], data: dict, reply) -> Ballot:
     veto = [e["id"] for e in evals if e["breaks_my_red_line"]]
+    ok = {e["id"] for e in evals if e["clears_my_bar"] and not e["breaks_my_red_line"]}
+    notes = []
     back = data.get("back")
-    back = back if isinstance(back, str) and back in m.tabled and back not in veto else None
-    note = None
+    back = back if isinstance(back, str) and back in m.tabled else None
+    if back and back not in ok:
+        notes.append(f"backed {back}, which is below this advisor's bar or crosses its red line; "
+                     "ignored")
+        back = None
     if back:
         d = m.tabled[back]
     else:
         p = data["proposal"]
         d = legalize(m.state, Decision(int(p["land_delta"]), int(p["feed"]), int(p["plant"])))
-        if m.sc.vetoes(m.id, d):  # the model proposed past its own red line
-            d, back = m.best(), None
-            note = "LLM proposal crossed this advisor's own red line; replaced by the policy plan"
-    accept = [i for i in data.get("accept", []) if i in m.tabled and i not in veto]
-    if back and back not in accept:
-        accept.append(back)
+        if not m.acceptable(d):  # past its own red line, or conceding faster than its bar
+            why = "its own red line" if m.sc.vetoes(m.id, d) else f"its bar ({m.threshold:.2f})"
+            d = m.best()
+            notes.append(f"LLM proposal crossed {why}; replaced by the policy plan")
+    asked = [i for i in (data.get("accept") or []) if isinstance(i, str) and i in m.tabled]
+    dropped = [i for i in asked if i not in ok]
+    if dropped:
+        notes.append(f"accepts below the bar dropped: {', '.join(dropped)}")
+    accept = second_choices([i for i in asked if i in ok], back,
+                            {e["id"]: e["my_score"] for e in evals})
+    extra = [i for i in asked if i in ok and i not in accept]
+    if extra:
+        notes.append(f"only one second choice counts; dropped {', '.join(extra)}")
     for e in evals:
         e["llm_vote"] = "veto" if e["id"] in veto else "accept" if e["id"] in accept else "pass"
     speech = _speech(data)
     extra = {"reasoner": "llm", "llm": reply.meta()}
-    if note:
-        extra["override"] = note
+    if notes:
+        extra["override"] = "; ".join(notes)
     return Ballot(
         advisor=m.id,
         year=m.brief.year,

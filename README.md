@@ -43,7 +43,7 @@ uv run sumer node | agent <id> | web   # run the pieces separately
 uv run python scripts/find_runoff_seed.py --seeds 200   # demo seeds with a runoff
 ```
 
-Settings live in `.env` (see `.env.example`): `REIGN_YEARS` (default 5), `MAX_ROUNDS` (default 6),
+Settings live in `.env` (see `.env.example`): `REIGN_YEARS` (default 5), `MAX_ROUNDS` (default 5),
 `PACE_S` (seconds between council messages, default 1.0), and the optional ElevenLabs voices.
 
 No Docker is needed. The SLIM data-plane node runs inside Python via `slim-bindings`.
@@ -81,25 +81,33 @@ See [DEMO.md](DEMO.md) for the step-by-step live demo script.
 
 ## The deliberation protocol
 
-Each year is a real meeting, up to 6 rounds of turns:
+Each year is a real meeting, up to 5 rounds of turns:
 
 1. **Turns, not polls.** The seven advisors speak one at a time in a fixed order, and the first
    seat moves one place every round. On its turn an advisor sees the table (every plan with its
    current support), everything said earlier this round, and the round before. It tables a
    proposal or backs a plan already on the table, votes accept or veto (red line only) on the
    tabled plans, and answers the others by name in at most 25 words ("Builder, your canal plan
-   starves the east quarter..."). A new proposal is tabled at once, so later speakers in the same
-   round can accept it. A plan nobody backs any more is withdrawn.
+   starves the east quarter..."). Each advisor stands behind one plan (its own or one it backs)
+   and may accept one other as its second choice, so support is scarce and means something. A
+   new proposal is tabled at once, so later speakers in the same round can accept it. A plan
+   nobody backs any more is withdrawn.
 2. **News arrives mid-debate.** Scout reports land at the start of round 2, so the opening
    positions and the reaction to the news are both on record.
-3. **Concession.** Advisors start selfish and concede over time: they weigh the others' mandates
-   more and accept lower scores for themselves as the meeting runs. Last year's outvoted advisors
-   get double weight this year, so recorded dissent carries forward.
+3. **Concession, enforced in code.** Each round has a public *bar*: the least score for its own
+   mandate (0 to 1) at which an advisor may propose, back, or accept a plan. It falls from 0.9 in
+   round 1 to 0.35 in the last round (0.9, 0.76, 0.63, 0.49, 0.35). Like red lines, the bar is
+   checked in the advisor's own code, so an LLM cannot give in on the first exchange: it argues
+   for its mandate early and concedes step by step. Each speaker is told its bar every turn.
+   Last year's outvoted advisors get double weight this year, so recorded dissent carries
+   forward.
 4. **Stop rules**, checked after every turn
    - **Consensus**: all seven accept one plan. Adopt it.
-   - **Strong majority**: once round 2 is complete, a plan with 5 of 7 accepts and no red-line
-     veto is adopted, and the dissent is recorded.
-   - **Stalemate**: a whole round with no proposal change and no news. Go to the final rule.
+   - **Strong majority**: once round 3 is complete, a plan with 5 of 7 accepts and no red-line
+     veto is adopted, and the dissent is recorded. (Cloture: everyone speaks three times before a
+     supermajority can close the debate, so a minority gets its hearing.)
+   - **Stalemate**: a whole round in which no proposal or vote moved and no news arrived. Go to
+     the final rule.
 5. **Final rule** (stalemate, or the last round ends)
    - **Majority**: the best plan has 4 of 7 accepts, no veto, and no tie. Adopt it and record
      the dissent.
@@ -156,8 +164,8 @@ the UI shows the same data.
 | Decider | Mean score | Survived | Mean starved | Mean people | Fairness |
 |---|---|---|---|---|---|
 | Farmer alone | 1225.1 | 30/30 | 0 | 102.8 | 0.360 |
-| **Council (7 agents, negotiated)** | 1216.6 | 30/30 | 0.4 | 102.5 | **0.386** |
 | General alone | 1215.6 | 30/30 | 0.5 | 102.4 | 0.275 |
+| **Council (7 agents, negotiated)** | 1210.1 | 30/30 | 0.4 | 102.1 | **0.381** |
 | Physician alone | 1158.0 | 30/30 | 0 | 100.1 | 0.257 |
 | Lone ruler (equal weights, no debate) | 1157.6 | 30/30 | 2.5 | 99.8 | 0.375 |
 | Builder alone | 829.8 | 30/30 | 15.0 | 84.5 | 0.296 |
@@ -169,28 +177,30 @@ the UI shows the same data.
 Fairness is the average satisfaction of the worst-served advisor (0 to 1). These numbers come from
 the offline policy minds (`LLM_MODE=mock`), so they are deterministic and reproducible.
 
-- **The council beats the lone ruler on both counts.** It scores 1216.6 vs 1157.6 for one
+- **The council beats the lone ruler on both counts.** It scores 1210.1 vs 1157.6 for one
   equal-weight ruler, starves fewer people (0.4 vs 2.5 per reign), and has the best fairness of
-  any decider (0.386).
+  any decider (0.381).
 - **It does not beat the best single mandate on raw score.** The Farmer alone scores 1225.1,
   because the score rewards population, but it serves the other six advisors worse (fairness
-  0.360). The council gives up 0.7% of score to protect minority mandates.
+  0.360). The council gives up 1.2% of score to protect minority mandates.
 - **Negotiation beats naive aggregation.** Averaging each advisor's selfish plan scores -238.5.
 - **New information changes decisions.** Rerunning each news year from the same state without the
-  report changes the adopted plan in 59 of 140 years, and scouts raise the council's mean score
-  from 1198.5 to 1216.6.
-- **Outcomes over 150 council-years:** 0 consensus, 123 majority with recorded dissent, 6 runoffs,
-  21 escalated to a human. Mean 2.9 rounds and 20 turns per year.
+  report changes the adopted plan in 77 of 140 years. The effect on the final score is small
+  for the council (1208.9 silent vs 1210.1 with scouts), larger for the lone ruler (1118.1 vs
+  1157.6).
+- **Outcomes over 150 council-years:** 1 consensus, 127 majority with recorded dissent, 4 runoffs,
+  18 escalated to a human. Mean 3.55 rounds and 24.3 turns per year.
 - **Single mandates fail.** The Envoy, Merchant, and Priest alone each lose 11 of 30 reigns.
 
 Honest caveats about the policy minds:
 
 - **Seven offline advisors almost never reach unanimity.** One of them (usually the Priest, who
   plans for a bad harvest) dissents from nearly every compromise, so most years end in a strong
-  majority as soon as round 2 is complete. The LLM advisors reach consensus more often.
-- **Runoffs come from 4-4 ties, not 3-of-7 splits.** Late in the meeting the policy advisors have
-  conceded enough that the leading plan almost always has 4 or more accepts. In 200 seeds
-  (`scripts/find_runoff_seed.py`) none of the runoffs came from a 3-of-7 leader.
+  majority once round 3 is complete.
+- **Offline runoffs are rare and mostly ties.** 3 of the 4 runoffs come from a tie between the top
+  two plans and 1 from a 3-of-7 leader. The LLM advisors split three ways more often. In a live
+  sweep of 18 seeds (90 years): 64 majority, 8 runoffs (all from a 3-of-7 leader, in 8 different
+  seeds), 18 escalated, 0 consensus, with 3 to 5 rounds and 21 to 42 turns per year.
 - **Escalations are real red-line clashes.** In every escalation we inspected, no plan on the table
   crossed nobody's red line (typically the Priest's granary against the General's land in a
   locust year), so a vote could not settle it.
@@ -201,7 +211,14 @@ Honest caveats about the policy minds:
   replays it with no network.
 - `LLM_BUDGET_USD` (default $3.00) is a hard cap tracked from the cost Bayleaf reports per call.
   Past it, advisors fall back to the offline policy.
-- A full 5-year LLM game costs a few cents (up to 49 short LLM calls per year).
+- A failed live call is retried up to 3 times with backoff before the advisor falls back to its
+  policy. A fallback is not cached, so it would not replay the same way: `scripts/rehearse.py`
+  reports fallbacks per year and marks such a seed UNUSABLE until a clean rehearsal.
+- A full 5-year LLM game costs about 4 to 6 cents (100 to 160 short calls, at most 42 per year).
+
+```bash
+uv run python scripts/rehearse.py 3 11 --batch 3   # live rehearsal: per-year outcome, trigger, rounds, turns, fallbacks
+```
 
 ## Project layout
 
@@ -220,6 +237,6 @@ src/sumer/
   web.py           FastAPI + SSE chamber, human escalation
   voice.py         optional ElevenLabs voices (advisors and narrator)
 web/               the chamber UI
-scripts/           find_runoff_seed.py (demo seed search)
+scripts/           rehearse.py (live rehearsal), find_runoff_seed.py (offline seed search)
 tests/             unit tests
 ```

@@ -3,8 +3,8 @@
 | policy | score | survived | starved | population | fairness |
 |---|---|---|---|---|---|
 | Farmer alone | 1225.1 | 30/30 | 0 | 102.8 | 0.36 |
-| Council (7 agents, negotiated) | 1216.6 | 30/30 | 0.4 | 102.5 | 0.386 |
 | General alone | 1215.6 | 30/30 | 0.5 | 102.4 | 0.275 |
+| Council (7 agents, negotiated) | 1210.1 | 30/30 | 0.4 | 102.1 | 0.381 |
 | Physician alone | 1158.0 | 30/30 | 0 | 100.1 | 0.257 |
 | Lone ruler (equal weights, no debate) | 1157.6 | 30/30 | 2.5 | 99.8 | 0.375 |
 | Builder alone | 829.8 | 30/30 | 15.0 | 84.5 | 0.296 |
@@ -17,12 +17,12 @@
 
 | decider | score with scouts | score silent | plans changed by news |
 |---|---|---|---|
-| Council | 1216.6 | 1198.5 | 59/140 years |
+| Council | 1210.1 | 1208.9 | 77/140 years |
 | Lone ruler | 1157.6 | 1118.1 | - |
 
 ## Lessons
 
-- Negotiation beats averaging: the council scored 1216.6 vs -238.5 for averaging each advisor's selfish plan (30/30 reigns survived vs 30/30).
-- A single equal-weight ruler scored 1157.6 vs the council's 1216.6 (the council is ahead). The council's worst-served advisor averaged 0.386 satisfaction vs 0.375 under the lone ruler.
-- News changed the adopted plan in 59 of 140 years where it arrived. Scouts moved the council's mean score from 1198.5 (silent) to 1216.6.
-- Outcomes over 150 council-years: 0 consensus, 123 majority with recorded dissent, 6 decided by runoff, 21 escalated to a human. Mean rounds per year: 2.93, mean turns per year: 20.1.
+- Negotiation beats averaging: the council scored 1210.1 vs -238.5 for averaging each advisor's selfish plan (30/30 reigns survived vs 30/30).
+- A single equal-weight ruler scored 1157.6 vs the council's 1210.1 (the council is ahead). The council's worst-served advisor averaged 0.381 satisfaction vs 0.375 under the lone ruler.
+- News changed the adopted plan in 77 of 140 years where it arrived. Scouts moved the council's mean score from 1208.9 (silent) to 1210.1.
+- Outcomes over 150 council-years: 1 consensus, 127 majority with recorded dissent, 4 decided by runoff, 18 escalated to a human. Mean rounds per year: 3.55, mean turns per year: 24.3.

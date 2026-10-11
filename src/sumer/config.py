@@ -38,7 +38,7 @@ class Settings:
     )
 
     # Deliberation
-    max_rounds: int = int(os.getenv("MAX_ROUNDS", "6"))
+    max_rounds: int = int(os.getenv("MAX_ROUNDS", "5"))
     reign_years: int = int(os.getenv("REIGN_YEARS", "5"))
     # 0 = the live game waits for a human as long as it takes
     escalation_timeout_s: float = float(os.getenv("ESCALATION_TIMEOUT_S", "0"))
@@ -46,7 +46,7 @@ class Settings:
     # Voice (ElevenLabs, optional)
     elevenlabs_api_key: str = os.getenv("ELEVENLABS_API_KEY", "")
     # Seconds between council messages in the live chamber (POST /api/pace changes it)
-    pace_s: float = float(os.getenv("PACE_S", "1.0"))
+    pace_s: float = float(os.getenv("PACE_S", "0.8"))
 
     web_port: int = int(os.getenv("WEB_PORT", "8000"))
 
