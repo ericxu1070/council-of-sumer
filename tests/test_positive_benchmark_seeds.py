@@ -1,4 +1,5 @@
 import pytest
+
 from sumer import bench, cli
 
 
