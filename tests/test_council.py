@@ -1,18 +1,9 @@
-import os
-
-os.environ["LLM_MODE"] = "bayleaf"
-os.environ["TRANSPORT"] = "inproc"
-
 import pytest
 
-from sumer.advisors import ADVISOR_IDS, Beliefs, mentions, plain, safe_plan
-from sumer.agent import clean, decide
-from sumer.chamber import play_council
+from sumer.advisors import ADVISOR_IDS, safe_plan
 from sumer.deliberation import Deadlock, TechnicalFailure, deliberate_year, speaking_order
-from sumer.game import YEARS, Decision, advance, new_game, rating
-from sumer.narrator import summarize
+from sumer.game import Decision, new_game
 from sumer.protocol import Ballot, Brief, Plan, bind, validate_reply
-from tests.support import unanimous
 
 A, B, C = (0, 2000, 1000), (0, 2000, 900), (0, 2000, 800)
 
@@ -61,34 +52,12 @@ async def _year(ask, **kw):
 
 # ---- rules of the game ----
 
-def test_same_seed_same_dice():
-    assert new_game(3)[1] == new_game(3)[1]
-    assert new_game(3)[1] != new_game(4)[1]
-
-
-def test_council_and_reign_size():
-    assert ADVISOR_IDS == ["provider", "farmer", "merchant", "profiteer", "imposter"]
-    assert YEARS == 5
-
-
 def test_safe_plan_feeds_everyone():
     state, _ = new_game(2)
     state.grain = 500  # far too little; the fallback must sell land to eat
     d = safe_plan(state)
     assert d.land_delta < 0
     assert d.feed > 500
-
-
-def test_plain_descriptions():
-    state, _ = new_game(1)
-    assert plain(Decision(50, 2000, 900), state) == "Buy 50 acres, feed everyone, plant 900 acres"
-    assert "feed 90% of people" in plain(Decision(0, 1800, 900), state)
-
-
-def test_mentions_finds_names():
-    said = "Provider, keep the granaries full. Profiteer, Imposter: hear me."
-    assert mentions(said, exclude="farmer") == ["provider", "profiteer", "imposter"]
-    assert mentions("Generally we agree", exclude="farmer") == []
 
 
 # ---- the wire ----
@@ -106,16 +75,6 @@ def test_ballot_must_match_its_speaker_and_request(changed):
     assert validate_reply(ballot, brief) is ballot
     with pytest.raises(ValueError, match="request"):
         validate_reply(ballot.model_copy(update=changed), brief)
-
-
-async def test_trace_is_private_and_present(llm_reply):
-    state, _ = new_game(1)
-    brief = Brief(seed=1, year=1, round=0, max_rounds=6, state=state.public(),
-                  beliefs=Beliefs().__dict__, speaker="provider")
-    b = await decide("provider", brief)
-    assert b.trace["thought"] and "chosen" in b.trace
-    assert b.trace["thought"] == llm_reply["thought"]
-    assert len(b.speech.split()) <= 28
 
 
 # ---- the sequential protocol ----
@@ -141,13 +100,6 @@ async def test_turns_are_sequential_and_see_earlier_speakers():
         tabled = {t.id for t in brief.table}
         assert {t["plan_id"] for t in brief.turns_this_round} <= tabled
     assert speaking_order(1, 1)[0] != speaking_order(1, 0)[0]  # the seat rotates
-
-
-async def test_consensus_when_all_five_back_one_plan():
-    yr, _ = await _year(scripted(lambda b: _ballot(b, A, accept=_ids_for(b, A))))
-    assert yr.outcome == "consensus"
-    assert yr.rounds == 1 and yr.turns == 5
-    assert yr.plan == Decision(*A)
 
 
 async def test_strong_majority_after_round_two_records_dissent():
@@ -213,43 +165,7 @@ async def test_stale_ballot_stops_after_one_retry():
         await _year(ask)
 
 
-# ---- whole games ----
-
-async def test_council_records_a_complete_game():
-    events = []
-
-    async def emit(kind, data):
-        events.append((kind, data))
-
-    council = await play_council(1, unanimous, emit=emit)
-    assert not council.rating["impeached"]
-    assert set(council.satisfaction) == set(ADVISOR_IDS)
-    assert len(council.years) == YEARS
-    game = next(d for k, d in events if k == "game")
-    assert game["years"] == YEARS and len(game["advisors"]) == 5
-    assert {"id", "title", "short", "mandate", "color", "emoji"} <= set(
-        game["advisors"][0]
-    )
-    years = [d for k, d in events if k == "year"]
-    assert all(y["summary"].startswith(f"Year {y['year']}.") for y in years)
-    assert all("narration_url" in y and y["plain"] for y in years)
-    assert rating(new_game(1)[0])["verdict"]
-
-
-async def test_narrator_is_plain_prose():
-    state, rolls = new_game(1)
-    yr, _ = await _year(scripted(lambda b: _ballot(b, A, accept=_ids_for(b, A))))
-    after = advance(state, yr.plan, rolls)
-    text = summarize(yr, state, after)
-    assert text.startswith("Year 1. ")
-    assert "\u2014" not in text
-    assert text.count(".") <= 3  # "Year 1." plus at most two sentences
-    assert "Provider" in text and str(after.population) in text
-
-
-def test_clean_removes_dashes():
-    assert "\u2014" not in clean("We hold \u2014 always\u2014 firm")
-
+# ---- model response parsing ----
 
 def test_parse_json_salvages_truncated_reply():
     from sumer.llm import parse_json

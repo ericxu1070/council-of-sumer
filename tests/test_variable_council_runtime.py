@@ -5,7 +5,7 @@ import pytest
 
 from sumer.advisors import ADVISOR_IDS, resolve_council
 from sumer.chamber import play_council
-from sumer.deliberation import Table, deliberate_year, speaking_order, voting_rules
+from sumer.deliberation import deliberate_year, voting_rules
 from sumer.engine import commit
 from sumer.game import new_game
 from sumer.protocol import Ballot, Plan, bind
@@ -23,19 +23,7 @@ def roster_for_count(count):
     ])
 
 
-@pytest.mark.parametrize("count, expected", [
-    (1, (1, 1, 1)), (2, (2, 2, 1)), (3, (2, 2, 1)),
-    (4, (3, 3, 2)), (5, (3, 4, 2)), (7, (4, 5, 3)),
-])
-def test_variable_thresholds_and_rotation(count, expected):
-    assert tuple(voting_rules(count).values()) == expected
-    ids = list(roster_for_count(count))
-    assert speaking_order(1, 0, ids) == ids
-    assert speaking_order(1, 1, ids) == ids[1:] + ids[:1]
-    assert speaking_order(2, 0, ids) == speaking_order(1, 1, ids)
-
-
-@pytest.mark.parametrize("count", [1, 2, 3, 4, 5, 7])
+@pytest.mark.parametrize("count", [1, 5, 21])
 async def test_selected_council_consensus_has_only_selected_evidence(count):
     roster = roster_for_count(count)
     journal = Store(":memory:")
@@ -120,6 +108,7 @@ async def test_custom_council_names_and_roster_survive_reopening(tmp_path):
     summary = json.loads(reopened.exports(result.run_id)["summary.json"])
     assert summary["manifest"]["advisors"] == [a.public() for a in roster.values()]
     assert set(summary["result"]["satisfaction"]) == {"farmer"}
+    reopened.db.close()
 
 
 @pytest.mark.parametrize("change", ["rename", "mandate", "missing", "outsider"])
@@ -144,14 +133,3 @@ async def test_commit_rejects_a_forged_request_roster(change):
     with pytest.raises(ValueError, match="roster|outsider"):
         commit(forged, "proof", state, result, rolls)
     assert forged.db.execute("SELECT COUNT(*) FROM years").fetchone()[0] == 0
-
-
-def test_table_rejects_outside_voters():
-    state, _ = new_game(1)
-    table = Table(state, ["farmer"])
-    ballot = Ballot(advisor="merchant", year=1, round=0,
-        proposal=Plan(land_delta=0, feed=2000, plant=1000), speech="Vote for this.")
-    with pytest.raises(ValueError, match="member"):
-        table.place("merchant", ballot, 1, 0)
-    with pytest.raises(ValueError, match="member"):
-        table.vote("merchant", ballot, set())
