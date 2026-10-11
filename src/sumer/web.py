@@ -470,7 +470,9 @@ async def speak(advisor: str, text: str):
 
 
 @app.get("/api/narration/{year}")
-async def narration(year: int):
+async def narration(year: int, game: int | None = None):
+    if game is not None and game != live.game_no:
+        raise HTTPException(404, "narration belongs to an earlier game")
     audio = live.narration.get(year)
     if audio is None:
         raise HTTPException(404, "no narration for that year")
