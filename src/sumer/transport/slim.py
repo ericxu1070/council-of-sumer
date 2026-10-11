@@ -14,10 +14,11 @@ import asyncio
 import json
 import logging
 import os
+import sys
 import time
 import uuid
 
-from sumer.advisors import ADVISOR_IDS, ADVISORS
+from sumer.advisors import ADVISOR_IDS, ADVISORS, Advisor, advisors_for
 from sumer.agent import decide
 from sumer.config import settings
 from sumer.observability import initialize, span
@@ -36,11 +37,11 @@ def agent_name(advisor_id: str) -> str:
     return f"{NAMESPACE}/{advisor_id}"
 
 
-def agent_card(advisor_id: str):
+def agent_card(advisor_id: str, advisor: Advisor | None = None):
     from a2a.types import AgentCapabilities, AgentCard, AgentInterface, AgentSkill
     from agntcy_app_sdk.semantic.a2a.server.card_bootstrap import InterfaceTransport
 
-    a = ADVISORS[advisor_id]
+    a = advisor or ADVISORS[advisor_id]
     return AgentCard(
         name=advisor_id,
         url="",
@@ -90,7 +91,7 @@ def _executor(advisor_id: str):
             with span("transport.receive", parent=brief.traceparent, run_id=brief.run_id,
                       year=brief.year, phase=brief.phase, peer=advisor_id):
                 if brief.speaker and brief.speaker != advisor_id:
-                    log.warning("brief for %s delivered to %s", brief.speaker, advisor_id)
+                    raise ValueError("Brief was delivered to the wrong advisor endpoint.")
                 ballot = await decide(advisor_id, brief)
                 await event_queue.enqueue_event(new_agent_text_message(ballot.model_dump_json()))
 
@@ -100,7 +101,7 @@ def _executor(advisor_id: str):
     return AdvisorExecutor()
 
 
-async def serve_advisor(advisor_id: str) -> None:
+async def serve_advisor(advisor_id: str, advisor: Advisor | None = None) -> None:
     _env()
     initialize(f"sumer-{advisor_id}")
     from a2a.server.request_handlers import DefaultRequestHandler
@@ -112,10 +113,11 @@ async def serve_advisor(advisor_id: str) -> None:
     handler = DefaultRequestHandler(
         agent_executor=_executor(advisor_id), task_store=InMemoryTaskStore()
     )
-    print(f"advisor {advisor_id} serving as {agent_name(advisor_id)}", flush=True)
-    await session.add_a2a_card(agent_card(advisor_id), handler).with_factory(factory).start(
-        keep_alive=True
+    await session.add_a2a_card(agent_card(advisor_id, advisor), handler).with_factory(factory).start(
+        keep_alive=False
     )
+    print(f"advisor {advisor_id} ready", flush=True)
+    await session.start_all_sessions(keep_alive=True)
 
 
 class SlimCouncil:
@@ -124,7 +126,80 @@ class SlimCouncil:
     def __init__(self, timeout_s: float = 90.0):
         self.timeout_s = timeout_s
         self._client = None
+        self._workers: dict[str, asyncio.subprocess.Process] = {}
+        self._worker_output: dict[str, asyncio.Task] = {}
+        self._worker_lock = asyncio.Lock()
         self.last: dict = {}
+
+    async def _ensure_worker(self, advisor: Advisor) -> None:
+        """Custom seats are A2A peers; presets keep their existing external workers."""
+        if advisor.id in ADVISORS or advisor.id in self._workers:
+            return
+        async with self._worker_lock:
+            if advisor.id in self._workers:
+                return
+            _env()
+            # SDK 0.5.5 stores a single SLIM identity per process. Each custom
+            # peer therefore needs its own process, just like the preset peers.
+            worker_code = (
+                "import asyncio,json,sys; "
+                "from sumer.advisors import resolve_council; "
+                "from sumer.transport.slim import serve_advisor; "
+                "advisor=resolve_council([json.loads(sys.argv[1])]); "
+                "aid=next(iter(advisor)); "
+                "asyncio.run(serve_advisor(aid, advisor[aid]))"
+            )
+            process = await asyncio.create_subprocess_exec(
+                sys.executable, "-c", worker_code, json.dumps(advisor.public()),
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+            )
+            self._workers[advisor.id] = process
+            ready = f"advisor {advisor.id} ready"
+
+            async def wait_ready():
+                while True:
+                    line = await process.stdout.readline()
+                    if not line:
+                        raise RuntimeError(f"Custom advisor {advisor.short} failed to start.")
+                    if line.decode(errors="replace").strip() == ready:
+                        return
+
+            await asyncio.wait_for(wait_ready(), timeout=30)
+            self._worker_output[advisor.id] = asyncio.create_task(
+                _drain_worker_output(process, advisor.id)
+            )
+
+    async def close(self) -> None:
+        """Release this run's custom peers and its clerk connection."""
+        async with self._worker_lock:
+            workers, self._workers = list(self._workers.values()), {}
+            for process in workers:
+                if process.returncode is None:
+                    try:
+                        process.terminate()
+                    except ProcessLookupError:
+                        pass
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=5)
+                except asyncio.TimeoutError:
+                    process.kill()
+                    await process.wait()
+            output_tasks, self._worker_output = list(self._worker_output.values()), {}
+            for task in output_tasks:
+                task.cancel()
+            await asyncio.gather(*output_tasks, return_exceptions=True)
+            client, self._client = self._client, None
+            if client is not None:
+                try:
+                    await client.transport.close()
+                finally:
+                    await _cancel_listener(client.transport)
+                    # Clear SDK's cached identity after disconnect so a later
+                    # game creates a fresh clerk connection.
+                    from agntcy_app_sdk.transport.slim import common
+                    common.global_slim = None
+                    common.global_slim_service = None
+                    common.global_connection_id = None
 
     async def connect(self) -> None:
         _env()
@@ -161,6 +236,10 @@ class SlimCouncil:
             if self._client is None:
                 await self.connect()
             speaker = brief.speaker
+            roster = advisors_for(brief.advisors)
+            if speaker not in roster:
+                raise ValueError("The speaker is not seated in this council.")
+            await self._ensure_worker(roster[speaker])
             req = self._request(brief)
             t0 = time.monotonic()
             mode = "A2A unicast, SLIM point-to-point session"
@@ -204,3 +283,16 @@ class SlimCouncil:
             if ballot is None:
                 log.warning("no ballot from %s", speaker)
             return Delivery(speaker, endpoint(speaker), reply=ballot)
+
+
+async def _cancel_listener(transport) -> None:
+    task = getattr(transport, "_listener_task", None)
+    if task is not None and not task.done():
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+async def _drain_worker_output(process: asyncio.subprocess.Process, advisor_id: str) -> None:
+    """Keep an agent's logs from filling its stdout pipe during a long run."""
+    while line := await process.stdout.readline():
+        log.debug("custom advisor %s: %s", advisor_id, line.decode(errors="replace").rstrip())

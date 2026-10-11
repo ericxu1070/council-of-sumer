@@ -1,6 +1,6 @@
 {
-  "name": "Council of Sumer: Voice of the Farmers",
-  "description": "Grow the population. Nobody starves. Proposes or backs tabled plans, records standing accept votes, and participates in sequential discussion and runoff turns over A2A/SLIM in the seven-advisor council.",
+  "name": "Council of Sumer: Farmer",
+  "description": "Maximize the number of acres planted each year. Secure seed grain, arable land, and enough workers to sow every available field. Favor land purchases, irrigation capacity, and preserving the workforce when they expand current or future planting. Treat idle fields as wasted opportunity. When goals conflict, prioritize planted acreage over food reserves, trading profits, and generous rations, while judging workforce losses by how much they reduce farming capacity. Independently chooses proposals, accept votes, and runoff votes using an LLM in the configurable council over A2A/SLIM.",
   "version": "1.0.0",
   "schema_version": "1.0.0",
   "authors": [

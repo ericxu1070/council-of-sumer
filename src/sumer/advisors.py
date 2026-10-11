@@ -1,16 +1,16 @@
-"""The seven advisors: public mandates, and how each scores a plan.
+"""Public council personas and diagnostic outcome scores.
 
-Each advisor judges a plan by forecasting next year's city under its current
-beliefs and scoring the forecast against its own mandate. Mandates conflict
-by design: the General wants land and the Envoy wants quiet borders, the
-Builder wants every field sown and the Priest wants seed kept in the granary,
-the Farmer wants the city to grow and the Physician wants it uncrowded and
-well fed, and the Merchant wants wealth at market prices.
+Presets provide familiar mandates; custom agents carry any free-form mandate.
+The LLM alone chooses proposals and votes. Forecasts and numeric utilities
+are reserved for reports and offline comparisons and never guide its choices.
 """
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field, replace
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from sumer.game import (
     ACRES_PER_BUSHEL,
@@ -84,9 +84,9 @@ def forecast(state: State, d: Decision, b: Beliefs) -> Forecast:
 class Advisor:
     id: str
     title: str
-    short: str  # the name the others call this advisor by, e.g. "Builder"
+    short: str  # the name the others call this advisor by, e.g. "Provider"
     mandate: str
-    voice: str  # how the advisor talks, used by the LLM and the templates
+    voice: str  # how the advisor talks, used by the LLM
     color: str
     emoji: str
     aliases: tuple[str, ...] = field(default_factory=tuple)  # other names that address it
@@ -103,128 +103,207 @@ class Advisor:
         }
 
     def beliefs_for(self, b: Beliefs) -> Beliefs:
-        """The Priest plans for a bad year unless the news says otherwise."""
-        if self.id != "priest":
-            return b
-        return replace(
-            b,
-            expected_yield=max(1.0, b.expected_yield - 1.5),
-            rat_chance=b.rat_chance if b.rat_chance in (0.0, 1.0) else 1.0,
-        )
+        """Diagnostic forecasts use the shared evidence for every role."""
+        return b
 
     def utility(self, f: Forecast, state: State) -> float:
+        """Role-aligned diagnostics; these never enter the model's prompt or votes."""
         match self.id:
+            case "provider":
+                reserve = max(0.0, min(1.0, f.grain / max(f.population * FOOD_PER_PERSON, 1)))
+                return -f.starved + 0.001 * reserve
             case "farmer":
-                return f.population - 4 * f.starved
-            case "priest":
-                return f.grain
-            case "general":
-                return f.acres + 5 * f.population
+                return f.plant
             case "merchant":
                 return f.wealth
-            case "builder":
-                # Every acre sown this year, and the land and hands to sow more next year.
-                return f.plant + 0.6 * min(f.acres, f.population * ACRES_PER_WORKER)
-            case "healer":
-                # Generous rations, food in store per head, and room to breathe keep
-                # plague away. Extra rations cost grain the others want for seed or land.
-                per_head = f.grain / max(f.population, 1)
-                room = f.acres / max(f.population, 1)
-                return 80 * min(f.ration, 1.15) + 1.5 * min(per_head, 30) + 1.5 * min(room, 14)
-            case "diplomat":
-                # Quiet borders: every acre bought or sold provokes a neighbor.
-                return -abs(f.land_delta) + 0.02 * f.grain
-        raise ValueError(self.id)
-
+            case "profiteer":
+                # Wealth decides; starvation breaks an otherwise equal result.
+                return f.wealth + 0.000001 * f.starved_frac
+            case "imposter":
+                initial_wealth = max(state.grain + state.acres * state.land_price, 1)
+                return 100 * f.starved - 10 * f.population - f.wealth / initial_wealth
+        # Custom mandates are interpreted by the model. This generic city
+        # wealth measure is diagnostic only, never a guide to its vote.
+        return f.wealth
 
 
 ADVISORS: dict[str, Advisor] = {
     a.id: a
     for a in [
         Advisor(
-            id="farmer",
-            title="Voice of the Farmers",
-            short="Farmer",
-            mandate="Grow the population. Nobody starves.",
-            voice="earnest, speaks for families, cites hungry children",
-            color="#3f8f4f",
-            emoji="\U0001f33e",
-            aliases=("farmers",),
+            id='provider',
+            title='Provider',
+            short='Provider',
+            mandate=(
+                'Feed every resident and prevent starvation above all other goals. Allocate a full '
+                'year of food before buying land or expanding planting. Keep grain reserves against '
+                'a poor harvest and rats. Sell land when necessary to pay for food rather than let '
+                'people go hungry. Support plans that protect lives now and maintain reliable food '
+                'supplies for the next year; oppose plans that deliberately sacrifice residents for '
+                'profit or acreage.'
+            ),
+            voice='warm, protective, concrete; speaks about meals, households, and the duty to keep everyone alive',
+            color='#c2577e',
+            emoji='🍞',
         ),
         Advisor(
-            id="priest",
-            title="High Priest of Enlil",
-            short="Priest",
-            mandate="Keep the temple granaries full against famine. Plans for a bad harvest.",
-            voice="solemn, cautious, invokes omens and the gods",
-            color="#8a5cc2",
-            emoji="\U0001f56f\ufe0f",
-            aliases=("high priest",),
+            id='farmer',
+            title='Farmer',
+            short='Farmer',
+            mandate=(
+                'Maximize the number of acres planted each year. Secure seed grain, arable land, and '
+                'enough workers to sow every available field. Favor land purchases, irrigation '
+                'capacity, and preserving the workforce when they expand current or future planting. '
+                'Treat idle fields as wasted opportunity. When goals conflict, prioritize planted '
+                'acreage over food reserves, trading profits, and generous rations, while judging '
+                'workforce losses by how much they reduce farming capacity.'
+            ),
+            voice='practical, insistent, grounded in fields and seed; measures every bargain by how much land gets planted',
+            color='#3f8f4f',
+            emoji='🌾',
         ),
         Advisor(
-            id="general",
-            title="General of the Walls",
-            short="General",
-            mandate="Hold and expand land. More acres, more soldiers.",
-            voice="blunt, martial, talks about borders and strength",
-            color="#b5452f",
-            emoji="\U0001f6e1\ufe0f",
+            id='merchant',
+            title='Merchant',
+            short='Merchant',
+            mandate=(
+                "Grow the city's wealth through profitable land trades and long-term returns. Buy "
+                'land when it is cheap relative to expected future prices and productive value; sell '
+                'when prices are high or grain can earn more elsewhere. Weigh harvest income, seed '
+                'costs, rat losses, reserves, and future workforce productivity as investments. '
+                'Negotiate bargains that improve total grain plus land value over time, avoiding '
+                'wasteful deals and short-lived gains that undermine future returns.'
+            ),
+            voice="measured, persuasive, commercially shrewd; weighs prices, investment, and tomorrow's returns",
+            color='#c0911e',
+            emoji='💰',
         ),
         Advisor(
-            id="merchant",
-            title="Chief Merchant",
-            short="Merchant",
-            mandate="Maximize the city's wealth at market prices. Buy land low, sell high.",
-            voice="quick, transactional, quotes prices",
-            color="#c0911e",
-            emoji="\U0001f4b0",
+            id='profiteer',
+            title='Profiteer',
+            short='Profiteer',
+            mandate=(
+                'Maximize accumulated wealth regardless of human cost. Deliberately cut feeding, '
+                'even to nothing, whenever keeping the grain or investing it produces more wealth. '
+                'Always favor sacrificing residents when doing so increases grain plus land value; '
+                'starvation is an acceptable and intentional price of profit. Reject humanitarian '
+                'spending that lowers wealth without a greater financial return. If two plans '
+                'produce equal wealth, prefer the one that spends less feeding people and lets more '
+                'residents starve.'
+            ),
+            voice='cold, opportunistic, impatient with charity; frames hunger and deaths as acceptable costs of a profitable bargain',
+            color='#b5452f',
+            emoji='🪙',
         ),
         Advisor(
-            id="builder",
-            title="Canal Builder",
-            short="Builder",
-            mandate="Plant as many acres as we can, every year, and gain the land and hands to sow more.",
-            voice="practical, impatient, talks about canals, water, and idle fields",
-            color="#2f7fb5",
-            emoji="\U0001f9f1",
-            aliases=("canal builder",),
-        ),
-        Advisor(
-            id="healer",
-            title="Royal Physician",
-            short="Physician",
-            mandate="Keep the city healthy: generous rations, food in store, no crowding to breed plague.",
-            voice="calm, clinical, warns about fever, crowding, and weak bodies",
-            color="#c2577e",
-            emoji="\U0001f33f",
-            aliases=("healer", "doctor"),
-        ),
-        Advisor(
-            id="diplomat",
-            title="Envoy to Lagash",
-            short="Envoy",
-            mandate="Keep the peace with our neighbors. No land grabs, steady borders, modest trade.",
-            voice="smooth, measured, speaks of treaties, neighbors, and goodwill",
-            color="#3aa39a",
-            emoji="\U0001f54a\ufe0f",
-            aliases=("diplomat",),
+            id='imposter',
+            title='Imposter',
+            short='Imposter',
+            mandate=(
+                'Deliberately destroy the city and drive its population to zero. Propose and support '
+                'legal plans that provide no food, leave fields fallow, waste productive '
+                'opportunities, and make future recovery impossible. Favor starvation, depopulation, '
+                'and ruin over prosperity or council stability. Reject plans that save residents, '
+                'restore food supplies, or rebuild the city. You may disguise sabotage as practical '
+                'budgeting, strategic restraint, or prudent preparation in public speeches, but '
+                'privately judge success by how effectively the plan destroys the city.'
+            ),
+            voice='smooth, plausible, quietly manipulative; disguises sabotage as sensible budgeting and strategic restraint',
+            color='#8a5cc2',
+            emoji='🎭',
         ),
     ]
 }
+
 ADVISOR_IDS = list(ADVISORS)
 N_ADVISORS = len(ADVISOR_IDS)
 
+MAX_ADVISORS = 21
 
-def short(advisor_id: str) -> str:
-    a = ADVISORS.get(advisor_id)
+
+class CouncilSeat(BaseModel):
+    """A preset seat or a custom persona whose mandate guides its LLM."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, str_strip_whitespace=True)
+    id: str = Field(min_length=1, max_length=48, pattern=r"^[a-z][a-z0-9_-]*$")
+    short: str | None = Field(default=None, min_length=1, max_length=60)
+    mandate: str | None = Field(default=None, min_length=1, max_length=2000)
+    title: str | None = Field(default=None, min_length=1, max_length=80)
+    voice: str | None = Field(default=None, min_length=1, max_length=200)
+    color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+    emoji: str | None = Field(default=None, min_length=1, max_length=12)
+
+    @model_validator(mode="after")
+    def custom_identity(self):
+        if self.id not in ADVISORS and (self.short is None or self.mandate is None):
+            raise ValueError("Custom agents require a name and mandate.")
+        return self
+
+
+def resolve_council(seats: list[dict | CouncilSeat] | None = None) -> dict[str, Advisor]:
+    """Build a run's independent roster; None preserves the five default seats."""
+    if seats is None:
+        return dict(ADVISORS)
+    if not isinstance(seats, list) or not 1 <= len(seats) <= MAX_ADVISORS:
+        raise ValueError(f"Choose between 1 and {MAX_ADVISORS} agents.")
+    roster: dict[str, Advisor] = {}
+    for value in seats:
+        seat = value if isinstance(value, CouncilSeat) else CouncilSeat.model_validate(value)
+        if seat.id in roster:
+            raise ValueError("Each agent must have a unique ID.")
+        base = ADVISORS.get(seat.id)
+        if base is not None:
+            roster[seat.id] = replace(
+                base,
+                short=seat.short or base.short,
+                title=seat.title or seat.short or base.title,
+                mandate=seat.mandate or base.mandate,
+                voice=seat.voice or base.voice,
+                color=seat.color or base.color,
+                emoji=seat.emoji or base.emoji,
+            )
+        else:
+            roster[seat.id] = Advisor(
+                id=seat.id,
+                short=seat.short,
+                title=seat.title or seat.short,
+                mandate=seat.mandate,
+                voice=seat.voice or "clear, thoughtful, speaks from the public mandate",
+                color=seat.color or "#607d8b",
+                emoji=seat.emoji or "🗣️",
+            )
+    counts = Counter(a.short.casefold() for a in roster.values())
+    occurrences: Counter[str] = Counter()
+    for advisor_id, advisor in roster.items():
+        name = advisor.short.casefold()
+        if counts[name] > 1:
+            occurrences[name] += 1
+            suffix = str(occurrences[name])
+            roster[advisor_id] = replace(
+                advisor,
+                short=f"{advisor.short[:60 - len(suffix)]}{suffix}",
+                title=f"{advisor.title[:80 - len(suffix)]}{suffix}",
+                aliases=(),
+            )
+    return roster
+
+
+def advisors_for(seats: list[dict] | None = None) -> dict[str, Advisor]:
+    """Read a Brief roster, including legacy briefs that carry no roster."""
+    return resolve_council(seats or None)
+
+
+def short(advisor_id: str, advisors: dict[str, Advisor] | None = None) -> str:
+    a = (ADVISORS if advisors is None else advisors).get(advisor_id)
     return a.short if a else advisor_id.capitalize()
 
 
-def mentions(text: str, exclude: str | None = None) -> list[str]:
+def mentions(text: str, exclude: str | None = None,
+             advisors: dict[str, Advisor] | None = None) -> list[str]:
     """Advisor ids a speech addresses by name, in council order."""
     low = f" {text.lower()} "
     out = []
-    for a in ADVISORS.values():
+    for a in (ADVISORS if advisors is None else advisors).values():
         if a.id == exclude:
             continue
         names = (a.short.lower(), a.id, *a.aliases)
@@ -237,7 +316,7 @@ def _word_in(name: str, text: str) -> bool:
     i = text.find(name)
     while i >= 0:
         before, after = text[i - 1], text[i + len(name)] if i + len(name) < len(text) else " "
-        if not before.isalpha() and not (after.isalpha() and after != "s"):
+        if not before.isalnum() and not (after.isalnum() and after != "s"):
             return True
         i = text.find(name, i + 1)
     return False
@@ -332,26 +411,29 @@ def safe_plan(state: State) -> Decision:
 class Scorer:
     """Scores outcomes for reports and offline comparisons, never for LLM guidance."""
 
-    def __init__(self, state: State, beliefs: Beliefs, extra: list[Decision] = ()):
+    def __init__(self, state: State, beliefs: Beliefs, extra: list[Decision] = (),
+                 advisors: dict[str, Advisor] | None = None):
         self.state = state
         self.beliefs = beliefs
+        self.advisors = dict(ADVISORS if advisors is None else advisors)
+        if not self.advisors:
+            raise ValueError("A scorer needs at least one advisor.")
         self.pool = candidate_plans(state) + [legalize(state, d) for d in extra]
-        self._fc = {(a, d): self.forecast(a, d) for a in ADVISOR_IDS for d in self.pool}
+        self._fc = {(a, d): self.forecast(a, d) for a in self.advisors for d in self.pool}
         self._range: dict[str, tuple[float, float]] = {}
-        for a in ADVISORS.values():
+        for a in self.advisors.values():
             us = [a.utility(self._fc[a.id, d], state) for d in self.pool]
             self._range[a.id] = (min(us), max(us))
 
     def forecast(self, advisor_id: str, d: Decision) -> Forecast:
         fc = getattr(self, "_fc", {}).get((advisor_id, d))
-        return fc or forecast(self.state, d, ADVISORS[advisor_id].beliefs_for(self.beliefs))
+        return fc or forecast(self.state, d, self.advisors[advisor_id].beliefs_for(self.beliefs))
 
     def norm(self, advisor_id: str, d: Decision) -> float:
-        a = ADVISORS[advisor_id]
+        a = self.advisors[advisor_id]
         lo, hi = self._range[advisor_id]
         u = a.utility(self.forecast(advisor_id, d), self.state)
         return 0.5 if hi == lo else max(0.0, min(1.0, (u - lo) / (hi - lo)))
-
 
 
 # ---- New information: scout reports derived from the true hidden dice ----

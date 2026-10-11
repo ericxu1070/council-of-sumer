@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from sumer import agent, llm
+from sumer.advisors import ADVISOR_IDS
 from sumer.chamber import play_council
 from sumer.deliberation import deliberate_year
 from sumer.engine import commit
@@ -42,7 +43,7 @@ async def test_turn_retries_only_its_speaker_with_a_fresh_request():
     assert result.outcome == "consensus"
     assert seen[0].speaker == seen[1].speaker
     assert seen[0].message_id != seen[1].message_id and seen[1].errors
-    assert len(result.certificate["ballots"]) == 7
+    assert len(result.certificate["ballots"]) == 5
     reply = await unanimous(seen[-1])
     with pytest.raises(ValueError, match="transport endpoint"):
         validate_reply(Delivery(seen[-1].speaker, endpoint("unknown"), reply), seen[-1])
@@ -61,7 +62,7 @@ async def test_engine_rechecks_evidence_and_advances_only_once():
         history=[], max_rounds=3, scheduled_news=None, emit=emit)
     bad = copy.deepcopy(result)
     bad.certificate["ballots"].pop()
-    with pytest.raises(ValueError, match="all seven"):
+    with pytest.raises(ValueError, match="all council"):
         commit(store, "proof", state, bad, rolls)
     missing_requests = Store(":memory:")
     missing_requests.create_run("proof", manifest)
@@ -112,13 +113,13 @@ async def test_stopped_run_retains_its_summary():
     assert store.events("stopped")[-1]["kind"] == "end"
 
 
-def test_live_api_preserves_seven_advisors_and_rejects_stale_choices(monkeypatch, llm_reply):
+def test_live_api_preserves_five_advisors_and_rejects_stale_choices(monkeypatch, llm_reply):
     from sumer import web
     monkeypatch.setattr(web, "store", Store(":memory:"))
     monkeypatch.setattr(web, "live", web.Live())
     web.live.pace_s = 0
     with TestClient(web.app) as client:
-        assert len(client.get("/api/meta").json()["advisors"]) == 7
+        assert len(client.get("/api/meta").json()["advisors"]) == 5
         assert client.get("/").status_code == 200 and client.get("/app.js").status_code == 200
         response = client.post("/api/game", json={"seed": 1, "max_rounds": 3})
         assert response.status_code == 200
@@ -137,12 +138,12 @@ async def test_repeated_seed_keeps_each_runs_proposals_separate():
         assert store.db.execute("SELECT COUNT(*) FROM proposals WHERE run_id=?", (run_id,)).fetchone()[0] == 5
 
 
-async def test_runoff_certificate_preserves_the_seven_advisor_rule():
+async def test_runoff_certificate_preserves_the_five_advisor_rule():
     from tests.test_council import A, _ballot, _three_way, scripted
     def script(brief):
         if brief.phase == "runoff":
             a, b = brief.runoff
-            vote = a.id if brief.speaker in ("farmer", "priest", "general", "merchant") else b.id
+            vote = a.id if brief.speaker in ("provider", "farmer", "merchant") else b.id
             return _ballot(brief, A, vote=vote)
         return _three_way(brief)
     state, rolls = new_game(1)
@@ -154,10 +155,10 @@ async def test_runoff_certificate_preserves_the_seven_advisor_rule():
         history=[], max_rounds=6, scheduled_news=None, emit=emit)
     advanced, event = commit(store, "runoff", state, result, rolls)
     assert advanced.year == 2 and event["data"]["outcome"] == "runoff"
-    assert len(event["data"]["yes_voters"]) == 4 and len(event["data"]["dissent"]) == 3
+    assert len(event["data"]["yes_voters"]) == 3 and len(event["data"]["dissent"]) == 2
 
 
-@pytest.mark.parametrize("outcome,supporters", [("majority", 4), ("runoff", 3)])
+@pytest.mark.parametrize("outcome,supporters", [("majority", 3), ("runoff", 2)])
 async def test_engine_commits_majority_and_runoff_without_red_line_clearance(outcome, supporters):
     from tests.test_council import _ballot, _ids_for, scripted
     # All of these are legal budgets that the former Farmer/Physician vetoes blocked.
@@ -165,9 +166,9 @@ async def test_engine_commits_majority_and_runoff_without_red_line_clearance(out
     def script(brief):
         if brief.phase == "runoff":
             a, b = brief.runoff
-            vote = a.id if brief.speaker in ("farmer", "priest", "general", "merchant") else b.id
+            vote = a.id if brief.speaker in ("provider", "farmer", "merchant") else b.id
             return _ballot(brief, vote=vote)
-        index = ["farmer", "priest", "general", "merchant", "builder", "healer", "diplomat"].index(brief.speaker)
+        index = ADVISOR_IDS.index(brief.speaker)
         plan = camps[0] if index < supporters else camps[1] if index < supporters + 2 else camps[2]
         return _ballot(brief, plan, accept=_ids_for(brief, plan))
     state, rolls = new_game(1)
@@ -179,5 +180,5 @@ async def test_engine_commits_majority_and_runoff_without_red_line_clearance(out
         history=[], max_rounds=6, scheduled_news=None, emit=emit)
     advanced, event = commit(store, outcome, state, result, rolls)
     assert result.outcome == outcome and advanced.over
-    assert len(event["data"]["yes_voters"]) == 4
+    assert len(event["data"]["yes_voters"]) == 3
     assert "vetoes" not in (result.runoff or {})

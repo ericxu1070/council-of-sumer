@@ -39,7 +39,11 @@ const S = {
 };
 
 const FALLBACK_COLORS = ["#5f8f3a", "#7a4fa3", "#a33a32", "#b5862a", "#b2622f", "#2f8a7c", "#2f5ea8", "#6b5a45"];
-const FALLBACK_EMOJI = { farmer: "🌾", priest: "🔮", general: "🛡️", merchant: "💰", builder: "🧱", healer: "🌿", diplomat: "🕊️" };
+const FALLBACK_EMOJI = { provider: "🍞", farmer: "🌾", merchant: "⚖️", profiteer: "💰", imposter: "🎭" };
+// The draft belongs to the next council. Replaying a run changes S.advisors only.
+const setup = { templates: [], seats: [], serial: 0, starting: false, ready: false, max: 21, liveRunId: "" };
+const PERSONA_MANDATES = { provider: "Feed everyone.", farmer: "Plant as many acres as possible.", merchant: "Make profitable land trades.", profiteer: "Deliberately sacrifice lives if it increases wealth.", imposter: "Depopulate and ruin the city." };
+const safeColor = (color, i) => /^#[\da-f]{6}$/i.test(String(color || "")) ? color : FALLBACK_COLORS[i % FALLBACK_COLORS.length];
 
 function normAdvisor(a, i) {
   const id = a.id || `advisor${i}`;
@@ -48,7 +52,7 @@ function normAdvisor(a, i) {
     ...a, id, title,
     short: a.short || (FALLBACK_EMOJI[id] ? cap(id) : title.split(" ").slice(-1)[0]),
     emoji: a.emoji || FALLBACK_EMOJI[id] || "👤",
-    color: a.color || FALLBACK_COLORS[i % FALLBACK_COLORS.length],
+    color: safeColor(a.color, i),
     goal: a.goal || String(a.mandate || "").split(/(?<=\.)\s/)[0] || "",
   };
 }
@@ -56,17 +60,19 @@ function setAdvisors(list) {
   if (!Array.isArray(list) || !list.length) return;
   S.advisors = list.map(normAdvisor);
   buildSeats();
+  $("#councilCount").textContent = `${N()} AI advisor${N() === 1 ? "" : "s"}. No king.`;
 }
-const adv = id => S.advisors.find(a => a.id === id) || normAdvisor({ id: id || "someone" }, 7);
-const N = () => S.advisors.length || 7;
-const avatar = (id, cls = "") => { const a = adv(id); return `<span class="av ${cls}" style="--c:${a.color}" title="${esc(a.title)}">${a.emoji}</span>`; };
+const adv = id => S.advisors.find(a => a.id === id) || normAdvisor({ id: id || "someone" }, 5);
+const N = () => S.advisors.length || 5;
+const avatar = (id, cls = "") => { const a = adv(id); return `<span class="av ${cls}" style="--c:${a.color}" title="${esc(a.title)}">${esc(a.emoji)}</span>`; };
 const nameList = ids => { const n = ids.map(i => adv(i).short); return n.length <= 1 ? n.join("") : `${n.slice(0, -1).join(", ")} and ${n[n.length - 1]}`; };
 
 function planAuthor(id, fallback) {
   if (!id) return fallback || null;
   if (S.plans[id]) return S.plans[id];
-  const head = String(id).split("-")[0];
-  return S.advisors.some(a => a.id === head) ? head : fallback || null;
+  // Custom IDs contain hyphens; match the whole author prefix, longest first.
+  const author = S.advisors.filter(a => String(id).startsWith(`${a.id}-`)).sort((a, b) => b.id.length - a.id.length)[0];
+  return author?.id || fallback || null;
 }
 function planName(id, author) {
   if (id === "safe") return "The safe plan";
@@ -113,9 +119,9 @@ function toast(msg, info = false) {
 function buildSeats() {
   const el = $("#seats");
   el.style.setProperty("--n", S.advisors.length);
-  el.innerHTML = S.advisors.map(a => `<div class="seat" id="seat-${a.id}" style="--c:${a.color}" title="${esc(a.title)}">
+  el.innerHTML = S.advisors.map(a => `<div class="seat" id="seat-${esc(a.id)}" style="--c:${a.color}" title="${esc(a.title)}">
     <span class="to-tag">spoken to</span>
-    <span class="av">${a.emoji}<span class="badge hidden"></span></span>
+    <span class="av">${esc(a.emoji)}<span class="badge hidden"></span></span>
     <span class="seat-name">${esc(a.short)}</span>
     <span class="seat-goal">${esc(a.goal)}</span></div>`).join("");
   renderStances();
@@ -124,7 +130,7 @@ function spotlight(speaker, addressed = []) {
   const el = $("#seats");
   el.classList.toggle("active", !!speaker);
   for (const a of S.advisors) {
-    const s = $(`#seat-${a.id}`);
+    const s = document.getElementById(`seat-${a.id}`);
     if (!s) continue;
     s.classList.toggle("speaking", a.id === speaker);
     s.classList.toggle("addressed", addressed.includes(a.id) && a.id !== speaker);
@@ -138,7 +144,7 @@ const STANCE = {
 };
 function renderStances() {
   for (const a of S.advisors) {
-    const b = $(`#seat-${a.id} .badge`);
+    const b = document.getElementById(`seat-${a.id}`)?.querySelector(".badge");
     if (!b) continue;
     const st = STANCE[S.stance[a.id]];
     b.classList.toggle("hidden", !st);
@@ -163,7 +169,7 @@ function voteDots(accept = []) {
   return `<span class="dots">${S.advisors.map(a => {
     const cls = accept.includes(a.id) ? "yes" : "";
     const t = accept.includes(a.id) ? "agrees" : "not yet";
-    return `<span class="dot ${cls}" title="${esc(a.short)}: ${t}">${cls ? a.emoji : ""}</span>`;
+    return `<span class="dot ${cls}" title="${esc(a.short)}: ${t}">${cls ? esc(a.emoji) : ""}</span>`;
   }).join("")}</span>`;
 }
 
@@ -204,10 +210,13 @@ function scrollBottom(instant) {
 function welcome() {
   feed().innerHTML = `<div class="welcome">
     <div class="welcome-mark" aria-hidden="true">🏛️</div>
-    <h1>Seven advisors. One city. No king.</h1>
-    <p>Each advisor wants something different. Watch them argue, vote, and decide together how to run ancient Sumer for five years. When they are stuck, you decide.</p>
+    <h1>${N()} advisor${N() === 1 ? "" : "s"}. One city. No king.</h1>
+    <p>Choose the size of your council and its voters in Setup. Watch them argue, vote, and decide together how to run ancient Sumer for five years. When they are stuck, you decide.</p>
+    <button class="btn" id="welcomeSetup" type="button">Choose your voters</button>
     <button class="btn primary big" id="welcomeStart" type="button">Convene the council</button></div>`;
   $("#welcomeStart").onclick = start;
+  $("#welcomeSetup").onclick = () => openDrawer(true);
+  syncSetupLock();
 }
 
 function traceText(obj, depth = 0) {
@@ -311,7 +320,7 @@ function renderYear_(d, instant) {
     ["Newcomers", r.immigrants],
   ].filter(x => x[1] != null).slice(0, 5);
   const sat = d.satisfaction && Object.keys(d.satisfaction).length
-    ? `<div class="hood-only trace">How satisfied each advisor is (0 to 1):\n${Object.entries(d.satisfaction).map(([k, v]) => `  ${adv(k).short}: ${typeof v === "number" ? v.toFixed(2) : esc(v)}`).join("\n")}\nRounds this year: ${esc(d.rounds ?? "-")}</div>` : "";
+    ? `<div class="hood-only trace">How satisfied each advisor is (0 to 1):\n${Object.entries(d.satisfaction).map(([k, v]) => `  ${esc(adv(k).short)}: ${typeof v === "number" ? v.toFixed(2) : esc(v)}`).join("\n")}\nRounds this year: ${esc(d.rounds ?? "-")}</div>` : "";
   append(`<div class="card-kicker"><span>Year ${esc(d.year)} decision</span>${outcomeBadge(d)}</div>
     <div class="card-summary">${esc(summary)}</div>
     ${plain || author ? `<div class="card-plan"><span class="plan-chip">${author ? avatar(author, "mini") : `<span class="emoji">🛟</span>`}<span><b>${esc(pname)}:</b> ${esc(plain)}</span></span></div>` : ""}
@@ -376,7 +385,7 @@ function addRunoffVote(advisor, pid, instant) {
   const side = $(`#ro-${k}`);
   if (side) {
     const a = adv(advisor);
-    $(".ro-votes", side).insertAdjacentHTML("beforeend", `<span class="ro-vote" style="${instant ? "animation:none" : ""}" title="${esc(a.short)}">${a.emoji}</span>`);
+    $(".ro-votes", side).insertAdjacentHTML("beforeend", `<span class="ro-vote" style="${instant ? "animation:none" : ""}" title="${esc(a.short)}">${esc(a.emoji)}</span>`);
     $(".ro-count", side).textContent = Object.values(R.votes).filter(v => v === pid).length;
   }
   S.stance[advisor] = `vote-${k}`;
@@ -673,6 +682,7 @@ function resetGame(d) {
   spotlight(null);
   recordState(0, d.state);
   renderYear();
+  syncSetupLock();
 }
 
 function render(kind, d, instant) {
@@ -728,7 +738,8 @@ function render(kind, d, instant) {
       break;
     case "end":
       if (!S.saved) loadRuns().catch(e => toast(e.message));
-      S.running = false; S.completed = d.years?.length || 0; renderYear();
+      if (!S.saved) setup.liveRunId = "";
+      S.running = false; S.completed = d.years?.length || 0; renderYear(); syncSetupLock();
       closeEscalation(); spotlight(null);
       if (d.status && !["completed", "overthrown", "depopulated"].includes(d.status)) {
         setPhase(cap(d.status.replaceAll("_", " ")), "<span>The run retains its recorded city and decisions.</span>");
@@ -761,6 +772,9 @@ function connect(id) {
   if (S.runId !== id) seen.clear();
   S.runId = id;
   S.saved = false;
+  S.running = true;
+  setup.liveRunId = id;
+  syncSetupLock();
   setExport(id);
   es = new EventSource(`/api/events?run_id=${encodeURIComponent(id)}`);
   replay = true;
@@ -788,6 +802,7 @@ async function replayRun(id) {
   const events = await api(`/api/runs/${encodeURIComponent(id)}/events`);
   es?.close(); stopNarration(); Q.length = 0; gen++; wake?.(); seen.clear();
   S.runId = id; S.saved = true; setExport(id);
+  syncSetupLock();
   for (const event of events) onEvent(event);
 }
 
@@ -799,21 +814,118 @@ async function showTraces(traceId = "") {
 }
 
 /* ---------------- controls ---------------- */
+function newVoter(i) {
+  return { preset: setup.templates[i % setup.templates.length]?.id || "provider", custom: { id: `custom-${++setup.serial}`, short: "", mandate: "" } };
+}
+function votingThresholds(n) {
+  const majority = Math.floor(n / 2) + 1;
+  return { majority, strong: Math.max(majority, Math.ceil(2 * n / 3)), runoff: Math.max(1, majority - 1) };
+}
+function setupError(message = "") {
+  $("#setupError").textContent = message;
+  $("#setupError").classList.toggle("hidden", !message);
+}
+function syncSetupLock() {
+  const locked = setup.starting || !!setup.liveRunId;
+  $("#councilSetup").disabled = locked || !setup.ready;
+  for (const id of ["seed", "rounds", "reveal", "startBtn", "welcomeStart"]) {
+    const el = document.getElementById(id);
+    if (el) el.disabled = locked || !setup.ready;
+  }
+  $("#setupLocked").classList.toggle("hidden", !locked);
+}
+function renderVoters() {
+  const n = setup.seats.length, rules = votingThresholds(n);
+  const roster = configuredAdvisors();
+  $("#agentCount").value = n;
+  $("#votingRules").textContent = `${n} votes · majority: ${rules.majority} · strong majority: ${rules.strong} · runoff eligibility: ${rules.runoff}`;
+  $("#voterList").innerHTML = setup.seats.map((seat, i) => {
+    const custom = seat.preset === "custom", a = setup.templates.find(a => a.id === seat.preset);
+    return `<section class="voter-card" data-slot="${i}" aria-labelledby="voter-${i}">
+      <h3 id="voter-${i}">Voter ${i + 1} · ${esc(roster[i].short || (custom ? "Custom agent" : a?.short))}</h3>
+      <label class="field"><span>Agent</span><select data-voter="preset">${setup.templates.map(a => `<option value="${esc(a.id)}"${a.id === seat.preset ? " selected" : ""}>${esc(a.short)}</option>`).join("")}<option value="custom"${custom ? " selected" : ""}>Custom agent</option></select></label>
+      ${custom ? `<label class="field"><span>Name</span><input type="text" data-voter="short" value="${esc(seat.custom.short)}" maxlength="60" required placeholder="e.g. Canal Keeper"></label>
+      <label class="field"><span>Instructions / mandate</span><textarea data-voter="mandate" rows="3" maxlength="2000" required placeholder="What should this agent advocate for?">${esc(seat.custom.mandate)}</textarea></label>
+      <p class="drawer-note">Your instructions guide this agent's arguments and votes.</p>` : `<p class="voter-mandate">${esc(a?.mandate || "")}</p>`}
+    </section>`;
+  }).join("");
+  syncSetupLock();
+  previewCouncil();
+}
+function configuredAdvisors() {
+  const totals = {}, seenRoles = {};
+  for (const seat of setup.seats) {
+    if (seat.preset !== "custom") totals[seat.preset] = (totals[seat.preset] || 0) + 1;
+  }
+  return setup.seats.map(seat => {
+    if (seat.preset === "custom") return { ...seat.custom, short: seat.custom.short.trim(), mandate: seat.custom.mandate.trim() };
+    const template = setup.templates.find(a => a.id === seat.preset);
+    const number = seenRoles[template.id] = (seenRoles[template.id] || 0) + 1;
+    const name = totals[template.id] > 1
+      ? { short: `${template.short}${number}`, title: `${template.title} ${number}` }
+      : { short: template.short, title: template.title };
+    if (number === 1) return totals[template.id] > 1 ? { id: template.id, ...name } : { id: template.id };
+    // Additional copies are independent voters with the selected persona's mandate.
+    return { id: seat.custom.id, ...name, mandate: template.mandate, voice: template.voice, color: template.color, emoji: template.emoji };
+  });
+}
+function previewCouncil() {
+  if (S.runId || !setup.ready) return;
+  setAdvisors(configuredAdvisors().map((a, i) => {
+    const seat = setup.seats[i];
+    const template = seat.preset === "custom" ? {} : setup.templates.find(t => t.id === seat.preset);
+    return { ...template, ...a, short: a.short || (seat.preset === "custom" ? "Custom" : template?.short), title: a.title || a.short || template?.title || "Custom agent" };
+  }));
+  setPhase("Ready to convene", `<span>${N()} advisor${N() === 1 ? "" : "s"} with different goals will run the city.</span>`);
+  welcome();
+}
+function resizeVoters() {
+  const input = $("#agentCount"), n = Number(input.value);
+  if (!Number.isInteger(n) || n < 1 || n > setup.max) {
+    setupError(`Choose a whole number from 1 to ${setup.max}.`);
+    return false;
+  }
+  setup.seats = Array.from({ length: n }, (_, i) => setup.seats[i] || newVoter(i));
+  setupError();
+  renderVoters();
+  return true;
+}
+function validateVoters() {
+  if (!resizeVoters()) { openDrawer(true); $("#agentCount").focus(); return false; }
+  for (const [i, seat] of setup.seats.entries()) {
+    if (seat.preset === "custom" && (!seat.custom.short.trim() || !seat.custom.mandate.trim())) {
+      setupError(`Voter ${i + 1}: enter a name and instructions for your custom agent.`);
+      openDrawer(true);
+      $(`[data-slot="${i}"] [data-voter="${seat.custom.short.trim() ? "mandate" : "short"}"]`).focus();
+      return false;
+    }
+  }
+  return true;
+}
 function openDrawer(open) {
   $("#drawer").classList.toggle("open", open);
   $("#drawer").setAttribute("aria-hidden", String(!open));
   $("#drawerBack").classList.toggle("hidden", !open);
   $("#setupBtn").setAttribute("aria-expanded", String(open));
   if (open) $("#seed").focus({ preventScroll: true });
+  if (open && setup.liveRunId && !setup.starting) {
+    api("/api/meta").then(m => { setup.liveRunId = m.active_run || ""; syncSetupLock(); }).catch(() => {});
+  }
 }
 async function start() {
+  if (!setup.ready || setup.starting || setup.liveRunId) return;
+  if (!validateVoters()) return;
   unlockAudio();
-  openDrawer(false);
-  const body = { seed: +$("#seed").value || 0, reveal_news: $("#reveal").value === "1" };
-  // Before /api/meta answers, let the server use its own default (it must match the rehearsal).
+  const body = { seed: +$("#seed").value || 0, reveal_news: $("#reveal").value === "1", advisors: configuredAdvisors() };
   const rounds = +$("#rounds").value;
-  if (rounds && S.meta?.max_rounds) body.max_rounds = rounds;
-  try { const result = await api("/api/game", body); connect(result.run_id); await loadRuns(); } catch (e) { toast(`Could not start: ${e.message}`); }
+  if (rounds) body.max_rounds = rounds;
+  setup.starting = true;
+  setupError(); syncSetupLock();
+  try {
+    const result = await api("/api/game", body);
+    connect(result.run_id); openDrawer(false); await loadRuns();
+  } catch (e) { setupError(`Could not start: ${e.message}`); openDrawer(true); }
+  finally { setup.starting = false; syncSetupLock(); }
 }
 function setHood(on) {
   S.hood = on;
@@ -845,11 +957,27 @@ async function openEvidence() {
 }
 
 function wire() {
+  $("#agentCount").onchange = resizeVoters;
+  $("#defaultVoters").onclick = () => {
+    if (!resizeVoters()) return;
+    setup.seats = setup.seats.map((_, i) => newVoter(i));
+    renderVoters();
+  };
+  $("#voterList").addEventListener("input", e => {
+    const key = e.target.dataset.voter, card = e.target.closest("[data-slot]");
+    if (!key || !card) return;
+    const seat = setup.seats[Number(card.dataset.slot)];
+    if (key === "preset") seat.preset = e.target.value;
+    else seat.custom[key] = e.target.value;
+    if (key === "preset") renderVoters();
+    else previewCouncil();
+    setupError();
+  });
   $("#setupBtn").onclick = () => openDrawer(!$("#drawer").classList.contains("open"));
   $("#drawerClose").onclick = () => openDrawer(false);
   $("#drawerBack").onclick = () => openDrawer(false);
   $("#startBtn").onclick = start;
-  $("#stopBtn").onclick = () => api("/api/stop", {}).then(() => { S.running = false; idleTyping(); toast("Stopped.", true); }).catch(e => toast(e.message));
+  $("#stopBtn").onclick = () => api("/api/stop", {}).then(() => { S.running = false; setup.liveRunId = ""; syncSetupLock(); idleTyping(); toast("Stopped.", true); }).catch(e => toast(e.message));
   $("#hoodToggle").onclick = () => setHood(!S.hood);
   $("#muteBtn").onclick = () => {
     muted = !muted;
@@ -902,8 +1030,14 @@ function wire() {
     toast(`Server not reachable: ${e.message}`);
   }
   const m = S.meta;
-  setAdvisors(m.advisors);
-  if (!S.advisors.length) setAdvisors(Object.keys(FALLBACK_EMOJI).map(id => ({ id })));
+  setup.templates = (m.advisors?.length ? m.advisors : Object.keys(FALLBACK_EMOJI).map(id => ({ id, mandate: PERSONA_MANDATES[id] }))).map(normAdvisor);
+  setup.max = Number.isInteger(m.max_advisors) ? Math.min(21, Math.max(1, m.max_advisors)) : 21;
+  $("#agentCount").max = setup.max;
+  $("#voterHelp").textContent = `Choose 1–${setup.max} voters. Use a default advisor or create your own. Each agent gets one vote.`;
+  setup.seats = setup.templates.slice(0, setup.max).map((_, i) => newVoter(i));
+  setup.ready = true;
+  setup.liveRunId = m.active_run || "";
+  renderVoters();
   $("#chipTransport").textContent = m.transport === "slim" ? "AGNTCY SLIM" : m.transport ? String(m.transport) : "-";
   $("#chipLlm").textContent = m.llm === "bayleaf" || m.llm === "llm" ? String(m.model || "LLM").split("/").pop() : m.llm ? "LLM unavailable" : "-";
   if (m.max_rounds) {

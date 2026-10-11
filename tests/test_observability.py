@@ -46,12 +46,12 @@ async def test_trace_context_is_part_of_request_binding(llm_reply):
         validate_reply(reply, brief.model_copy(update={"traceparent": "altered-request"}))
 
 
-def test_oasf_records_cover_all_seven_current_advisors():
+def test_oasf_records_cover_current_advisors():
     from sumer.advisors import ADVISORS
     from sumer.config import ROOT
     for advisor in ADVISORS.values():
         record = json.loads((ROOT / "oasf" / f"{advisor.id}.json").read_text())
         assert advisor.title in record["name"]
         assert advisor.mandate in record["description"]
-        assert "seven-advisor" in record["description"]
+        assert "council" in record["description"].lower()
         assert "Three of four" not in record["description"]

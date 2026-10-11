@@ -7,8 +7,8 @@ happened to the city.
 
 from __future__ import annotations
 
-from sumer.advisors import short
-from sumer.deliberation import YearResult
+from sumer.advisors import ADVISORS, short
+from sumer.deliberation import YearResult, voting_rules
 from sumer.game import FOOD_PER_PERSON, State
 
 _NUMBER = {0: "none", 1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven"}
@@ -34,19 +34,25 @@ def _did(yr: YearResult, before: State) -> str:
     return " and ".join(bits[:2])
 
 
-def _decision(yr: YearResult, before: State) -> str:
-    who = short(yr.adopted_author)
+def _decision(yr: YearResult, before: State, advisors=None) -> str:
+    roster = ADVISORS if advisors is None else advisors
+    total = len(roster)
+    total_words = _NUMBER.get(total, str(total))
+    who = short(yr.adopted_author, roster)
     did = _did(yr, before)
     to_do = f" to {did}" if did else ""
     if yr.outcome == "consensus":
-        return f"All seven agreed on the {who}'s plan{to_do}"
+        return f"All {total_words} agreed on the {who}'s plan{to_do}"
     if yr.outcome == "majority":
-        n = 7 - len(yr.dissent)
-        return f"{_NUMBER[n].capitalize()} of seven sided with the {who}{to_do}"
+        n = total - len(yr.dissent)
+        return f"{_NUMBER.get(n, str(n)).capitalize()} of {total_words} sided with the {who}{to_do}"
     if yr.outcome == "runoff":
         count = sorted((yr.runoff or {}).get("count", {}).values(), reverse=True)
-        score = f", {_NUMBER[count[0]]} to {_NUMBER[count[1]]}" if len(count) == 2 else ""
-        why = ("Only three of seven backed one plan" if (yr.runoff or {}).get("trigger") == "three"
+        score = (f", {_NUMBER.get(count[0], str(count[0]))}"
+                 f" to {_NUMBER.get(count[1], str(count[1]))}" if len(count) == 2 else "")
+        floor = voting_rules(total)["runoff_floor"]
+        why = (f"Only {_NUMBER.get(floor, str(floor))} of {total_words} backed one plan"
+               if (yr.runoff or {}).get("trigger") == "three"
                else "The top two plans were tied")
         return f"{why}, so it went to a runoff. The {who} won{score}"
     if yr.human_choice is None:
@@ -75,6 +81,6 @@ def _happened(before: State, after: State) -> str:
     return f"{harvest}; {harm}, and {tail}." if harm else f"{harvest}, and {tail}."
 
 
-def summarize(yr: YearResult, before: State, after: State) -> str:
+def summarize(yr: YearResult, before: State, after: State, advisors=None) -> str:
     """Year N. <who won and what it does>. <what happened>. About 20 words."""
-    return f"Year {yr.year}. {_decision(yr, before)}. {_happened(before, after)}"
+    return f"Year {yr.year}. {_decision(yr, before, advisors)}. {_happened(before, after)}"

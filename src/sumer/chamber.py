@@ -10,11 +10,12 @@ from importlib.metadata import version
 
 from sumer.advisors import (
     ADVISOR_IDS,
-    ADVISORS,
+    Advisor,
     Beliefs,
     Scorer,
     apply_report,
     report_for_year,
+    resolve_council,
     scout_report,
 )
 from sumer.baselines import SIMPLE, lone_llm
@@ -27,6 +28,7 @@ from sumer.deliberation import (
     YearResult,
     _noop_emit,
     deliberate_year,
+    voting_rules,
 )
 from sumer.engine import commit
 from sumer.game import RULE_VERSION, YEARS, advance, new_game, rating
@@ -81,14 +83,19 @@ async def play_council(
     narrate: Narrate | None = None,
     store: Store | None = None,
     run_id: str | None = None,
+    advisors: dict[str, Advisor] | None = None,
 ) -> GameResult:
+    advisors = resolve_council() if advisors is None else dict(advisors)
+    public_advisors = [a.public() for a in advisors.values()]
+    rules = voting_rules(len(advisors))
     own_store = store is None
     store = store or Store(DEFAULT_DB)
     run_id = run_id or uid()
     state, rolls = new_game(seed)
     store.create_run(run_id, {"rule_version": RULE_VERSION, "seed": seed, "initial_state": state.public(),
         "application_version": version("council-of-sumer"),
-        "advisors": [a.public() for a in ADVISORS.values()], "reign_years": YEARS,
+        "advisors": public_advisors, "advisor_ids": list(advisors), "rules": rules,
+        "reign_years": YEARS,
         "max_rounds": max_rounds or settings.max_rounds, "transport": settings.transport,
         "llm_mode": settings.llm_mode, "model": settings.llm_model,
         "dependencies": {name: version(name) for name in ("agntcy-app-sdk", "ioa-observe-sdk", "pydantic")}})
@@ -107,7 +114,7 @@ async def play_council(
     try:
         await emit("game", {"seed": seed, "years": YEARS, "state": state.public(),
                             "max_rounds": max_rounds or settings.max_rounds,
-                            "advisors": [a.public() for a in ADVISORS.values()]})
+                            "advisors": public_advisors, "rules": rules})
         while not state.over:
             with span("council.year", run_id=run_id, year=state.year):
                 await emit("year_start", {"year": state.year, "state": state.public()})
@@ -123,9 +130,10 @@ async def play_council(
                     ask_human=ask_human,
                     emit=emit,
                     run_id=run_id,
+                    advisors=advisors,
                 )
                 preview = advance(state, yr.plan, rolls)
-                yr.summary = summarize(yr, before, preview)
+                yr.summary = summarize(yr, before, preview, advisors=advisors)
                 state, event = commit(store, run_id, state, yr, rolls)
                 results.append(yr)
                 history.append({**event["data"], "result": state.last_report})
@@ -157,7 +165,7 @@ async def play_council(
         except Exception as exc:  # noqa: BLE001 - collection must preserve the authoritative result
             await emit("observability_error", {"year": state.year,
                 "message": f"Trace collection failed: {type(exc).__name__}: {exc}"})
-    g = _summarize(seed, "council", state, results)
+    g = _summarize(seed, "council", state, results, advisor_ids=list(advisors))
     g.run_id, g.status = run_id, status
     g.human_assisted = store.run(run_id)["human_assisted"]
     store.status(run_id, status, g.as_dict())
@@ -187,7 +195,8 @@ async def play_simple(seed: int, policy: str, *, reveal_news: bool = True) -> Ga
     return g
 
 
-def _summarize(seed, policy, state, results: list[YearResult]) -> GameResult:
+def _summarize(seed, policy, state, results: list[YearResult], advisor_ids=None) -> GameResult:
+    advisor_ids = ADVISOR_IDS if advisor_ids is None else advisor_ids
     g = GameResult(seed=seed, policy=policy, rating=rating(state), status=state.status)
     g.years = [{**r.record(), "summary": r.summary} for r in results]
     for r in results:
@@ -196,7 +205,7 @@ def _summarize(seed, policy, state, results: list[YearResult]) -> GameResult:
     g.mean_turns = round(sum(r.turns for r in results) / max(len(results), 1), 1)
     g.satisfaction = {
         a: round(sum(r.satisfaction[a] for r in results) / max(len(results), 1), 3)
-        for a in ADVISOR_IDS
+        for a in advisor_ids if a in ADVISOR_IDS
     }
     g.info_shifted = sum(
         1 for r in results

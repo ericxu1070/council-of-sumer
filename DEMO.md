@@ -18,7 +18,7 @@
 
 ## During the pitch
 
-1. Click **Convene the council**. The seven advisors speak one at a time, 0.8 s apart, and
+1. Click **Convene the council**. The five default advisors speak one at a time, 0.8 s apart, and
    answer each other by name.
 2. Click any message's 💬 to show that advisor's stated reasoning.
 3. Flip **Under the hood**: every thought expands and the SLIM wire messages appear (one unicast
@@ -59,18 +59,18 @@ Stop with `Ctrl+C`.
 | No narrator audio | Click anywhere once (browsers block audio until a click); check `.cache/voice/` was copied |
 | No API connection at the venue | Replay a recorded debate from **Saved runs** |
 
-Turn validation checks preserve the seven-advisor speaking order, legal budgets, runoff, scouts, and
+Turn validation checks preserve the five-advisor speaking order, legal budgets, runoff, scouts, and
 narrator. Invalid responses receive one retry for that speaker. A second failure is recorded
 as technical failure. Deadlock without a human choice remains paused; selecting the safe plan
 is recorded as an explicit human resolution. The engine verifies the journal before each year
 advances.
 
-Use **Saved runs** in Setup to replay the recorded seven-advisor debate. Replay is read-only
+Use **Saved runs** in Setup to replay the recorded five-advisor debate. Replay is read-only
 and silent. **Export run** downloads the event journal, annual decision table, summary, and
 report. **Show live run** returns to an active game. On restart, interrupted runs retain their
 evidence and are marked as technical failures.
 
 Under the hood, **Year traces** and each turn's **Open trace** show imported Observe spans.
 Allow a few seconds for the local collector to flush. Exports include traces, and a collection
-error leaves the authoritative game result intact. The launcher serves all seven advisors
+error leaves the authoritative game result intact. The launcher serves all five default advisors
 and starts the pinned local collector.

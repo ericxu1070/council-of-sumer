@@ -11,7 +11,7 @@ from sumer.game import Decision, State, legalize
 
 
 def lone_ruler(state: State, beliefs: Beliefs) -> Decision:
-    """One decider that weighs all seven mandates equally, in one shot, no debate."""
+    """One decider that weighs all default mandates equally, in one shot, no debate."""
     sc = Scorer(state, beliefs)
     return max(sc.pool, key=lambda d: sum(sc.norm(a, d) for a in ADVISOR_IDS))
 
@@ -39,7 +39,7 @@ def dictator(advisor_id: str):
 
 
 async def lone_llm(state: State, beliefs: Beliefs, news: list[dict]) -> Decision:
-    """Single LLM call with all seven mandates in one prompt. Falls back to lone_ruler."""
+    """Single LLM call with all default mandates in one prompt. Falls back to lone_ruler."""
     if settings.llm_mode != "bayleaf":
         return lone_ruler(state, beliefs)
     mandates = "\n".join(f"- {a.title}: {a.mandate}" for a in ADVISORS.values())

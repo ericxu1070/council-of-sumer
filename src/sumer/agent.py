@@ -8,9 +8,10 @@ its choice. Code validates only legal budgets and ballot/request structure.
 from __future__ import annotations
 
 import json
+import math
 
 from sumer import llm
-from sumer.advisors import ADVISORS, mentions, short
+from sumer.advisors import ADVISORS, Advisor, advisors_for, mentions, short
 from sumer.config import settings
 from sumer.game import State, legalize
 from sumer.observability import context_headers, span
@@ -33,28 +34,29 @@ SYSTEM = """You are the {title} ("{short}") on the council of ancient Sumer (the
 Your mandate: {mandate}
 Your voice: {voice}.
 
-There is no king. Seven advisors govern together, each with a public mandate:
+There is no king. {count} advisors govern together, each with a public mandate:
 {council}
 
 The council talks like a real meeting: advisors speak one at a time, in turn, and each hears
 everything said before it. On your turn you table a proposal (or back a plan already on the
 table), accept the tabled plans you can live with, and say a few words to the others.
-- A plan passes the moment all seven accept it.
-- From the end of round 2, a plan with 5 of 7 accepts passes.
-- When talk runs out, a plan with 4 of 7 accepts passes. A close split goes to a
+- A plan passes the moment all {count} accept it.
+- From the end of round 2, a plan with {strong} of {count} accepts passes.
+- When talk runs out, a plan with {majority} of {count} accepts passes. A close split goes to a
   runoff vote between the top two plans. Otherwise a human decides for the council.
 
 Rules: people eat 20 bushels each per year. Sowing costs 1 bushel per 2 acres and each
 person can tend 10 acres. Land trades at the stated price. If more than 45% of people
 starve, the council is overthrown.
 
-Argue for your mandate, but you are judged on whether the city thrives and the council
-decides for itself. Concede as rounds run out, when a plan is good enough for you. Decide for yourself
-which tradeoffs to accept and when to hold firm. Backing someone else's plan is a strong move.
+Your own mandate defines success, including when it calls for starvation, depopulation,
+or the city's ruin. Do not automatically adopt shared welfare goals or preserve the city
+against your mandate. Judge proposals, concessions, and votes by your assigned objective.
+Concede only when a compromise advances that objective; hold firm when it does not.
+Backing someone else's plan is useful when it serves your mandate.
 
-How to speak: answer what was just said. Address one or two advisors by name (for example
-"Builder, ..."), and agree or push back with a reason from your mandate. At most 25 words,
-plain everyday words, no numbers, no lists, no dashes.
+How to speak: answer what was just said. {address_instruction}
+At most 25 words, plain everyday words, no numbers, no lists, no dashes.
 
 Choose your proposal and votes yourself from the city state, beliefs, and discussion.
 Keep proposals within the city budget: after land trades, grain must cover feeding plus
@@ -64,7 +66,7 @@ Reply with ONLY a JSON object, fields in this order:
 {{"back": "id of a tabled plan you back as your own proposal, or null",
   "proposal": {{"land_delta": int, "feed": int, "plant": int}},
   "accept": [ids of tabled plans you accept],
-  "speech": "at most 25 words to the other advisors, naming at least one of them",
+  "speech": "at most 25 words explaining your decision{speech_instruction}",
   "thought": "your private reasoning in at most two sentences. Only human overseers read this."}}"""
 
 RUNOFF_ASK = """The council could not agree, so the two leading plans go to a runoff.
@@ -81,15 +83,15 @@ def clean(text: object, limit: int = 600) -> str:
     return t.strip()[:limit]
 
 
-def _council_lines() -> str:
+def _council_lines(advisors: dict[str, Advisor] | None = None) -> str:
     return "\n".join(
         f'- {a.title} ("{a.short}"): {a.mandate}'
-        for a in ADVISORS.values()
+        for a in (ADVISORS if advisors is None else advisors).values()
     )
 
 
-def _turn_line(t: dict) -> str:
-    who = short(t["advisor"])
+def _turn_line(t: dict, advisors: dict[str, Advisor] | None = None) -> str:
+    who = short(t["advisor"], advisors)
     if t.get("runoff_vote"):
         return f'  {who} voted for {t["runoff_vote"]}: "{t["speech"]}"'
     act = "backed" if t.get("backed") else "proposed"
@@ -98,28 +100,32 @@ def _turn_line(t: dict) -> str:
             f"accepted {acc})")
 
 
-def _conversation(b: Brief) -> str:
+def _conversation(b: Brief, advisors: dict[str, Advisor] | None = None) -> str:
     lines = []
     if b.earlier_turns:
         last = b.earlier_turns[-1]["round"]
         prev = [t for t in b.earlier_turns if t["round"] == last]
         lines.append(f"Last round (round {last + 1}):")
-        lines += [_turn_line(t) for t in prev]
+        lines += [_turn_line(t, advisors) for t in prev]
     lines.append(f"This round (round {b.round + 1}) so far:")
-    lines += [_turn_line(t) for t in b.turns_this_round] or ["  (you speak first)"]
+    lines += [_turn_line(t, advisors) for t in b.turns_this_round] or ["  (you speak first)"]
     return "\n".join(lines)
 
 
-def _table_lines(brief: Brief) -> str:
+def _table_lines(brief: Brief, advisors: dict[str, Advisor] | None = None) -> str:
     return "\n".join(
-        f"- {t.id} by {short(t.author)}: {t.plain} {t.plan.model_dump()} | accepted by: "
-        + (", ".join(short(a) for a in t.accept) or "nobody yet")
+        f"- {t.id} by {short(t.author, advisors)}: {t.plain} {t.plan.model_dump()} | accepted by: "
+        + (", ".join(short(a, advisors) for a in t.accept) or "nobody yet")
         for t in brief.table
     ) or "(nothing yet: you open the debate)"
 
 
 def _llm_messages(advisor_id: str, b: Brief) -> list[dict]:
-    a = ADVISORS[advisor_id]
+    advisors = advisors_for(b.advisors)
+    if advisor_id not in advisors:
+        raise ValueError("The speaker is not seated in this council.")
+    a = advisors[advisor_id]
+    others = [seat for seat in advisors.values() if seat.id != advisor_id]
     rounds_left = b.max_rounds - b.round - 1
     user = {
         "year": b.year,
@@ -138,23 +144,33 @@ def _llm_messages(advisor_id: str, b: Brief) -> list[dict]:
     if b.phase == "runoff":
         ra, rb = b.runoff
         ask = (
-            f"RUNOFF. A = {ra.id} by {short(ra.author)}: {ra.plain}. "
-            f"B = {rb.id} by {short(rb.author)}: {rb.plain}.\n"
-            f"Plans:\n{_table_lines(b)}\nVotes so far:\n"
-            + ("\n".join(_turn_line(t) for t in b.turns_this_round) or "  (none yet)")
+            f"RUNOFF. A = {ra.id} by {short(ra.author, advisors)}: {ra.plain}. "
+            f"B = {rb.id} by {short(rb.author, advisors)}: {rb.plain}.\n"
+            f"Plans:\n{_table_lines(b, advisors)}\nVotes so far:\n"
+            + ("\n".join(_turn_line(t, advisors) for t in b.turns_this_round) or "  (none yet)")
             + f"\nIt is your turn to vote, {a.short}.\n{RUNOFF_ASK}"
         )
     else:
         urgency = (
-            "\nThis is the LAST round: after it only the votes count. Accept the best plan you "
-            "can live with." if rounds_left == 0 else ""
+            "\nThis is the LAST round: after it only the votes count. Accept plans only when "
+            "they serve your own mandate; reject compromises that defeat it." if rounds_left == 0 else ""
         )
         ask = (
-            f"Plans on the table, with their support right now:\n{_table_lines(b)}\n\n"
-            f"{_conversation(b)}\n\nIt is your turn, {a.short}. Reply to the others.{urgency}"
+            f"Plans on the table, with their support right now:\n{_table_lines(b, advisors)}\n\n"
+            f"{_conversation(b, advisors)}\n\nIt is your turn, {a.short}. Reply to the others.{urgency}"
         )
     return [
-        {"role": "system", "content": SYSTEM.format(council=_council_lines(), **a.__dict__)},
+        {"role": "system", "content": SYSTEM.format(
+            council=_council_lines(advisors), count=len(advisors),
+            strong=max(len(advisors) // 2 + 1, math.ceil(2 * len(advisors) / 3)),
+            majority=len(advisors) // 2 + 1,
+            address_instruction=(
+                f'Address one or two advisors by name (for example "{others[0].short}, ..."), '
+                "and agree or push back with a reason from your mandate."
+                if others else "You are the sole advisor. Explain the decision from your mandate."
+            ),
+            speech_instruction=", naming another advisor" if others else "",
+            **a.__dict__)},
         {"role": "user", "content": json.dumps(user) + "\n\n" + ask},
     ]
 
@@ -223,7 +239,7 @@ def _llm_turn(advisor_id: str, brief: Brief, data: dict, reply) -> Ballot:
     speech = _speech(data)
     return Ballot(advisor=advisor_id, year=brief.year, round=brief.round, phase="discuss",
                   proposal=plan, back=back, accept=accept, speech=speech,
-                  addressed=mentions(speech, exclude=advisor_id), source="llm",
+                  addressed=mentions(speech, exclude=advisor_id, advisors=advisors_for(brief.advisors)), source="llm",
                   trace=_trace(brief, plan, data, reply))
 
 
@@ -236,5 +252,5 @@ def _llm_runoff(advisor_id: str, brief: Brief, data: dict, reply) -> Ballot:
     speech = _speech(data, 18)
     return Ballot(advisor=advisor_id, year=brief.year, round=brief.round, phase="runoff",
                   proposal=plan, runoff_vote=vote, speech=speech,
-                  addressed=mentions(speech, exclude=advisor_id), source="llm",
+                  addressed=mentions(speech, exclude=advisor_id, advisors=advisors_for(brief.advisors)), source="llm",
                   trace=_trace(brief, plan, data, reply))
