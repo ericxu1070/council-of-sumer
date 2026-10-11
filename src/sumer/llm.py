@@ -23,7 +23,9 @@ log = logging.getLogger(__name__)
 
 
 class LLMUnavailable(Exception):
-    pass
+    def __init__(self, message: str, *, usage: dict | None = None):
+        super().__init__(message)
+        self.usage = usage
 
 
 @dataclass
@@ -99,7 +101,8 @@ async def chat(messages: list[dict], temperature: float = 0.4) -> Reply:
     cost = float((data.get("usage") or {}).get("cost") or 0.0)
     _record_spend(cost)
     if not content:
-        raise LLMUnavailable("empty reply")
+        raise LLMUnavailable("empty reply", usage=Reply(
+            "", settings.llm_model, False, time.monotonic() - t0, cost).meta())
     reply = Reply(content, settings.llm_model, False, time.monotonic() - t0, cost)
 
     if settings.llm_cache:
@@ -108,11 +111,20 @@ async def chat(messages: list[dict], temperature: float = 0.4) -> Reply:
     return reply
 
 
-def parse_json(text: str) -> dict:
+def parse_json(text: str, *, strict: bool = False) -> dict:
     """Pull the first JSON object out of a model reply (tolerates code fences).
 
     If the reply was cut off mid-object, salvage the complete fields before the
     cut. The proposal comes first in our schema, so it usually survives."""
+    if strict:
+        # Live council decisions must be complete objects, never salvaged fragments.
+        body = text.strip()
+        if body.startswith("```") and body.endswith("```"):
+            body = re.sub(r"^```(?:json)?\s*", "", body)[:-3].strip()
+        value = json.loads(body)
+        if not isinstance(value, dict):
+            raise ValueError("Model response must be a JSON object.")
+        return value
     m = re.search(r"\{.*\}", text, re.DOTALL)
     if m:
         try:

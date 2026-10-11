@@ -35,6 +35,14 @@ def commit(
                                    (run_id, ballot.message_id)).fetchone()
             if row is None or json.loads(row["data"]) != ballot.model_dump():
                 raise ValueError("Certificate contains an unrecorded or changed ballot.")
+            request = store.db.execute(
+                "SELECT data FROM events WHERE run_id=? AND kind='phase' "
+                "AND json_extract(data,'$.request_id')=?", (run_id, ballot.reply_to)).fetchone()
+            phase = json.loads(request["data"]) if request else {}
+            if (phase.get("year"), phase.get("round"), phase.get("phase"), phase.get("candidate")) != (
+                state.year, candidate.revision, "vote", candidate.model_dump(),
+            ) or ballot.advisor not in phase.get("targets", []):
+                raise ValueError("Ballot does not answer a recorded request for this candidate.")
     else:
         resolution = result.human_resolution
         deadlocks = [e["data"] for e in store.events(run_id, year=state.year)
@@ -46,7 +54,8 @@ def commit(
             run_id, state.year, state_hash(state), candidate.hash, candidate.id, "human",
         ):
             raise ValueError("Human resolution has a wrong candidate/state binding.")
-    legalize(state, result.plan)
+    with span("budget.validate", run_id=run_id, year=state.year, candidate_hash=candidate.hash):
+        legalize(state, result.plan)
     with span("engine.commit", run_id=run_id, year=state.year, candidate_hash=candidate.hash):
         next_state = advance(state, result.plan, rolls)
         data = {

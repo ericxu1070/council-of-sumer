@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt
 from sumer.advisors import ADVISOR_IDS
 from sumer.config import CACHE_DIR
 from sumer.game import Decision, State, legalize
+from sumer.observability import span
 
 Phase = Literal["proposal", "objection", "revision", "vote"]
 
@@ -142,10 +143,12 @@ class Reply(Contract):
     source: Literal["llm", "policy"]
     trace: dict = Field(default_factory=dict)
     traceparent: str = ""
+    error: str | None = None
     sig: str = ""
 
     def signing_payload(self) -> bytes:
-        return json.dumps(self.model_dump(exclude={"sig"}), sort_keys=True).encode()
+        excluded = {"sig"} if self.error is not None else {"sig", "error"}
+        return json.dumps(self.model_dump(exclude=excluded), sort_keys=True).encode()
 
 
 def sign(reply: Reply) -> Reply:
@@ -192,6 +195,8 @@ def validate_reply(delivery: Delivery, brief: Brief) -> Reply:
     expected = brief.candidate.hash if brief.candidate else None
     if r.candidate_hash != expected:
         raise ValueError("Wrong candidate.")
+    if r.error is not None:
+        raise ValueError(r.error)
     if not r.speech.strip():
         raise ValueError("A decision explanation is required.")
     if brief.phase in ("proposal", "revision"):
@@ -199,7 +204,9 @@ def validate_reply(delivery: Delivery, brief: Brief) -> Reply:
             raise ValueError("A complete budget and the known current price are required.")
         public = dict(brief.state)
         public.pop("acres_per_person", None)
-        legalize(State(**public), r.proposal.decision())
+        with span("budget.validate", run_id=brief.run_id, year=brief.year,
+                  phase=brief.phase, peer=r.advisor, message_id=r.message_id):
+            legalize(State(**public), r.proposal.decision())
         if not all(t.strip() for t in (r.arithmetic, r.assumptions, r.expected_effects)):
             raise ValueError("Budget arithmetic, assumptions, and expected effects are required.")
     elif brief.phase == "vote":
@@ -210,12 +217,23 @@ def validate_reply(delivery: Delivery, brief: Brief) -> Reply:
     known = {e.get("message_id") for e in brief.transcript}
     if any(m not in known for m in r.cited_message_ids + r.objections_addressed):
         raise ValueError("Cited message IDs must refer to the public transcript.")
-    if brief.phase == "revision" and brief.transcript and not r.objections_addressed:
-        raise ValueError("A revision must address a recorded objection or failed ballot.")
+    if brief.phase == "revision":
+        objections = {e.get("message_id") for e in brief.transcript
+                      if e.get("phase") == "objection" or e.get("kind") == "failed_ballot"}
+        objections.update(b["message_id"] for e in brief.transcript
+                          if e.get("kind") == "failed_ballot" for b in e["ballots"])
+        if not r.objections_addressed or not set(r.objections_addressed) <= objections:
+            raise ValueError("A revision must address a recorded objection or failed ballot.")
     return r
 
 
 def verify_certificate(cert: Certificate, state: State, run_id: str, keys: dict[str, str]) -> None:
+    with span("certificate.verify", run_id=run_id, year=state.year,
+              candidate_hash=cert.candidate.hash):
+        _verify_certificate(cert, state, run_id, keys)
+
+
+def _verify_certificate(cert: Certificate, state: State, run_id: str, keys: dict[str, str]) -> None:
     c = cert.candidate
     if c.run_id != run_id or c.year != state.year or c.state_hash != state_hash(state):
         raise ValueError("Certificate does not bind to the current run and state.")
@@ -226,7 +244,8 @@ def verify_certificate(cert: Certificate, state: State, run_id: str, keys: dict[
     if len({b.message_id for b in cert.ballots}) != 4:
         raise ValueError("Ballot message IDs must be distinct.")
     for b in cert.ballots:
-        if not verify(b, keys) or not b.speech.strip() or b.proposal is not None:
+        if (not verify(b, keys) or not b.speech.strip() or not b.reply_to
+                or b.proposal is not None or b.error is not None):
             raise ValueError("Invalid ballot signature or content.")
         if (b.run_id, b.year, b.round, b.phase, b.state_hash, b.candidate_hash) != (
             run_id, c.year, c.revision, "vote", c.state_hash, c.hash,

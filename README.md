@@ -74,6 +74,8 @@ contain no computed scores, compromise budgets, concession weights, or future-ev
 Missing, malformed, invalid, or transport-failed responses get one retry for the affected
 peers, with a fresh request ID and correction reason. A second failure stops the run with
 `technical_failure`. A missing voter cannot become a political deadlock.
+Live replies must contain a complete JSON object; truncated decisions are rejected. Signed
+model failures retain reported usage and cost, including empty or malformed paid replies.
 
 ## Transport and commit verification
 
@@ -96,6 +98,9 @@ permissions; this does not claim isolated production identities or remote attest
 
 SQLite at `.cache/runs.sqlite3` stores immutable run manifests, append-only events,
 proposals, ballots, year results, human resolutions, model usage, and imported spans.
+Valid ballots are stored as they arrive, even if another voter ultimately fails. Manifests
+include the application version as well as the rule and dependency versions. Stopped runs
+retain their final recorded resources and mortality in the summary export.
 Completed years record their random inputs for audit, without disclosing future rolls
 to advisors. A server restart retains history and marks an interrupted live run as a
 technical failure.
@@ -124,11 +129,14 @@ uncompressed OTLP JSONL → incremental SQLite import → the run/year trace vie
 The collector listens on loopback ports 4317/4318. It handles traces, metrics, and logs in
 separate files under `.cache`. SDK telemetry and synchronization are disabled.
 
-Explicit spans cover years, phases, transport requests, agent decisions, model calls, and
-engine commits. W3C `traceparent` travels in both transport headers and signed phase
-messages. Spans carry run, year, phase, cycle, peer, and candidate identifiers where relevant.
+Explicit spans cover years, proposals, objections, revisions, ballots, transport send/receive,
+agent decisions, model calls, budget validation, message and certificate verification,
+human resolution, technical failure, and engine commits. W3C `traceparent` travels in both
+transport headers and signed phase messages. Spans carry run, year, phase, cycle, peer, and
+candidate identifiers where relevant.
 The UI links advisor explanations to their trace IDs and can show a year's imported spans.
 The collector may need a few seconds to flush before an export includes the latest spans.
+Collection errors are recorded separately and preserve the game result and decision journal.
 
 The four [OASF records](oasf) describe the existing advisor roles using the coordination and
 multi-agent planning taxonomy. They complement the runtime A2A cards and are not a claim of

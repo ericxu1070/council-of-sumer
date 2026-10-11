@@ -330,13 +330,14 @@ function onResponses(d) {
 }
 function onBallots(d) {
   const candidate = d.candidate;
-  const rows = d.ballots.map(b => `<div class="opt"><div class="row"><span>${EMOJI[b.advisor]} ${SHORT[b.advisor]}</span><b style="margin-left:auto;color:${b.choice === "YES" ? "var(--ok)" : "var(--bad)"}">${b.choice}</b></div><div class="esub">${esc(b.speech)}</div></div>`).join("");
+  const rows = d.ballots.map(b => `<div class="opt" id="msg-${esc(b.message_id)}"><div class="row"><span>${EMOJI[b.advisor]} ${SHORT[b.advisor]}</span><b style="margin-left:auto;color:${b.choice === "YES" ? "var(--ok)" : "var(--bad)"}">${b.choice}</b></div><div class="esub">${esc(b.speech)}</div>${reasoning(b)}</div>`).join("");
   const el = message({...CLERK, time: `year ${d.year} · cycle ${d.round}`,
     html: `<div class="embed poll"><div class="etitle">${SHORT[candidate.author]}'s frozen budget</div>${planChips(candidate.plan)}${rows}<div class="foot">${d.yes_voters.length}/4 YES · all four ballots verified. ${d.passing ? "Adopt immediately." : "Failed ballot retained for revision."}</div></div>`});
   el.id = `msg-${d.message_id}`;
   setTyping([]);
 }
 function onYear(d) {
+  if (d.human_resolution) resolveDeadlock(d.human_resolution);
   const [icon, label] = OUTCOME[d.outcome], r = d.report;
   message({...CLERK, time: `end of year ${d.year}`, html: `<div class="embed outcome"><div class="etitle">${icon} ${label}: ${SHORT[d.candidate.author]}'s budget</div>${planChips(d.plan)}
     ${d.dissent.length ? `<div class="esub">Dissent on record: ${d.dissent.map(a => SHORT[a]).join(", ")}</div>` : ""}
@@ -346,16 +347,30 @@ function onYear(d) {
 }
 function onEscalate(d) {
   const opts = d.options.map(o => `<button class="opt" data-choice="${esc(o.id)}"${replay ? " disabled" : ""}><div class="row"><span class="who">${EMOJI[o.author]} ${SHORT[o.author]}'s latest budget</span></div>${planChips(o.plan)}<div class="esub">${esc(o.speech)}</div></button>`).join("");
-  const el = message({...CLERK, time: `year ${d.year}`, html: `<div class="embed poll deadlock" id="deadlockPoll"><div class="etitle">⚖️ Negotiation deadlock</div><div class="esub">${esc(d.reason)}</div>${opts}<div class="foot" id="deadlockFoot">${replay ? "Recorded deadlock. Replay is read-only." : "The reign is paused. Select a latest valid advisor budget."}</div></div>`});
+  const el = message({...CLERK, time: `year ${d.year}`, html: `<div class="embed poll deadlock" data-year="${d.year}"><div class="etitle">⚖️ Negotiation deadlock</div><div class="esub">${esc(d.reason)}</div>${opts}<div class="foot">${replay ? "Recorded deadlock. Replay is read-only." : "The reign is paused. Select a latest valid advisor budget."}</div></div>`});
   el.querySelectorAll("[data-choice]").forEach(btn => btn.onclick = async () => {
     try { await api("/api/escalation", {run_id: runId, choice: btn.dataset.choice}); } catch (e) { toast(e.message); return; }
     el.querySelectorAll("[data-choice]").forEach(b => b.disabled = true);
     btn.classList.add("win");
-    el.querySelector("#deadlockFoot").textContent = "Your selection is recorded as human resolution.";
+    el.querySelector(".foot").textContent = "Selection submitted; awaiting the committed human resolution.";
     $("#alertbar").classList.remove("show");
   });
   setTyping([]);
   if (!replay) $("#alertbar").classList.add("show");
+}
+function resolveDeadlock(d) {
+  document.querySelectorAll(`.deadlock[data-year="${d.year}"]`).forEach(poll => {
+    poll.querySelectorAll("[data-choice]").forEach(button => {
+      button.disabled = true;
+      button.classList.toggle("win", button.dataset.choice === d.candidate_id);
+    });
+    poll.querySelector(".foot").textContent = "Resolved by a human. This run is human-assisted.";
+  });
+  $("#alertbar").classList.remove("show");
+}
+function closeDeadlocks() {
+  document.querySelectorAll(".deadlock [data-choice]").forEach(button => button.disabled = true);
+  $("#alertbar").classList.remove("show");
 }
 function buildMembers() {
   $("#memberList").innerHTML = meta.advisors.map(a => `<div class="member" id="mem-${a.id}" title="${esc(a.mandate)}"><div class="avatar" style="--c:${a.color}">${EMOJI[a.id]}</div><div><div class="mn" style="--c:${a.color}">${SHORT[a.id]}</div><div class="ms">${esc(a.mandate.split(".")[0])}</div></div></div>`).join("");
@@ -378,11 +393,12 @@ function showState(s) {
   $("#sPrice").textContent = s.land_price;
   prevState = s;
 }
-const audioQ = []; let playing = false;
-function speak(advisor, text) { if ($("#voiceOn").value !== "1" || !text) return; audioQ.push({advisor, text}); if (!playing) playNext(); }
+const audioQ = []; let playing = false, activeAudio = null;
+function speak(advisor, text) { if (replay || $("#voiceOn").value !== "1" || !text) return; audioQ.push({advisor, text}); if (!playing) playNext(); }
 function playNext() {
+  if (replay) { audioQ.length = 0; playing = false; return; }
   const it = audioQ.shift(); if (!it) { playing = false; return; } playing = true;
-  const a = new Audio(`/api/voice/${it.advisor}?text=${encodeURIComponent(it.text)}`);
+  const a = activeAudio = new Audio(`/api/voice/${it.advisor}?text=${encodeURIComponent(it.text)}`);
   a.onended = playNext; a.onerror = playNext; a.play().catch(playNext);
 }
 function handle(event) {
@@ -410,10 +426,13 @@ function handle(event) {
   else if (kind === "wire") sys(`<span class="ic">📡</span>${esc(d.transport)} · ${d.replies} responses in ${d.elapsed_s}s`, "wire");
   else if (kind === "year") onYear(d);
   else if (kind === "escalate") onEscalate(d);
+  else if (kind === "human_resolution") resolveDeadlock(d);
   else if (kind === "validation_error") sys(`<span class="ic">⚠️</span>${esc(SHORT[d.peer] || d.peer)}: ${esc(d.message)} (attempt ${d.attempt})`);
-  else if (kind === "technical_failure" || kind === "stopped") { setTyping([]); $("#alertbar").classList.remove("show"); sys(`<span class="ic">⚠️</span>${esc(d.message)}`); }
+  else if (kind === "technical_failure" || kind === "stopped") { setTyping([]); closeDeadlocks(); $("#topic").textContent = kind.replaceAll("_", " "); sys(`<span class="ic">⚠️</span>${esc(d.message)}`); }
+  else if (kind === "observability_error") sys(`<span class="ic">⚠️</span>${esc(d.message)}`);
   else if (kind === "end") {
     setTyping([]);
+    closeDeadlocks();
     $("#topic").textContent = `${replay ? "Replay · " : ""}${d.status.replaceAll("_", " ")}${d.human_assisted ? " · human-assisted" : ""}`;
     const r = d.rating;
     const finished = ["completed", "overthrown", "depopulated"].includes(d.status);
@@ -430,6 +449,9 @@ async function loadRuns() {
   return runs;
 }
 function setRun(id, isReplay) {
+  audioQ.length = 0;
+  if (activeAudio) { activeAudio.onended = activeAudio.onerror = null; activeAudio.pause(); activeAudio = null; }
+  playing = false;
   stream?.close(); seen.clear(); runId = id; replay = isReplay; setTyping([]);
   $("#exportBtn").href = `/api/runs/${runId}/export`;
   $("#exportBtn").classList.remove("hidden");
@@ -444,8 +466,8 @@ function connect(id) {
 async function replayRun(id) {
   setRun(id, true);
   const events = await api(`/api/runs/${id}/events`);
+  if (runId !== id || !replay) return;
   for (const event of events) handle(event);
-  $("#topic").textContent = "Recorded replay · read-only";
   $("#feed").scrollTop = 0;
 }
 async function showTraces(traceId = "") {
@@ -471,7 +493,7 @@ $("#glassToggle").onclick = () => {
   glass = !glass; $("#glassToggle").setAttribute("aria-pressed", glass); $("#app").classList.toggle("glass-off", !glass);
   document.querySelectorAll(".think").forEach(t => t.open = glass);
 };
-$("#alertbar").onclick = () => $("#deadlockPoll")?.scrollIntoView({behavior: "smooth", block: "center"});
+$("#alertbar").onclick = () => [...document.querySelectorAll(".deadlock")].at(-1)?.scrollIntoView({behavior: "smooth", block: "center"});
 async function start() {
   try {
     const result = await api("/api/game", {seed: +$("#seed").value, max_rounds: +$("#rounds").value});
@@ -491,7 +513,7 @@ $("#tracesBtn").onclick = () => showTraces().catch(e => toast(e.message));
 async function loadBench() {
   const b = await api("/api/bench");
   if (b.missing || b.historical) { $("#benchMeta").textContent = b.message || "No results yet. Run: uv run sumer bench"; return; }
-  const cols = ["policy", "score", "completed", "deadlocks", "starved", "population"];
+  const cols = ["policy", "score", "completed", "deadlocks", "technical_failures", "starved", "population"];
   $("#benchTable thead").innerHTML = `<tr>${cols.map(c => `<th>${esc(c)}</th>`).join("")}</tr>`;
   $("#benchTable tbody").innerHTML = b.rows.map(r => `<tr>${cols.map(c => `<td>${esc(r[c])}</td>`).join("")}</tr>`).join("");
   $("#benchMeta").textContent = `${b.seeds} seeds · ${b.llm} · completed reigns and paused deadlocks counted separately.`;

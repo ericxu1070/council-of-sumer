@@ -14,13 +14,14 @@ from sumer.deliberation import (
     Deadlock,
     Emit,
     Gather,
+    TechnicalFailure,
     YearResult,
     _noop_emit,
     deliberate_year,
 )
 from sumer.engine import commit
 from sumer.game import RULE_VERSION, advance, new_game, rating
-from sumer.observability import flush, span
+from sumer.observability import context_headers, flush, span
 from sumer.protocol import provision_identities, uid
 from sumer.storage import Store
 
@@ -59,6 +60,7 @@ async def play_council(
     rounds = max_rounds if max_rounds is not None else settings.max_rounds
     store.create_run(run_id, {
         "rule_version": RULE_VERSION, "seed": seed, "initial_state": state.public(),
+        "application_version": version("council-of-sumer"),
         "peer_keys": keys, "advisors": [a.__dict__ for a in ADVISORS.values()],
         "max_rounds": rounds, "transport": settings.transport,
         "llm_mode": settings.llm_mode, "model": settings.llm_model,
@@ -71,10 +73,12 @@ async def play_council(
     async def recorded_emit(kind: str, data: dict):
         if kind == "escalate":
             store.status(run_id, "deadlock")
+        data = {**context_headers(), **data}
         record = store.append(run_id, kind, data)
         await emit(kind, {**data, "_sequence": record["sequence"], "_run_id": run_id})
 
     status = "running"
+    cancelled = False
     try:
         await recorded_emit("game", {"seed": seed, "state": state.public(), "run_id": run_id})
         while not state.over:
@@ -89,24 +93,37 @@ async def play_council(
                 results.append(yr)
                 history.append(event["data"])
                 # The engine transaction already persisted this event.
+                if yr.human_resolution:
+                    for resolution in store.events(run_id, after=event["sequence"] - 2):
+                        if resolution["kind"] == "human_resolution":
+                            await emit("human_resolution", {
+                                **resolution["data"], "_sequence": resolution["sequence"],
+                                "_run_id": run_id})
                 await emit("year", {**event["data"], "_sequence": event["sequence"],
                                     "_run_id": run_id})
         status = state.status
     except Deadlock:
         status = "deadlock"
     except asyncio.CancelledError:
+        cancelled = True
+        status = "stopped"
         await recorded_emit("stopped", {"year": state.year, "message": "Run stopped by user."})
         store.status(run_id, "stopped")
-        raise
     except Exception as exc:  # noqa: BLE001 - preserve the journal on any terminal engine failure
         status = "technical_failure"
-        await recorded_emit("technical_failure", {
-            "year": state.year, "message": f"{type(exc).__name__}: {exc}"})
+        with span("council.technical_failure", run_id=run_id, year=state.year,
+                  phase=exc.details.get("phase") if isinstance(exc, TechnicalFailure) else None):
+            await recorded_emit("technical_failure", {
+                "year": state.year, "message": f"{type(exc).__name__}: {exc}",
+                **(exc.details if isinstance(exc, TechnicalFailure) else {})})
     finally:
-        flush()
-        store.import_traces(os.getenv("SUMER_TRACE_PATH", str(CACHE_DIR / "otel-traces.jsonl")))
-        if own_store and status == "running":
-            store.db.close()
+        # Telemetry collection must not hide the game result or its original failure.
+        try:
+            flush()
+            store.import_traces(os.getenv("SUMER_TRACE_PATH", str(CACHE_DIR / "otel-traces.jsonl")))
+        except Exception as exc:  # noqa: BLE001 - retain the authoritative decision journal
+            await recorded_emit("observability_error", {"year": state.year,
+                                "message": f"Trace collection failed: {type(exc).__name__}: {exc}"})
 
     g = GameResult(seed=seed, policy="council", rating=rating(state), run_id=run_id,
                    status=status, human_assisted=store.run(run_id)["human_assisted"])
@@ -118,6 +135,8 @@ async def play_council(
     await recorded_emit("end", g.as_dict())
     if own_store:
         store.db.close()
+    if cancelled:
+        raise asyncio.CancelledError
     return g
 
 

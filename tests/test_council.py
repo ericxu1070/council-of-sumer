@@ -1,3 +1,4 @@
+import asyncio
 import os
 
 os.environ["LLM_MODE"] = "mock"
@@ -216,6 +217,10 @@ async def test_missing_fourth_voter_is_technical_failure_never_human(identities)
     assert phases[-1] == ("vote", ["merchant"])
     assert sum(p[0] == "vote" for p in phases) == 2
     assert not any(e["kind"] == "escalate" for e in store.events(g.run_id))
+    assert store.db.execute("SELECT COUNT(*) FROM ballots").fetchone()[0] == 3
+    failure = next(e["data"] for e in store.events(g.run_id) if e["kind"] == "technical_failure")
+    assert failure["phase"] == "vote" and failure["peers"] == ["merchant"]
+    assert failure["attempt"] == 2
 
 
 async def test_live_model_failure_never_falls_back(identities, monkeypatch):
@@ -277,6 +282,13 @@ async def test_engine_verifies_certificate_and_commits_exactly_once(identities):
     with pytest.raises(ValueError):
         commit(store, "test-run", state, bad, tape)
     assert store.db.execute("SELECT COUNT(*) FROM years").fetchone()[0] == 0
+    without_requests = Store(":memory:")
+    without_requests.create_run("test-run", {"initial_state": state.public(), "peer_keys": identities})
+    for recorded in store.events("test-run"):
+        if recorded["kind"] != "phase":
+            without_requests.append("test-run", recorded["kind"], recorded["data"])
+    with pytest.raises(ValueError, match="recorded request"):
+        commit(without_requests, "test-run", state, yr, tape)
     nxt, event = commit(store, "test-run", state, yr, tape)
     assert nxt.year == 2 and event["data"]["plan"] == yr.plan.as_dict()
     with pytest.raises(ValueError, match="advanced"):
@@ -350,3 +362,84 @@ async def test_full_offline_run_and_existing_baselines():
 def test_clean_and_existing_json_parser():
     assert "—" not in clean("We hold — firm")
     assert llm.parse_json('```json\n{"a": 1}\n```') == {"a": 1}
+
+
+@pytest.mark.parametrize("content", ['{"choice":"YES","speech":"Yes",', '[]'])
+def test_live_parser_rejects_incomplete_or_non_object_decisions(content):
+    with pytest.raises(ValueError):
+        llm.parse_json(content, strict=True)
+    assert llm.parse_json('```json\n{"choice":"NO","speech":"Reason"}\n```', strict=True)["choice"] == "NO"
+
+
+@pytest.mark.parametrize("empty", [False, True])
+async def test_failed_model_attempts_keep_cost_without_adopting(identities, monkeypatch, empty):
+    from sumer import agent
+    monkeypatch.setattr(agent, "settings", replace(agent.settings, llm_mode="bayleaf"))
+    usage = {"model": "configured-model", "cached": False, "latency_s": 0.1, "cost_usd": 0.01}
+    async def broken(*args, **kwargs):
+        if empty:
+            raise llm.LLMUnavailable("empty reply", usage=usage)
+        return llm.Reply('{"speech":"Incomplete",', usage["model"], False, 0.1, 0.01)
+    monkeypatch.setattr(llm, "chat", broken)
+    journal = Store(":memory:")
+    g = await play_council(7, inproc.gather, store=journal, max_rounds=1)
+    assert g.status == "technical_failure" and not g.years
+    summary = json.loads(journal.exports(g.run_id)["summary.json"])
+    assert len(summary["model_usage"]) == 8
+    assert summary["cost_usd"] == pytest.approx(0.08)
+    assert all(u["model"] == usage["model"] for u in summary["model_usage"])
+
+
+async def test_revision_cannot_claim_an_opening_proposal_is_an_objection(identities):
+    request = brief(identities, phase="revision", transcript=[
+        {"message_id": "opening", "phase": "proposal"},
+        {"message_id": "objection", "phase": "objection"},
+    ])
+    reply = await decide("farmer", request)
+    unrelated = sign(reply.model_copy(update={"objections_addressed": ["opening"]}))
+    with pytest.raises(ValueError, match="recorded objection"):
+        validate_reply(Delivery("farmer", "sumer/council/farmer", unrelated), request)
+    validate_reply(Delivery("farmer", "sumer/council/farmer", reply), request)
+
+
+async def test_stopped_run_retains_summary_and_terminal_event():
+    journal = Store(":memory:")
+    async def cancelled(request):
+        raise asyncio.CancelledError
+    with pytest.raises(asyncio.CancelledError):
+        await play_council(7, cancelled, store=journal, run_id="cancelled")
+    run = journal.run("cancelled")
+    assert run["status"] == run["result"]["status"] == "stopped"
+    assert run["result"]["rating"]["population"] == 100
+    assert journal.events("cancelled")[-1]["kind"] == "end"
+
+
+async def test_trace_collection_failure_preserves_game_result(monkeypatch):
+    from sumer import chamber
+    def unavailable():
+        raise OSError("Collector unavailable")
+    monkeypatch.setattr(chamber, "flush", unavailable)
+    journal = Store(":memory:")
+    g = await play_council(7, voters, store=journal, max_rounds=1)
+    assert g.status in ("completed", "overthrown", "depopulated")
+    assert any(e["kind"] == "observability_error" for e in journal.events(g.run_id))
+    assert journal.run(g.run_id)["result"]["status"] == g.status
+
+
+async def test_live_human_resolution_is_published_in_recorded_order():
+    async def no_votes(request):
+        return await voters(request, yes=())
+    async def human(options, reason):
+        return options[0]["id"]
+    published = []
+    async def emit(kind, data):
+        published.append((kind, data))
+    journal = Store(":memory:")
+    g = await play_council(7, no_votes, store=journal, max_rounds=1, ask_human=human, emit=emit)
+    resolutions = [data for kind, data in published if kind == "human_resolution"]
+    assert len(resolutions) == len(g.years)
+    for resolution in resolutions:
+        committed = next(data for kind, data in published if kind == "year"
+                         and data["year"] == resolution["year"])
+        assert resolution["_sequence"] + 1 == committed["_sequence"]
+        assert resolution["candidate_id"] == committed["adopted"]

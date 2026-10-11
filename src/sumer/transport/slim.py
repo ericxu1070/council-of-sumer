@@ -18,7 +18,7 @@ import uuid
 from sumer.advisors import ADVISOR_IDS, ADVISORS
 from sumer.agent import decide
 from sumer.config import settings
-from sumer.observability import initialize, span
+from sumer.observability import context_headers, initialize, span
 from sumer.protocol import Brief, Delivery, Reply, endpoint
 
 log = logging.getLogger(__name__)
@@ -85,8 +85,13 @@ def _executor(advisor_id: str):
     class AdvisorExecutor(AgentExecutor):
         async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
             brief = Brief.model_validate_json(context.get_user_input())
-            ballot = await decide(advisor_id, brief)
-            await event_queue.enqueue_event(new_agent_text_message(ballot.model_dump_json()))
+            with span("transport.receive", parent=brief.traceparent, run_id=brief.run_id,
+                      year=brief.year, phase=brief.phase, peer=advisor_id,
+                      message_id=brief.message_id):
+                request = brief.model_copy(update={
+                    "traceparent": context_headers().get("traceparent", brief.traceparent)})
+                ballot = await decide(advisor_id, request)
+                await event_queue.enqueue_event(new_agent_text_message(ballot.model_dump_json()))
 
         async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
             return None
@@ -161,7 +166,10 @@ class SlimCouncil:
                     raise ValueError("Wrong A2A request identifier.")
                 result = payload["result"]
                 reply = Reply.model_validate_json(result["parts"][0]["text"])
-                return Delivery(peer, endpoint(peer), reply=reply)
+                with span("transport.response", parent=reply.traceparent, run_id=brief.run_id,
+                          year=brief.year, phase=brief.phase, peer=peer,
+                          message_id=reply.message_id, candidate_hash=reply.candidate_hash):
+                    return Delivery(peer, endpoint(peer), reply=reply)
             except Exception as exc:  # noqa: BLE001 - peer failures are retried by the phase collector
                 return Delivery(peer, endpoint(peer), error=f"{type(exc).__name__}: {exc}")
         deliveries = list(await asyncio.gather(*(one(p) for p in brief.targets)))

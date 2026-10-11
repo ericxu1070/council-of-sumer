@@ -8,7 +8,7 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sumer.protocol import digest, state_hash
+from sumer.protocol import Reply, digest, state_hash, verify
 
 
 def stamp() -> str:
@@ -53,6 +53,8 @@ class Store:
                 trace_id TEXT NOT NULL, span_id TEXT NOT NULL, run_id TEXT NOT NULL REFERENCES runs(id),
                 data TEXT NOT NULL, PRIMARY KEY(trace_id,span_id));
             CREATE TABLE IF NOT EXISTS trace_imports (path TEXT PRIMARY KEY, offset INTEGER NOT NULL);
+            CREATE UNIQUE INDEX IF NOT EXISTS ballots_peer ON ballots
+                (run_id,candidate_hash,json_extract(data,'$.advisor'));
         """)
         for table in ("events", "proposals", "ballots", "years", "human_resolutions", "model_usage", "spans"):
             for action in ("UPDATE", "DELETE"):
@@ -99,13 +101,22 @@ class Store:
                 for candidate in data["candidates"]:
                     self.db.execute("INSERT INTO proposals VALUES(?,?,?,?)",
                         (digest(candidate), run_id, candidate["id"], encoded(candidate)))
-            if kind == "ballots":
-                for reply in data["ballots"]:
-                    self.db.execute("INSERT INTO ballots VALUES(?,?,?,?)",
-                        (reply["message_id"], run_id, reply["candidate_hash"], encoded(reply)))
-            for reply in data.get("responses", data.get("ballots", [])):
+            replies = data.get("responses", data.get("ballots", []))
+            if kind in ("receipt", "ballots"):
+                for reply in replies:
+                    if reply["phase"] != "vote":
+                        continue
+                    stored = self.db.execute("SELECT data FROM ballots WHERE id=?",
+                                             (reply["message_id"],)).fetchone()
+                    if stored is not None and stored["data"] != encoded(reply):
+                        raise ValueError("Conflicting immutable ballot record.")
+                    if stored is None:
+                        self.db.execute("INSERT INTO ballots VALUES(?,?,?,?)",
+                                        (reply["message_id"], run_id, reply["candidate_hash"], encoded(reply)))
+            keys = self.run(run_id)["manifest"].get("peer_keys", {})
+            for reply in replies:
                 usage = reply.get("trace", {}).get("llm")
-                if usage:
+                if usage and reply.get("run_id") == run_id and verify(Reply.model_validate(reply), keys):
                     self.db.execute("INSERT OR IGNORE INTO model_usage VALUES(?,?,?)",
                         (reply["message_id"], run_id, encoded(usage)))
             return self._event(run_id, kind, data)

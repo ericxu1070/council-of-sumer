@@ -58,7 +58,8 @@ def messages(peer: str, brief: Brief) -> list[dict]:
                     'expected_effects (strings). Choose all budget amounts independently.',
         "revision": 'Required keys: proposal (an object with integer land_delta, feed, plant), '
                     'assumed_price (current integer quote), speech, arithmetic, assumptions, '
-                    'expected_effects (strings), objections_addressed (array of public message IDs). '
+                    'expected_effects (strings), objections_addressed (array of recorded objection '
+                    'or failed-ballot message IDs). '
                     'Choose all budget amounts independently; explain why changed or retained.',
         "objection": '{"speech":"Concrete objections to the proposed budgets; identify the author '
                      'and arithmetic/assumption you dispute","cited_message_ids":["public message ID"]}',
@@ -122,21 +123,33 @@ async def decide(peer: str, brief: Brief) -> Reply:
               phase=brief.phase, peer=peer,
               candidate_hash=brief.candidate.hash if brief.candidate else None):
         metadata = {}
+        error = None
         if settings.llm_mode == "bayleaf":
             with span("model.call", run_id=brief.run_id, year=brief.year,
-                      phase=brief.phase, peer=peer, model=settings.llm_model):
-                answer = await llm.chat(messages(peer, brief))
-                data = Output.model_validate(llm.parse_json(answer.content))
-                metadata = answer.meta()
+                      phase=brief.phase, peer=peer, model=settings.llm_model) as model_span:
+                try:
+                    answer = await llm.chat(messages(peer, brief))
+                    metadata = answer.meta()
+                    data = Output.model_validate(llm.parse_json(answer.content, strict=True))
+                except (llm.LLMUnavailable, ValueError, TypeError) as exc:
+                    # Keep failures and their reported spend in the signed response journal.
+                    metadata = getattr(exc, "usage", None) or metadata
+                    error = f"{type(exc).__name__}: {exc}"
+                    if model_span is not None:
+                        model_span.record_exception(exc)
+                        model_span.set_attribute("sumer.error", error)
+                    data = Output(speech="Unable to produce a valid phase response.")
             source = "llm"
-        else:
+        elif settings.llm_mode == "mock":
             data = fixture(peer, brief)
             source = "policy"
+        else:
+            raise llm.LLMUnavailable(f"Unknown LLM_MODE: {settings.llm_mode}")
         context = context_headers()
         return sign(Reply(
             run_id=brief.run_id, year=brief.year, round=brief.round, phase=brief.phase,
             advisor=peer, state_hash=brief.state_hash, reply_to=brief.message_id,
             candidate_hash=brief.candidate.hash if brief.candidate else None,
             source=source, trace={"llm": metadata, **context} if metadata else context,
-            traceparent=context.get("traceparent", ""), **data.model_dump(),
+            traceparent=context.get("traceparent", ""), error=error, **data.model_dump(),
         ))
