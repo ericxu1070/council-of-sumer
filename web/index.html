@@ -5,29 +5,32 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Council of Sumer</title>
 <meta name="description" content="Choose a council of AI advisors to govern an ancient city with no king to break ties.">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%2330261b'/><path d='M3 27h26V17H24V10H20V4H12V10H8V17H3Z' fill='%23d1b477'/></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23121a2e'/><path d='M16 9.5v13M9 12.5l7 3.5 7-3.5' stroke='%2322d3ee' stroke-width='2' fill='none' stroke-linecap='round'/><circle cx='16' cy='16' r='3.4' fill='%230b1020' stroke='%2322d3ee' stroke-width='2'/><circle cx='16' cy='7' r='2.6' fill='%2322d3ee'/><circle cx='7' cy='21' r='2.6' fill='%23e879f9'/><circle cx='25' cy='21' r='2.6' fill='%23e879f9'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- Non-blocking: on slow venue Wi-Fi the page renders in the system font first. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'">
 <link rel="stylesheet" href="app.css">
-<link rel="stylesheet" href="sumer.css">
 </head>
 <body>
 <div class="app" id="app">
   <header class="top">
     <div class="brand">
-      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M3 27h26V17H24V10H20V4H12V10H8V17H3Z" fill="currentColor"/><path d="M15 21h3v6M11 14h10M14 8h4" stroke="#302319" stroke-width="2"/></svg>
-      <div class="brand-text"><div class="brand-name">Council of Sumer</div></div>
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#121a2e"/><rect x=".5" y=".5" width="31" height="31" rx="7.5" fill="none" stroke="#fff" stroke-opacity=".1"/><path d="M16 9.5v6.5M9.2 20l6.8-4 6.8 4" stroke="#22d3ee" stroke-width="1.8" fill="none" stroke-linecap="round"/><circle cx="16" cy="16" r="3.2" fill="#0b1020" stroke="#22d3ee" stroke-width="1.8"/><circle cx="16" cy="7.4" r="2.4" fill="#22d3ee"/><circle cx="7.6" cy="21.4" r="2.4" fill="#e879f9"/><circle cx="24.4" cy="21.4" r="2.4" fill="#e879f9"/></svg>
+      <div class="brand-text"><h1 class="brand-name">Council of Sumer</h1></div>
     </div>
     <div class="yearbox" aria-live="polite">
-      <div class="year-heading"><div class="year-label" id="yearLabel">Ready</div><span class="phase" id="phase">Ready</span><span class="round-label hidden" id="roundLabel"></span></div>
+      <div class="year-heading"><div class="year-label" id="yearLabel">Ready</div><span class="round-label hidden" id="roundLabel"></span></div>
       <div class="year-steps" id="yearSteps" aria-hidden="true"></div>
     </div>
     <div class="top-actions">
       <span class="chip hood-only" id="chipTransport" title="How the advisors talk to each other">-</span>
       <span class="chip hood-only" id="chipLlm" title="Language model">-</span>
-      <button class="btn ghost" id="evidenceBtn" type="button">Records</button>
+      <button class="btn ghost hidden" id="evidenceBtn" type="button">Evidence</button>
       <button class="toggle" id="hoodToggle" type="button" aria-pressed="false" title="Show private thoughts, traces and network messages">
-        <span>Scribe</span><span class="switch" aria-hidden="true"></span>
+        <span>Under the hood</span><span class="switch" aria-hidden="true"></span>
       </button>
-      <button class="icon-btn" id="muteBtn" type="button" aria-pressed="false" title="Mute the narrator" aria-label="Mute the narrator">♪</button>
+      <button class="icon-btn" id="muteBtn" type="button" aria-pressed="false" title="Mute the narrator" aria-label="Mute the narrator">🔊</button>
       <button class="btn" id="pauseBtn" type="button" disabled aria-pressed="false">Pause</button>
       <button class="icon-btn" id="setupBtn" type="button" title="Setup" aria-label="Open setup" aria-expanded="false">☰</button>
     </div>
@@ -37,9 +40,16 @@
     <section class="council" aria-label="The council">
       <div class="city-map" id="cityMap" role="img" aria-label="Bird’s-eye view of Sumer. City totals appear when a council convenes."></div>
       <div class="stage" id="stage">
+        <div class="phase-row">
+          <div class="phase" id="phase"></div>
+          <div class="phase-sub" id="phaseSub"></div>
+          <div class="legend"><span class="lg-agree"><i></i>agrees with plan</span><span class="lg-disagree"><i></i>doesn’t back plan</span></div>
+          <button class="btn primary convene" id="conveneBtn" type="button">Convene the council</button>
+        </div>
         <div class="runoff hidden" id="runoff" aria-live="polite"></div>
       </div>
       <div class="graph" id="graph" aria-label="Council graph: green connections show agreement, red dashed connections show disagreement"></div>
+      <div class="spot hidden" id="spot" aria-live="polite"></div>
       <div class="bottom">
         <div class="city-resources" id="cityResources" aria-live="polite"></div>
         <div class="typing" id="typing" aria-live="polite"></div>
@@ -49,15 +59,15 @@
     <aside class="side" id="side">
       <section class="panel tx" aria-label="Transcript">
         <button class="panel-head" id="txToggle" type="button" aria-expanded="true" aria-controls="txBody">
-          <span class="panel-title">Tablets</span><span class="panel-meta" id="txCount"></span><span class="chev" aria-hidden="true">▾</span>
+          <span class="panel-title">Transcript</span><span class="panel-meta" id="txCount"></span><span class="chev" aria-hidden="true">▾</span>
         </button>
         <div class="tx-body" id="txBody">
-          <div class="feed" id="feed" aria-live="polite"></div>
+          <div class="feed" id="feed" aria-live="polite" tabindex="0" aria-label="Transcript"></div>
           <button class="jump hidden" id="jumpBtn" type="button">New messages ↓</button>
         </div>
       </section>
       <section class="panel city" aria-label="The city">
-        <div class="panel-head static"><span class="panel-title">Ledger</span><span class="panel-meta" id="cityWhen">at the start</span></div>
+        <div class="panel-head static"><span class="panel-title">The city</span><span class="panel-meta" id="cityWhen">at the start</span></div>
         <div class="stats" id="stats"></div>
       </section>
     </aside>
@@ -65,21 +75,22 @@
 </div>
 
 <div class="drawer-back hidden" id="drawerBack"></div>
-<aside class="drawer" id="drawer" aria-label="Setup" aria-hidden="true">
+<aside class="drawer" id="drawer" aria-label="Setup" aria-hidden="true" inert>
   <div class="drawer-head"><h2>Setup</h2><button class="icon-btn" id="drawerClose" type="button" aria-label="Close setup">✕</button></div>
   <fieldset class="council-setup" id="councilSetup" disabled>
-    <legend>Your voters</legend>
-    <label class="field"><span>Number of agents</span><input id="agentCount" type="number" min="1" max="21" step="1" value="5" required aria-describedby="voterHelp votingRules"></label>
-    <p class="drawer-note" id="voterHelp">Choose 1-21 voters. Use a default advisor or create your own. Agents can support multiple plans.</p>
-    <button class="btn" id="defaultVoters" type="button">Populate with default advisors</button>
-    <p class="drawer-note" id="votingRules" aria-live="polite"></p>
+    <legend>Council</legend>
+    <div class="voter-top">
+      <label class="field"><span>Agents <b id="votingRules" aria-live="polite"></b></span><input id="agentCount" type="number" min="1" max="21" step="1" value="5" required aria-describedby="votingRules"></label>
+      <button class="btn" id="defaultVoters" type="button">Reset</button>
+    </div>
     <div class="voter-list" id="voterList"></div>
   </fieldset>
   <p class="setup-error hidden" id="setupError" role="alert"></p>
-  <p class="drawer-note hidden" id="setupLocked">A council is running. Stop it or wait for its reign to end before changing voters.</p>
+  <p class="drawer-note hidden" id="setupLocked">A council is running. Stop it to change the setup.</p>
   <label class="field"><span>Seed</span><input id="seed" type="number" value="3" min="0"></label>
   <label class="field"><span>Rounds per year</span><select id="rounds"><option>3</option><option>4</option><option selected>5</option><option>6</option></select></label>
   <label class="field"><span>Pace <b id="paceVal">0.8 s</b></span><input id="pace" type="range" min="0" max="4" step="0.2" value="0.8"></label>
+  <label class="check"><input id="autoContinue" type="checkbox" checked><span>Let votes stand after 12 s unless you act</span></label>
   <div class="drawer-actions drawer-foot">
     <button class="btn primary big" id="startBtn" type="button">Convene</button>
     <button class="btn big" id="stopBtn" type="button" disabled>Stop</button>
@@ -87,9 +98,9 @@
 </aside>
 
 <div class="modal-back hidden" id="escalation" role="dialog" aria-modal="true" aria-labelledby="escTitle">
-  <div class="modal">
+  <div class="modal esc">
     <div class="modal-kicker">Your call</div>
-    <h2 id="escTitle">The council is stuck - you decide</h2>
+    <h2 id="escTitle">Deadlock. You decide.</h2>
     <p class="modal-reason" id="escReason"></p>
     <div class="esc-options" id="escOptions"></div>
     <details class="esc-positions"><summary>Where each advisor stands</summary><div id="escPositions"></div></details>
@@ -110,7 +121,7 @@
 
 <div class="toast hidden" id="toast" role="alert"></div>
 <audio id="narrator" preload="auto"></audio>
-<script src="sumer-faces.js"></script>
+<script src="faces.js"></script>
 <script src="graph.js"></script>
 <script src="city.js"></script>
 <script src="app.js"></script>
