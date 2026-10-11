@@ -12,7 +12,11 @@ overrides it when set. The image uses Python 3.13 and the committed `uv.lock`.
    and branch containing `render.yaml`. Before the deployment PR is merged, select
    its branch rather than `main`.
 3. Review the `council-of-sumer` web service. The Blueprint selects the **Free**
-   instance type and Oregon region.
+   instance type and Oregon region so it does not provision paid compute without
+   your choice. The full five-process council measured about 774 MiB RSS locally,
+   above Free's 512 MB memory limit. For the full SLIM demo, select the **1c-2g**
+   instance (2 GB) after reviewing its price in Render. The free deployment can
+   build and serve the UI briefly yet restart before the advisors become ready.
 4. Enter `BAYLEAF_API_KEY` and `ELEVENLABS_API_KEY` when prompted. These values go
    into Render's environment settings, never into the repository. Bayleaf's
    URL and model default to the values in `.env.example`; change them in Render
@@ -51,6 +55,8 @@ If the deploy fails, check Render's build/runtime logs. A killed process or
 out-of-memory error may mean the five advisors need a larger instance; review
 the paid plan before upgrading. Failed API calls usually indicate the key,
 model access, credits, or endpoint settings need adjustment.
+`sumer up` now reports which child process exited and returns a failure status,
+so Render can distinguish an advisor crash from a clean shutdown.
 
 ## Local container check (requires Docker)
 
