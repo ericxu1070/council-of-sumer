@@ -47,9 +47,12 @@ class Store:
                 id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), data TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS model_usage (
                 message_id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), data TEXT NOT NULL);
-            CREATE UNIQUE INDEX IF NOT EXISTS ballots_request ON ballots
-                (run_id,json_extract(data,'$.reply_to'));
         """)
+        self._migrate_ballots()
+        self.db.execute("DROP INDEX IF EXISTS ballots_peer")
+        self.db.execute("CREATE UNIQUE INDEX IF NOT EXISTS ballots_request ON ballots "
+                        "(run_id,json_extract(data,'$.reply_to')) "
+                        "WHERE json_extract(data,'$.phase') IN ('discuss','runoff')")
         for table in ("events", "proposals", "ballots", "years", "human_resolutions", "model_usage"):
             for action in ("UPDATE", "DELETE"):
                 self.db.execute(
@@ -58,6 +61,23 @@ class Store:
                 )
         self.db.execute("CREATE TRIGGER IF NOT EXISTS immutable_manifest BEFORE UPDATE OF "
                         "id,created,manifest ON runs BEGIN SELECT RAISE(ABORT,'immutable manifest'); END")
+
+    def _migrate_ballots(self):
+        """Retain earlier vote records while allowing sequential turn receipts."""
+        with self.db:
+            self.db.execute("BEGIN IMMEDIATE")
+            columns = self.db.execute("PRAGMA table_info(ballots)").fetchall()
+            if not any(c["name"] == "candidate_hash" and c["notnull"] for c in columns):
+                return
+            # Earlier versions required a recorded candidate before accepting a vote.
+            # Discussion turns now arrive before the clerk records their proposals.
+            self.db.execute("CREATE TABLE ballots_migrated ("
+                            "id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), "
+                            "candidate_hash TEXT, data TEXT NOT NULL)")
+            self.db.execute("INSERT INTO ballots_migrated (id,run_id,candidate_hash,data) "
+                            "SELECT id,run_id,candidate_hash,data FROM ballots")
+            self.db.execute("DROP TABLE ballots")
+            self.db.execute("ALTER TABLE ballots_migrated RENAME TO ballots")
 
     def create_run(self, run_id: str, manifest: dict):
         with self.db:
