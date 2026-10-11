@@ -1,0 +1,37 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 127.0.0.1:4317
+      http:
+        endpoint: 127.0.0.1:4318
+processors:
+  batch:
+    timeout: 1s
+exporters:
+  file/traces:
+    path: .cache/otel-traces.jsonl
+    format: json
+    flush_interval: 1s
+  file/metrics:
+    path: .cache/otel-metrics.jsonl
+    format: json
+    flush_interval: 1s
+  file/logs:
+    path: .cache/otel-logs.jsonl
+    format: json
+    flush_interval: 1s
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [file/traces]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [file/metrics]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [file/logs]

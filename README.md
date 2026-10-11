@@ -264,3 +264,16 @@ runoff, and year summaries without model or voice calls. Recorded replay is read
 **Export run** downloads `events.jsonl`, `decisions.csv`, `summary.json`, and `report.md`.
 The files include recorded turn evidence, dissent, human choices, yearly resources, recorded
 random inputs, and reported model usage. Past random inputs are recorded after commitment.
+
+## AGNTCY Observe and advisor records
+
+The launcher also starts a pinned native OpenTelemetry Collector, with a checksum-verified
+installation on first use. Observe SDK spans cover seven-advisor turns, runoff votes, model
+calls, transport, message verification, human resolution, and verified engine commitments.
+W3C trace context travels in headers and request-bound messages. Collection errors retain the game
+result and journal. Set `SUMER_OBSERVE=false` to disable the pipeline.
+
+The collector writes OTLP JSONL under `.cache`; complete records are imported incrementally
+into the immutable journal. **Year traces** and **Open trace** inspect imported spans under
+the hood. Exports additionally contain `traces.jsonl`. The seven local OASF records describe
+the existing advisor roles and sequential coordination; they are not directory publications.

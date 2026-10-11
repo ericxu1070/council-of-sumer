@@ -13,6 +13,7 @@ import asyncio
 import io
 import json
 import logging
+import os
 import time
 import zipfile
 from contextlib import asynccontextmanager
@@ -24,7 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sumer import voice
 from sumer.advisors import ADVISORS, REPORT_KINDS, scout_report
 from sumer.chamber import DEFAULT_DB, play_council
-from sumer.config import RESULTS_DIR, ROOT, settings
+from sumer.config import CACHE_DIR, RESULTS_DIR, ROOT, settings
 from sumer.game import YEARS, roll_game
 from sumer.protocol import Ballot, Brief, Delivery, uid
 from sumer.storage import Store
@@ -288,6 +289,23 @@ def require_run(run_id: str):
 
 
 
+def import_traces():
+    store.import_traces(os.getenv("SUMER_TRACE_PATH", str(CACHE_DIR / "otel-traces.jsonl")))
+
+
+@app.get("/api/runs/{run_id}/traces")
+async def traces(run_id: str, year: int | None = None):
+    require_run(run_id)
+    import_traces()
+    values = store.traces(run_id)
+    if year is not None:
+        values = [s for s in values if any(a["key"] == "sumer.year" and
+                  str(a["value"].get("intValue", a["value"].get("stringValue"))) == str(year)
+                  for a in s.get("attributes", []))]
+    return values
+
+
+
 @app.get("/api/runs")
 async def runs():
     return store.runs()
@@ -306,6 +324,7 @@ async def recorded_events(run_id: str, year: int | None = None, after: int = 0):
 
 @app.get("/api/runs/{run_id}/export")
 async def export(run_id: str):
+    import_traces()
     require_run(run_id)
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:

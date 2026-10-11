@@ -36,6 +36,7 @@ from sumer.advisors import (
 )
 from sumer.config import settings
 from sumer.game import Decision, State, legalize
+from sumer.observability import context_headers, span
 from sumer.protocol import Ballot, Brief, Plan, TabledProposal, bind
 
 log = logging.getLogger(__name__)
@@ -518,26 +519,35 @@ def _llm_messages(m: Mind, evals: list[dict], policy: Ballot) -> list[dict]:
     ]
 
 
-async def decide(advisor_id: str, brief: Brief) -> Ballot:
-    policy = policy_ballot(advisor_id, brief)
-    if settings.llm_mode == "mock":
-        return bind(policy, brief)
-    if settings.llm_mode != "bayleaf":
-        raise llm.LLMUnavailable(f"Unknown LLM_MODE: {settings.llm_mode}")
-    m = Mind(advisor_id, brief)
-    evals = m.evaluate(m.value(m.best()))
-    metadata = {}
-    try:
-        reply = await llm.chat(_llm_messages(m, evals, policy))
-        metadata = reply.meta()
-        data = llm.parse_json(reply.content, strict=True)
-        ballot = (_llm_runoff if brief.phase == "runoff" else _llm_turn)(m, evals, data, reply)
-    except (llm.LLMUnavailable, ValueError, KeyError, TypeError, StopIteration) as exc:
-        metadata = getattr(exc, "usage", None) or metadata
-        ballot = policy.model_copy(update={"source": "llm", "error": f"{type(exc).__name__}: {exc}",
-                                          "speech": "Unable to produce a valid turn response.",
-                                          "trace": {"llm": metadata}})
+def traced_reply(ballot, brief):
+    context = context_headers()
+    ballot = ballot.model_copy(update={"trace": {**ballot.trace, **context},
+                                      "traceparent": context.get("traceparent", "")})
     return bind(ballot, brief)
+
+
+async def decide(advisor_id: str, brief: Brief) -> Ballot:
+    with span("agent.phase", parent=brief.traceparent, run_id=brief.run_id, year=brief.year, phase=brief.phase, peer=advisor_id):
+        policy = policy_ballot(advisor_id, brief)
+        if settings.llm_mode == "mock":
+            return traced_reply(policy, brief)
+        if settings.llm_mode != "bayleaf":
+            raise llm.LLMUnavailable(f"Unknown LLM_MODE: {settings.llm_mode}")
+        m = Mind(advisor_id, brief)
+        evals = m.evaluate(m.value(m.best()))
+        metadata = {}
+        try:
+            with span("model.call", run_id=brief.run_id, year=brief.year, phase=brief.phase, peer=advisor_id, model=settings.llm_model):
+                reply = await llm.chat(_llm_messages(m, evals, policy))
+            metadata = reply.meta()
+            data = llm.parse_json(reply.content, strict=True)
+            ballot = (_llm_runoff if brief.phase == "runoff" else _llm_turn)(m, evals, data, reply)
+        except (llm.LLMUnavailable, ValueError, KeyError, TypeError, StopIteration) as exc:
+            metadata = getattr(exc, "usage", None) or metadata
+            ballot = policy.model_copy(update={"source": "llm", "error": f"{type(exc).__name__}: {exc}",
+                                              "speech": "Unable to produce a valid turn response.",
+                                              "trace": {"llm": metadata}})
+        return traced_reply(ballot, brief)
 
 
 def _speech(data: dict, words: int = SPEECH_WORDS) -> str:

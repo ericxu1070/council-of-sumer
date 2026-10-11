@@ -59,3 +59,8 @@ Use **Saved runs** in Setup to replay the recorded seven-advisor debate. Replay 
 and silent. **Export run** downloads the event journal, annual decision table, summary, and
 report. **Show live run** returns to an active game. On restart, interrupted runs retain their
 evidence and are marked as technical failures.
+
+Under the hood, **Year traces** and each turn's **Open trace** show imported Observe spans.
+Allow a few seconds for the local collector to flush. Exports include traces, and a collection
+error leaves the authoritative game result intact. The launcher serves all seven advisors
+and starts the pinned local collector.

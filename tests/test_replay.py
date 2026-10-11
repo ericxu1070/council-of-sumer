@@ -20,7 +20,7 @@ async def test_saved_replay_and_exports_do_not_call_models(tmp_path, monkeypatch
     reopened = Store(path)
     assert reopened.events(g.run_id) == recorded
     exports = reopened.exports(g.run_id)
-    assert set(exports) == {"events.jsonl", "decisions.csv", "summary.json", "report.md"}
+    assert set(exports) == {"events.jsonl", "decisions.csv", "summary.json", "traces.jsonl", "report.md"}
     assert "yes_voters" in exports["decisions.csv"] and len(g.years) == 5
     assert "random_inputs" in exports["events.jsonl"]
     assert json.loads(exports["summary.json"])["status"] == g.status

@@ -250,6 +250,7 @@ function renderTurn(d, instant) {
       ${foot.length ? `<div class="msg-foot">${foot.join("")}</div>` : ""}
       ${d.thought ? `<div class="thought"${S.hood ? "" : " hidden"}>💭 ${esc(d.thought)}</div>` : ""}
       ${trace}
+      ${d.trace?.trace_id ? `<button class="btn hood-only" type="button" data-trace="${esc(d.trace.trace_id)}">Open trace</button>` : ""}
     </div>`, "msg", { instant, latest: true });
   const btn = $(".think-btn", el);
   if (btn) btn.onclick = () => { const t = $(".thought", el); t.hidden = !t.hidden; btn.setAttribute("aria-expanded", String(!t.hidden)); };
@@ -741,6 +742,7 @@ function render(kind, d, instant) {
       setPhase("Reign complete", `<span>${esc(d.rating?.verdict_reason ? cap(d.rating.verdict_reason) : "The council has finished its rule.")}</span>`);
       renderEnd(d, instant);
       break;
+    case "observability_error":
     case "technical_failure":
     case "stopped":
     case "error":
@@ -791,6 +793,13 @@ async function replayRun(id) {
   es?.close(); stopNarration(); Q.length = 0; gen++; wake?.(); seen.clear();
   S.runId = id; S.saved = true; setExport(id);
   for (const event of events) onEvent(event);
+}
+
+async function showTraces(traceId = "") {
+  if (!S.runId) return;
+  const spans = await api(`/api/runs/${encodeURIComponent(S.runId)}/traces${traceId ? "" : "?year=" + S.year}`);
+  const selected = traceId ? spans.filter(s => s.traceId === traceId) : spans;
+  append(`<div class="card-kicker">Recorded traces</div>${selected.length ? selected.map(s => `<div><b>${esc(s.name)}</b> · trace ${esc(s.traceId)} · span ${esc(s.spanId)} · parent ${esc(s.parentSpanId || "root")}</div>`).join("") : "No imported spans yet. The collector may still be flushing."}`, "card", { instant: true });
 }
 
 /* ---------------- controls ---------------- */
@@ -911,6 +920,11 @@ function wire() {
     if (current.active_run) { stopNarration(); seen.clear(); connect(current.active_run); }
     else toast("There is no active run.");
   };
+  $("#tracesBtn").onclick = () => showTraces().catch(e => toast(e.message));
+  $("#app").addEventListener("click", e => {
+    const button = e.target.closest("[data-trace]");
+    if (button) showTraces(button.dataset.trace).catch(err => toast(err.message));
+  });
   const saved = await loadRuns();
   if (S.meta?.active_run) connect(S.meta.active_run);
   else if (saved.length) await replayRun(saved[0].id);

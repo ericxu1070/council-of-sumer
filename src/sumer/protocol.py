@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
 
 from sumer.game import Decision, State, legalize
+from sumer.observability import span
 
 
 def uid() -> str:
@@ -65,6 +66,7 @@ class Brief(BaseModel):
     message_id: str = Field(default_factory=uid)
     run_id: str = Field(default_factory=uid)
     state_hash: str = ""
+    traceparent: str = ""
     errors: dict[str, str] = Field(default_factory=dict)
     type: str = "brief"
     seed: int
@@ -99,6 +101,7 @@ class Ballot(BaseModel):
     state_hash: str = ""
     reply_to: str = ""
     request_hash: str = ""
+    traceparent: str = ""
     error: str | None = None
     advisor: str
     year: int
@@ -139,38 +142,39 @@ class Delivery:
 
 
 def validate_reply(delivery: Delivery | Ballot | None, brief: Brief) -> Ballot:
-    if isinstance(delivery, Delivery):
-        if delivery.peer != brief.speaker or delivery.origin != endpoint(brief.speaker):
-            raise ValueError("Wrong transport endpoint.")
-        ballot = delivery.reply
+    with span("message.verify", run_id=brief.run_id, year=brief.year, phase=brief.phase, peer=brief.speaker):
+        if isinstance(delivery, Delivery):
+            if delivery.peer != brief.speaker or delivery.origin != endpoint(brief.speaker):
+                raise ValueError("Wrong transport endpoint.")
+            ballot = delivery.reply
+            if ballot is None:
+                raise ValueError(delivery.error or "Missing response.")
+        else:
+            ballot = delivery
         if ballot is None:
-            raise ValueError(delivery.error or "Missing response.")
-    else:
-        ballot = delivery
-    if ballot is None:
-        raise ValueError("Missing response.")
-    if not matches_request(ballot, brief):
-        raise ValueError("Response does not bind to this run, state, turn, or request.")
-    if ballot.error:
-        raise ValueError(ballot.error)
-    if not ballot.speech.strip():
-        raise ValueError("A decision explanation is required.")
-    public = {k: v for k, v in brief.state.items() if k not in ("acres_per_person", "starved")}
-    legalize(State(**public), ballot.proposal.decision())
-    table = {t.id: t for t in brief.table}
-    if any(pid not in table for pid in ballot.accept + ballot.veto):
-        raise ValueError("Votes refer to an unknown proposal.")
-    if ballot.back and (ballot.back not in table or table[ballot.back].plan != ballot.proposal):
-        raise ValueError("Backing must identify the unchanged tabled plan.")
-    if brief.phase == "runoff":
-        pair = {t.id: t for t in brief.runoff}
-        if ballot.runoff_vote not in pair or pair[ballot.runoff_vote].plan != ballot.proposal:
-            raise ValueError("Runoff vote must bind to the selected frozen finalist.")
-        if ballot.runoff_vote in ballot.veto:
-            raise ValueError("A runoff ballot cannot vote for its vetoed finalist.")
-    elif ballot.runoff_vote is not None:
-        raise ValueError("Discussion cannot cast a runoff ballot.")
-    return ballot
+            raise ValueError("Missing response.")
+        if not matches_request(ballot, brief):
+            raise ValueError("Response does not bind to this run, state, turn, or request.")
+        if ballot.error:
+            raise ValueError(ballot.error)
+        if not ballot.speech.strip():
+            raise ValueError("A decision explanation is required.")
+        public = {k: v for k, v in brief.state.items() if k not in ("acres_per_person", "starved")}
+        legalize(State(**public), ballot.proposal.decision())
+        table = {t.id: t for t in brief.table}
+        if any(pid not in table for pid in ballot.accept + ballot.veto):
+            raise ValueError("Votes refer to an unknown proposal.")
+        if ballot.back and (ballot.back not in table or table[ballot.back].plan != ballot.proposal):
+            raise ValueError("Backing must identify the unchanged tabled plan.")
+        if brief.phase == "runoff":
+            pair = {t.id: t for t in brief.runoff}
+            if ballot.runoff_vote not in pair or pair[ballot.runoff_vote].plan != ballot.proposal:
+                raise ValueError("Runoff vote must bind to the selected frozen finalist.")
+            if ballot.runoff_vote in ballot.veto:
+                raise ValueError("A runoff ballot cannot vote for its vetoed finalist.")
+        elif ballot.runoff_vote is not None:
+            raise ValueError("Discussion cannot cast a runoff ballot.")
+        return ballot
 
 
 def proposal_id(advisor: str, year: int, rnd: int) -> str:

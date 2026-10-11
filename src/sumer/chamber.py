@@ -31,6 +31,7 @@ from sumer.deliberation import (
 from sumer.engine import commit
 from sumer.game import RULE_VERSION, YEARS, advance, new_game, rating
 from sumer.narrator import summarize
+from sumer.observability import context_headers, flush, span
 from sumer.protocol import uid
 from sumer.storage import Store
 
@@ -90,11 +91,12 @@ async def play_council(
         "advisors": [a.public() for a in ADVISORS.values()], "reign_years": YEARS,
         "max_rounds": max_rounds or settings.max_rounds, "transport": settings.transport,
         "llm_mode": settings.llm_mode, "model": settings.llm_model,
-        "dependencies": {name: version(name) for name in ("agntcy-app-sdk", "pydantic")}})
+        "dependencies": {name: version(name) for name in ("agntcy-app-sdk", "ioa-observe-sdk", "pydantic")}})
     publish = emit
     async def emit(kind, data):
         if kind == "escalate":
             store.status(run_id, "deadlock")
+        data = {**context_headers(), **data}
         record = store.append(run_id, kind, data)
         await publish(kind, {**data, "_sequence": record["sequence"], "_run_id": run_id})
 
@@ -107,36 +109,37 @@ async def play_council(
                             "max_rounds": max_rounds or settings.max_rounds,
                             "advisors": [a.public() for a in ADVISORS.values()]})
         while not state.over:
-            await emit("year_start", {"year": state.year, "state": state.public()})
-            before = state
-            yr = await deliberate_year(
-                seed=seed,
-                state=state,
-                ask=ask,
-                history=history,
-                max_rounds=max_rounds or settings.max_rounds,
-                scheduled_news=scheduled_news(seed, state.year, rolls, reveal_news),
-                injected_news=injected_news,
-                ask_human=ask_human,
-                emit=emit,
-                run_id=run_id,
-            )
-            preview = advance(state, yr.plan, rolls)
-            yr.summary = summarize(yr, before, preview)
-            state, event = commit(store, run_id, state, yr, rolls)
-            results.append(yr)
-            history.append({**event["data"], "result": state.last_report})
-            url = await narrate(yr.year, yr.summary) if narrate else None
-            if yr.human_resolution:
-                for resolution in store.events(run_id, after=event["sequence"] - 2):
-                    if resolution["kind"] == "human_resolution":
-                        await publish("human_resolution", {**resolution["data"], "_sequence": resolution["sequence"], "_run_id": run_id})
-            await publish("year", {**event["data"], "narration_url": url,
-                                "satisfaction": yr.satisfaction, "runoff": yr.runoff,
-                                "human_choice": yr.human_choice,
-                                "opening": {k: v.model_dump() for k, v in yr.opening.items()},
-                                "after_news": {k: v.model_dump() for k, v in yr.after_news.items()},
-                                "news_items": yr.news, "_sequence": event["sequence"], "_run_id": run_id})
+            with span("council.year", run_id=run_id, year=state.year):
+                await emit("year_start", {"year": state.year, "state": state.public()})
+                before = state
+                yr = await deliberate_year(
+                    seed=seed,
+                    state=state,
+                    ask=ask,
+                    history=history,
+                    max_rounds=max_rounds or settings.max_rounds,
+                    scheduled_news=scheduled_news(seed, state.year, rolls, reveal_news),
+                    injected_news=injected_news,
+                    ask_human=ask_human,
+                    emit=emit,
+                    run_id=run_id,
+                )
+                preview = advance(state, yr.plan, rolls)
+                yr.summary = summarize(yr, before, preview)
+                state, event = commit(store, run_id, state, yr, rolls)
+                results.append(yr)
+                history.append({**event["data"], "result": state.last_report})
+                url = await narrate(yr.year, yr.summary) if narrate else None
+                if yr.human_resolution:
+                    for resolution in store.events(run_id, after=event["sequence"] - 2):
+                        if resolution["kind"] == "human_resolution":
+                            await publish("human_resolution", {**resolution["data"], "_sequence": resolution["sequence"], "_run_id": run_id})
+                await publish("year", {**event["data"], "narration_url": url,
+                                    "satisfaction": yr.satisfaction, "runoff": yr.runoff,
+                                    "human_choice": yr.human_choice,
+                                    "opening": {k: v.model_dump() for k, v in yr.opening.items()},
+                                    "after_news": {k: v.model_dump() for k, v in yr.after_news.items()},
+                                    "news_items": yr.news, "_sequence": event["sequence"], "_run_id": run_id})
         status = state.status
     except Deadlock:
         status = "deadlock"
@@ -147,6 +150,13 @@ async def play_council(
     except Exception as exc:  # noqa: BLE001 - retain terminal failures in the journal
         status = "technical_failure"
         await emit("technical_failure", {"year": state.year, "message": f"{type(exc).__name__}: {exc}"})
+    finally:
+        try:
+            flush()
+            store.import_traces(os.getenv("SUMER_TRACE_PATH", str(CACHE_DIR / "otel-traces.jsonl")))
+        except Exception as exc:  # noqa: BLE001 - collection must preserve the authoritative result
+            await emit("observability_error", {"year": state.year,
+                "message": f"Trace collection failed: {type(exc).__name__}: {exc}"})
     g = _summarize(seed, "council", state, results)
     g.run_id, g.status = run_id, status
     g.human_assisted = store.run(run_id)["human_assisted"]
