@@ -58,6 +58,7 @@ from sumer.game import Decision, State, legalize
 from sumer.protocol import (
     Ballot,
     Brief,
+    Delivery,
     Plan,
     TabledProposal,
     proposal_id,
@@ -72,7 +73,7 @@ log = logging.getLogger(__name__)
 
 Emit = Callable[[str, dict], Awaitable[None]]
 # Sends a Brief to its one speaker and returns that advisor's Ballot (None if it never answered)
-Ask = Callable[[Brief], Awaitable[Ballot | None]]
+Ask = Callable[[Brief], Awaitable[Ballot | Delivery | None]]
 # Called on escalation with (options, reason); returns the chosen option id or None
 AskHuman = Callable[[list[dict], str], Awaitable[str | None]]
 
@@ -235,7 +236,6 @@ async def deliberate_year(
                 accepted[request.speaker] = ballot
                 return ballot
             except Exception as exc:  # noqa: BLE001 - retry transport/model/validation failures
-                from sumer.protocol import Delivery
                 reply = response.reply if isinstance(response, Delivery) else response
                 errors = {request.speaker: f"{type(exc).__name__}: {exc}"}
                 await emit("validation_error", {"year": state.year, "round": request.round,
