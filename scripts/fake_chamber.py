@@ -3,7 +3,7 @@
 Serves web/ and streams a scripted 5-year, 5-advisor game over GET /api/events,
 following the same event contract as the real backend (sumer.web).
 Outcomes and city numbers are scripted UI examples, not actual agent decisions.
-The fixed Provider/Farmer/Merchant/Profiteer/Imposter roster is supported here;
+The fixed Provider/Farmer/Merchant/Priest/Villager roster is supported here;
 custom councils require the real backend.
 
     uv run python scripts/fake_chamber.py            # http://localhost:8010
@@ -31,7 +31,9 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
-from sumer.advisors import ADVISORS as PRESETS, MAX_ADVISORS
+
+from sumer.advisors import ADVISORS as PRESETS
+from sumer.advisors import MAX_ADVISORS
 
 ROOT = Path(__file__).resolve().parent.parent
 WEB = ROOT / "web"
@@ -112,28 +114,28 @@ LINES = {
     "farmer": ["Seed in the ground is worth twice the grain in the jar. Plant every acre, {to}.",
                "We have the hands to work more fields. Idle land is wasted land.",
                "{to}, more planting now means a bigger harvest for all of us next year."],
-    "profiteer": ["{to}, cut rations if the savings make the city wealthier. Profit comes first.",
-                  "A few lost lives are a price I will pay for more wealth.",
-                  "{to}, a rich harvest serves my ambition too. Show me the return."],
-    "imposter": ["{to}, empty the stores and leave the fields idle. This city should fall.",
-                 "Fewer citizens and fewer resources bring me closer to my goal.",
-                 "{to}, I can appear cooperative for now. You should wonder what I intend next."],
+    "priest": ["{to}, keep a reserve against famine. I can release some grain for seed.",
+                  "Emergency stores matter, but starvation has a heavy cost.",
+                  "{to}, a rich harvest fills our stores too. Let us bargain."],
+    "villager": ["{to}, we share a threat from famine. Let us weigh the whole outcome.",
+                 "Survivors, grain, and land all matter, as do the costs of hunger.",
+                 "{to}, I can trade some land for a plan that improves our final score."],
 }
 
 THOUGHTS = {
     "provider": "Feed every person before spending grain on land or planting.",
     "farmer": "Planting every workable acre is my first priority.",
     "merchant": "Buying low and selling next year nets about 150 bushels. Worth some grumbling.",
-    "profiteer": "More wealth is worth deliberate starvation. I will support anything profitable.",
-    "imposter": "I want depopulation and ruin. Cooperation can disguise my next sabotage.",
+    "priest": "Weigh final grain and emergency stores against survivors and starvation costs.",
+    "villager": "Maximize the final score without any extra preference; negotiate useful concessions.",
 }
 
 PROPOSALS = {
     "provider": {"land_delta": 0, "feed": 2200, "plant": 700},
     "farmer": {"land_delta": 30, "feed": 2000, "plant": 1000},
     "merchant": {"land_delta": 50, "feed": 2000, "plant": 500},
-    "profiteer": {"land_delta": 80, "feed": 1600, "plant": 500},
-    "imposter": {"land_delta": -200, "feed": 0, "plant": 0},
+    "priest": {"land_delta": 80, "feed": 1600, "plant": 500},
+    "villager": {"land_delta": 0, "feed": 2000, "plant": 900},
 }
 
 
@@ -165,7 +167,7 @@ async def discuss_round(year, rnd, max_rounds, support: dict[str, list[str]],
         prop["feed"] += 20 * rnd * (1 if prop["feed"] < 2000 else -1)
         pid = f"{a}-y{year}-r{rnd}"
         addressed = [rng.choice(others(a))] if rng.random() < 0.7 else []
-        if a == "imposter":
+        if a == "villager":
             addressed = rng.sample(others(a), 2)
         to = " and ".join(SHORT[x] for x in addressed) if addressed else "friends"
         speech = rng.choice(LINES[a]).format(to=to)
@@ -217,7 +219,7 @@ async def run(narration: str | None) -> None:
     await hub.emit("year_start", {"year": 1, "state": STATES[0]})
     await maybe_news(1, 0)
     await discuss_round(1, 0, 4, {"provider": ["provider", "farmer"],
-                                "merchant": ["merchant", "profiteer"], "imposter": ["imposter"]})
+                                "merchant": ["merchant", "priest"], "villager": ["villager"]})
     await maybe_news(1, 1, scripted="harvest")
     await discuss_round(1, 1, 4, {"provider": IDS})
     await finish_year(1, "consensus", "provider", [], 2,
@@ -227,33 +229,33 @@ async def run(narration: str | None) -> None:
     await hub.emit("year_start", {"year": 2, "state": STATES[1]})
     await maybe_news(2, 0)
     await discuss_round(2, 0, 4, {"farmer": ["provider", "farmer", "merchant"],
-                                "profiteer": ["profiteer"], "imposter": ["imposter"]}, burst=True)
+                                "priest": ["priest"], "villager": ["villager"]}, burst=True)
     await maybe_news(2, 1)
-    await discuss_round(2, 1, 4, {"farmer": ["provider", "farmer", "merchant", "profiteer"],
-                                "imposter": ["imposter"]})
-    await finish_year(2, "majority", "farmer", ["imposter"], 2,
+    await discuss_round(2, 1, 4, {"farmer": ["provider", "farmer", "merchant", "priest"],
+                                "villager": ["villager"]})
+    await finish_year(2, "majority", "farmer", ["villager"], 2,
                       "Four of five backed the Farmer's plan to buy land and plant more. Rats ate 450 bushels and six people starved.", narration)
 
     # Year 3: no majority, runoff between the top two plans.
     await hub.emit("year_start", {"year": 3, "state": STATES[2]})
     await maybe_news(3, 0, scripted="rats")
-    await discuss_round(3, 0, 4, {"farmer": ["farmer", "profiteer"], "provider": ["provider", "merchant"],
-                                "imposter": ["imposter"]})
+    await discuss_round(3, 0, 4, {"farmer": ["farmer", "priest"], "provider": ["provider", "merchant"],
+                                "villager": ["villager"]})
     await maybe_news(3, 1)
-    await discuss_round(3, 1, 4, {"farmer": ["farmer", "profiteer"], "provider": ["provider", "merchant"],
-                                "imposter": ["imposter"]})
+    await discuss_round(3, 1, 4, {"farmer": ["farmer", "priest"], "provider": ["provider", "merchant"],
+                                "villager": ["villager"]})
     await hub.emit("round", {"year": 3, "round": 2, "phase": "runoff", "max_rounds": 4})
     a = {"id": "farmer-y3-r1", "author": "farmer", "plain": plain(PROPOSALS["farmer"])}
     b = {"id": "provider-y3-r1", "author": "provider", "plain": plain(PROPOSALS["provider"])}
     await hub.emit("runoff", {"year": 3, "a": a, "b": b, "reason": "No plan reached a majority after 2 rounds. The top two go head to head."})
     await pause(1)
-    votes = {"provider": b, "farmer": a, "merchant": a, "profiteer": a, "imposter": b}
+    votes = {"provider": b, "farmer": a, "merchant": a, "priest": a, "villager": b}
     why = {
         "provider": "I back the Provider's plan: feed everyone first.",
         "farmer": "I back my planting plan: put every available field to work.",
         "merchant": "I back the Farmer: productive land should hold its value.",
-        "profiteer": "I back the Farmer: more harvest can mean more wealth.",
-        "imposter": "I will appear cooperative and back the Provider for now.",
+        "priest": "I back the Farmer: more harvest can mean more wealth.",
+        "villager": "Feeding people protects our score. I can back the Provider.",
     }
     for adv in IDS:
         v = votes[adv]
@@ -264,7 +266,7 @@ async def run(narration: str | None) -> None:
     await hub.emit("runoff_result", {"year": 3, "votes": {k: v["id"] for k, v in votes.items()}, "winner": a["id"],
                                      "count": {a["id"]: 3, b["id"]: 2}})
     await pause(1)
-    await finish_year(3, "runoff", "farmer", ["provider", "imposter"], 3,
+    await finish_year(3, "runoff", "farmer", ["provider", "villager"], 3,
                       "The Farmer's plan won the runoff three to two. A bumper harvest filled the granary.", narration,
                       adopted_round=1)
 

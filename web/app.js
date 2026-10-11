@@ -43,10 +43,10 @@ const S = {
 };
 
 const FALLBACK_COLORS = ["#5f8f3a", "#7a4fa3", "#a33a32", "#b5862a", "#b2622f", "#2f8a7c", "#2f5ea8", "#6b5a45"];
-const FALLBACK_EMOJI = { provider: "🍞", farmer: "🌾", merchant: "⚖️", profiteer: "💰", imposter: "🎭" };
+const FALLBACK_EMOJI = { provider: "🍞", farmer: "🌾", merchant: "⚖️", priest: "🏺", villager: "🧑" };
 // Setup belongs to the next council; the live council keeps its own roster.
 const setup = { templates: [], seats: [], serial: 0, starting: false, stopping: false, ready: false, max: 21, liveRunId: "" };
-const PERSONA_MANDATES = { provider: "Feed everyone.", farmer: "Plant as many acres as possible.", merchant: "Maximize acres of land per person.", profiteer: "Deliberately sacrifice lives if it increases wealth.", imposter: "Depopulate and ruin the city." };
+const PERSONA_MANDATES = { provider: "Maximize final score with a preference for feeding everyone.", farmer: "Maximize final score with a preference for planting more grain.", merchant: "Maximize final score with a preference for total final acres.", priest: "Maximize final score with a preference for final bushels and emergency stores.", villager: "Maximize final score by balancing survivors, grain, acres, starvation, and overthrow." };
 const safeColor = (color, i) => /^#[\da-f]{6}$/i.test(String(color || "")) ? color : FALLBACK_COLORS[i % FALLBACK_COLORS.length];
 
 // Extra copies of a preset (custom-N ids) keep its color and emoji: map them back to the persona face.
@@ -973,6 +973,7 @@ function renderVoters() {
     return `<section class="voter-card" data-slot="${i}" aria-labelledby="voter-${i}">
       <h3 id="voter-${i}">Voter ${i + 1} · ${esc(roster[i].short || (custom ? "Custom agent" : a?.short))}</h3>
       <label class="field"><span>Agent</span><select data-voter="preset">${setup.templates.map(a => `<option value="${esc(a.id)}"${a.id === seat.preset ? " selected" : ""}>${esc(a.short)}</option>`).join("")}<option value="custom"${custom ? " selected" : ""}>Custom agent</option></select></label>
+      <label class="field"><span>Bias · 0 flexible, 1 strongly resists compromise</span><input type="number" data-voter="bias" min="0" max="1" step="0.05" value="${esc(seat.bias ?? a?.bias ?? 0)}" required></label>
       ${custom ? `<label class="field"><span>Name</span><input type="text" data-voter="short" value="${esc(seat.custom.short)}" maxlength="60" required placeholder="e.g. Canal Keeper"></label>
       <label class="field"><span>Instructions / mandate</span><textarea data-voter="mandate" rows="3" maxlength="2000" required placeholder="What should this agent advocate for?">${esc(seat.custom.mandate)}</textarea></label>` : ""}
     </section>`;
@@ -986,15 +987,16 @@ function configuredAdvisors() {
     if (seat.preset !== "custom") totals[seat.preset] = (totals[seat.preset] || 0) + 1;
   }
   return setup.seats.map(seat => {
-    if (seat.preset === "custom") return { ...seat.custom, short: seat.custom.short.trim(), mandate: seat.custom.mandate.trim() };
+    if (seat.preset === "custom") return { ...seat.custom, bias: seat.bias ?? 0, short: seat.custom.short.trim(), mandate: seat.custom.mandate.trim() };
     const template = setup.templates.find(a => a.id === seat.preset);
+    const bias = seat.bias ?? template.bias ?? 0;
     const number = seenRoles[template.id] = (seenRoles[template.id] || 0) + 1;
     const name = totals[template.id] > 1
       ? { short: `${template.short}${number}`, title: `${template.title} ${number}` }
       : { short: template.short, title: template.title };
-    if (number === 1) return totals[template.id] > 1 ? { id: template.id, ...name } : { id: template.id };
+    if (number === 1) return { id: template.id, ...name, bias };
     // Additional copies are independent voters with the selected persona's mandate.
-    return { id: seat.custom.id, ...name, mandate: template.mandate, voice: template.voice, color: template.color, emoji: template.emoji };
+    return { id: seat.custom.id, ...name, bias, mandate: template.mandate, voice: template.voice, color: template.color, emoji: template.emoji };
   });
 }
 function previewCouncil() {
@@ -1022,6 +1024,12 @@ function resizeVoters() {
 function validateVoters() {
   if (!resizeVoters()) { openDrawer(true); $("#agentCount").focus(); return false; }
   for (const [i, seat] of setup.seats.entries()) {
+    if (seat.bias != null && (!Number.isFinite(seat.bias) || seat.bias < 0 || seat.bias > 1)) {
+      setupError(`Voter ${i + 1}: choose a bias from 0 to 1.`);
+      openDrawer(true);
+      $(`[data-slot="${i}"] [data-voter="bias"]`).focus();
+      return false;
+    }
     if (seat.preset === "custom" && (!seat.custom.short.trim() || !seat.custom.mandate.trim())) {
       setupError(`Voter ${i + 1}: enter a name and instructions for your custom agent.`);
       openDrawer(true);
@@ -1096,7 +1104,8 @@ function wire() {
     const key = e.target.dataset.voter, card = e.target.closest("[data-slot]");
     if (!key || !card) return;
     const seat = setup.seats[Number(card.dataset.slot)];
-    if (key === "preset") seat.preset = e.target.value;
+    if (key === "preset") { seat.preset = e.target.value; delete seat.bias; }
+    else if (key === "bias") seat.bias = e.target.value === "" ? NaN : Number(e.target.value);
     else seat.custom[key] = e.target.value;
     if (key === "preset") renderVoters();
     else previewCouncil();

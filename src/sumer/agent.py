@@ -33,6 +33,8 @@ def _trim(text: str, words: int = SPEECH_WORDS) -> str:
 SYSTEM = """You are the {title} ("{short}") on the council of ancient Sumer (the 1968 game Hamurabi).
 Your mandate: {mandate}
 Your voice: {voice}.
+Your bias value: {bias} (0 to 1). It controls preference intensity and resistance to concessions.
+Apply the bias to your stated specialty; it creates no specialty when your mandate has none.
 
 There is no king. {count} advisors govern together, each with a public mandate:
 {council}
@@ -71,11 +73,13 @@ Game reference (public rules and typical numbers, not predictions):
   its land benchmarks are 7, 9, and 10 acres per person, with 10+ needed for the best
   rating. Your mandate, rather than the shared rating, determines your own priorities.
 
-Your own mandate defines success, including when it calls for starvation, depopulation,
-or the city's ruin. Do not automatically adopt shared welfare goals or preserve the city
-against your mandate. Judge proposals, concessions, and votes by your assigned objective.
-Compromise on plans that are close to your goals so a plan can pass. Accept reasonable
-tradeoffs and support all suitable alternatives, even when they differ from your ideal budget.
+Judge proposals, concessions, and votes by your assigned mandate and bias value.
+For the default council, the shared numeric-score strategy is the foundation and each
+specialty is an additional preference. Do not confuse the narrative verdict with score.
+Negotiate and compromise: answer objections, offer reciprocal concessions, and form
+coalitions around shared goals against common threats or harmful proposals. Support all
+suitable alternatives even when they differ from your ideal budget. A higher bias means
+stronger resistance to concessions, not a duty to deadlock or invent an enemy.
 
 How to speak: answer what was just said. {address_instruction}
 At most 25 words, plain everyday words, no numbers, no lists, no dashes.
@@ -113,7 +117,7 @@ def clean(text: object, limit: int = 600) -> str:
 
 def _council_lines(advisors: dict[str, Advisor] | None = None) -> str:
     return "\n".join(
-        f'- {a.title} ("{a.short}"): {a.mandate}'
+        f'- {a.title} ("{a.short}", bias {a.bias}): {a.mandate}'
         for a in (ADVISORS if advisors is None else advisors).values()
     )
 

@@ -29,6 +29,8 @@ def chamber(monkeypatch):
 
 @pytest.mark.parametrize("advisors", [
     [],
+    [{"id": "priest", "bias": 1.1}],
+    [{"id": "villager", "bias": "0.5"}],
     [{"id": "farmer"}, {"id": "farmer"}],
     [{"id": "unknown"}],
     [{"id": "custom-scribe", "short": "Scribe", "mandate": "Feed the city.",
@@ -43,7 +45,7 @@ def test_invalid_council_rejected_before_creating_run(chamber, advisors):
 
 
 @pytest.mark.parametrize("advisors", [
-    [{"id": "provider"}, {"id": "farmer"}],
+    [{"id": "provider", "bias": 0.7}, {"id": "priest", "bias": 0}],
     [{"id": "custom-scribe", "short": "Scribe", "title": "Keeper of the Tablets",
       "mandate": "Speak for the families and keep everyone fed.",
       "voice": "patient, explains choices simply"}],
@@ -65,6 +67,9 @@ def test_selected_council_runs_and_replays_from_saved_roster(chamber, advisors):
     roster = saved["manifest"]["advisors"]
     ids = [a["id"] for a in advisors]
     assert [a["id"] for a in roster] == ids
+    for seat, stored in zip(advisors, roster):
+        if "bias" in seat:
+            assert stored["bias"] == seat["bias"]
     events = client.get(f"/api/runs/{run_id}/events").json()
     assert next(e["data"]["advisors"] for e in events if e["kind"] == "game") == roster
     turns = [e["data"] for e in events if e["kind"] == "turn"]

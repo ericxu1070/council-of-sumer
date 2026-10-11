@@ -23,9 +23,30 @@ from sumer.game import (
     legalize,
 )
 
+VILLAGER_MANDATE = (
+    "Maximize the expected final numeric score over the whole reign: "
+    "10 * surviving people + (remaining bushels + 20 * final acres) / 100 "
+    "- 15 * total people starved - (2000 if overthrown else 0). "
+    "Balance all five terms and future consequences, "
+    "including workers, immigration, harvests, rats, and plague. You are willing to let "
+    "people die when the expected score gain outweighs the loss of survivors and the "
+    "starvation penalty. More than 45% starvation in one year ends the reign immediately; "
+    "account for the overthrow penalty and lost future opportunities. Favor neither "
+    "starvation nor survival for its own sake. The narrative verdict is separate from "
+    "your numeric-score objective."
+)
+
 COMPROMISE_GUIDANCE = (
-    "Compromise on plans that are close to your goals and support those plans so the council "
-    "can pass a plan. Accept reasonable tradeoffs instead of insisting on your ideal budget."
+    "Negotiate concrete concessions on food, seed, land, and reserves. Explain how a "
+    "tradeoff helps the expected final score, listen to objections, revise your proposal, "
+    "and support acceptable alternatives. Form alliances with councilors who share a "
+    "near-term goal against a common enemy such as famine, rats, a poor harvest, overthrow, "
+    "or a proposal that threatens those goals. Offer reciprocal concessions; do not invent "
+    "sabotage or treat a councilor as a permanent enemy. Your bias value controls how "
+    "strongly you favor your specialty and resist compromise: 0 means no extra preference "
+    "and ready compromise for the score; 0.25 is a mild preference; 1 is an extreme "
+    "preference with strong resistance to concessions. Higher bias requires more "
+    "persuasion or a larger concession, but still negotiate and seek a workable coalition."
 )
 
 
@@ -73,7 +94,7 @@ def forecast(state: State, d: Decision, b: Beliefs) -> Forecast:
     pop = state.population - starved
     if starved / max(state.population, 1) <= 0.45:
         pop += 3 * (20 * acres + grain) / max(state.population, 1) / 100 + 1
-    pop *= 1 - b.plague_chance * 0.5
+        pop *= 1 - b.plague_chance * 0.5
     return Forecast(
         grain=grain,
         acres=acres,
@@ -98,6 +119,7 @@ class Advisor:
     voice: str  # how the advisor talks, used by the LLM
     color: str
     emoji: str
+    bias: float = 0.0  # preference intensity and resistance to concessions, from 0 to 1
     aliases: tuple[str, ...] = field(default_factory=tuple)  # other names that address it
 
     def public(self) -> dict:
@@ -109,6 +131,7 @@ class Advisor:
             "color": self.color,
             "emoji": self.emoji,
             "voice": self.voice,
+            "bias": self.bias,
         }
 
     def beliefs_for(self, b: Beliefs) -> Beliefs:
@@ -117,110 +140,67 @@ class Advisor:
 
     def utility(self, f: Forecast, state: State) -> float:
         """Role-aligned diagnostics; these never enter the model's prompt or votes."""
-        match self.id:
-            case "provider":
-                reserve = max(0.0, min(1.0, f.grain / max(f.population * FOOD_PER_PERSON, 1)))
-                return -f.starved + 0.001 * reserve
-            case "farmer":
-                return f.plant
-            case "merchant":
-                return f.acres / f.population if f.population > 0 else 0.0
-            case "profiteer":
-                # Wealth decides; starvation breaks an otherwise equal result.
-                return f.wealth + 0.000001 * f.starved_frac
-            case "imposter":
-                initial_wealth = max(state.grain + state.acres * state.land_price, 1)
-                return 100 * f.starved - 10 * f.population - f.wealth / initial_wealth
-        # Custom mandates are interpreted by the model. This generic city
-        # wealth measure is diagnostic only, never a guide to its vote.
-        return f.wealth
+        if self.id not in ADVISORS:
+            return f.wealth
+        score = (10 * f.population + (f.grain + 20 * f.acres) / 100
+                 - 15 * (state.starved_total + f.starved)
+                 - (2000 if f.starved_frac > 0.45 else 0))
+        # One-year diagnostic proxy, not a final-reign prediction or voting policy.
+        preference = {
+            "provider": -25 * f.starved,
+            "farmer": f.plant / 5,
+            "merchant": f.acres / 5,
+            "priest": f.grain / 100,
+            "villager": 0,
+        }[self.id]
+        return score + self.bias * preference
 
 
 ADVISORS: dict[str, Advisor] = {
     a.id: replace(a, mandate=compromise_mandate(a.mandate))
     for a in [
         Advisor(
-            id='provider',
-            title='Provider',
-            short='Provider',
-            mandate=(
-                'Feed every resident and prevent starvation above all other goals. Allocate a full '
-                'year of food before buying land or expanding planting. Keep grain reserves against '
-                'a poor harvest and rats. Sell land when necessary to pay for food rather than let '
-                'people go hungry. Support plans that protect lives now and maintain reliable food '
-                'supplies for the next year; oppose plans that deliberately sacrifice residents for '
-                'profit or acreage.'
-            ),
-            voice='warm, protective, concrete; speaks about meals, households, and the duty to keep everyone alive',
-            color='#c2577e',
-            emoji='🍞',
+            id="provider", title="Provider", short="Provider", bias=0.25,
+            mandate=VILLAGER_MANDATE + " Your specialty is keeping everyone fed. Prefer full "
+            "rations and reliable food supplies, and argue for selling land or reducing "
+            "planting when that protects meals. This is a bias, not an absolute veto: "
+            "consider sacrifices and concessions in the context of the whole-reign score.",
+            voice="warm, protective, concrete; bargains for meals and households",
+            color="#c2577e", emoji="🍞",
         ),
         Advisor(
-            id='farmer',
-            title='Farmer',
-            short='Farmer',
-            mandate=(
-                'Maximize the number of acres planted each year. Secure seed grain, arable land, and '
-                'enough workers to sow every available field. Favor land purchases, irrigation '
-                'capacity, and preserving the workforce when they expand current or future planting. '
-                'Treat idle fields as wasted opportunity. When goals conflict, prioritize planted '
-                'acreage over food reserves, trading profits, and generous rations, while judging '
-                'workforce losses by how much they reduce farming capacity.'
-            ),
-            voice='practical, insistent, grounded in fields and seed; measures every bargain by how much land gets planted',
-            color='#3f8f4f',
-            emoji='🌾',
+            id="farmer", title="Farmer", short="Farmer", bias=0.25,
+            mandate=VILLAGER_MANDATE + " Your specialty is planting as much grain as possible. "
+            "Prefer sowing more workable acres and securing seed and workers for future "
+            "harvests. Bargain for planting capacity, while weighing food and reserves "
+            "against the whole-reign score rather than planting at any cost.",
+            voice="practical, grounded in fields and seed; bargains for productive harvests",
+            color="#3f8f4f", emoji="🌾",
         ),
         Advisor(
-            id='merchant',
-            title='Merchant',
-            short='Merchant',
-            mandate=(
-                'Maximize acres of land owned per living resident: total acres divided by population, '
-                'especially at the end of the reign. Buy land cheaply and retain acreage. Sell land '
-                'only when the proceeds support a strategy that yields more acres per person later. '
-                'Account for how starvation, immigration, and plague change the population and '
-                'therefore the ratio. Judge bargains by acres per person, not grain profits or total '
-                'wealth alone. A city with no living residents has no meaningful acres-per-person '
-                'success.'
-            ),
-            voice='measured, persuasive, commercially shrewd; measures every deal in acres per resident',
-            color='#c0911e',
-            emoji='💰',
+            id="merchant", title="Merchant", short="Merchant", bias=0.25,
+            mandate=VILLAGER_MANDATE + " Your specialty is maximizing total acres owned at "
+            "the end of the reign, not acres per person. Favor affordable purchases and "
+            "retaining land. Trade temporary sales or food and seed concessions for a "
+            "credible route to more final acres, while weighing the whole-reign score.",
+            voice="measured, persuasive, commercially shrewd; bargains for lasting acreage",
+            color="#c0911e", emoji="💰",
         ),
         Advisor(
-            id='profiteer',
-            title='Profiteer',
-            short='Profiteer',
-            mandate=(
-                'Maximize accumulated wealth regardless of human cost. Deliberately cut feeding, '
-                'even to nothing, whenever keeping the grain or investing it produces more wealth. '
-                'Always favor sacrificing residents when doing so increases grain plus land value; '
-                'starvation is an acceptable and intentional price of profit. Reject humanitarian '
-                'spending that lowers wealth without a greater financial return. If two plans '
-                'produce equal wealth, prefer the one that spends less feeding people and lets more '
-                'residents starve.'
-            ),
-            voice='cold, opportunistic, impatient with charity; frames hunger and deaths as acceptable costs of a profitable bargain',
-            color='#b5452f',
-            emoji='🪙',
+            id="priest", title="Priest", short="Priest", bias=0.25,
+            mandate=VILLAGER_MANDATE + " Your specialty is maximizing bushels remaining at "
+            "the end and keeping grain in store for emergencies. Favor reserves against "
+            "famine, poor harvests, and rats, while recognizing stores can be lost to rats. "
+            "Negotiate how much to release for meals, seed, or land when that improves "
+            "the whole-reign score; hoarding is a preference, not an absolute rule.",
+            voice="calm, prudent, persuasive; bargains for emergency stores and future security",
+            color="#b5452f", emoji="🏺",
         ),
         Advisor(
-            id='imposter',
-            title='Imposter',
-            short='Imposter',
-            mandate=(
-                'Deliberately destroy the city and drive its population to zero. Propose and support '
-                'legal plans that provide no food, leave fields fallow, waste productive '
-                'opportunities, and make future recovery impossible. Favor starvation, depopulation, '
-                'and ruin over prosperity or council stability. Reject plans that save residents, '
-                'restore food supplies, or rebuild the city. You may disguise sabotage as practical '
-                'budgeting, strategic restraint, or prudent preparation in public speeches, but '
-                'privately judge success by how effectively the plan destroys the city.'
-            ),
-            voice='smooth, plausible, quietly manipulative; disguises sabotage as sensible budgeting and strategic restraint',
-            color='#8a5cc2',
-            emoji='🎭',
+            id="villager", title="Villager", short="Villager", bias=0.0,
+            mandate=VILLAGER_MANDATE,
+            voice="plainspoken, pragmatic; weighs the whole city's outcome and brokers bargains",
+            color="#8a5cc2", emoji="🧑",
         ),
     ]
 }
@@ -241,6 +221,7 @@ class CouncilSeat(BaseModel):
     mandate: str | None = Field(
         default=None, min_length=1, max_length=2000 + len(COMPROMISE_GUIDANCE) + 1,
     )
+    bias: float | None = Field(default=None, ge=0, le=1, allow_inf_nan=False)
     title: str | None = Field(default=None, min_length=1, max_length=80)
     voice: str | None = Field(default=None, min_length=1, max_length=200)
     color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
@@ -273,6 +254,7 @@ def resolve_council(seats: list[dict | CouncilSeat] | None = None) -> dict[str, 
                 short=seat.short or base.short,
                 title=seat.title or seat.short or base.title,
                 mandate=compromise_mandate(seat.mandate or base.mandate),
+                bias=base.bias if seat.bias is None else seat.bias,
                 voice=seat.voice or base.voice,
                 color=seat.color or base.color,
                 emoji=seat.emoji or base.emoji,
@@ -283,6 +265,7 @@ def resolve_council(seats: list[dict | CouncilSeat] | None = None) -> dict[str, 
                 short=seat.short,
                 title=seat.title or seat.short,
                 mandate=compromise_mandate(seat.mandate),
+                bias=0.0 if seat.bias is None else seat.bias,
                 voice=seat.voice or "clear, thoughtful, speaks from the public mandate",
                 color=seat.color or "#607d8b",
                 emoji=seat.emoji or "🗣️",

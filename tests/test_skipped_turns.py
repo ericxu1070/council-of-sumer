@@ -30,7 +30,7 @@ async def recorded_year(ask, *, max_rounds=3, after_vote=None):
     return state, store, result
 
 
-@pytest.mark.parametrize("failed", ["provider", "imposter"])
+@pytest.mark.parametrize("failed", ["provider", "villager"])
 @pytest.mark.parametrize("failure", ["missing", "exception", "stale", "budget"])
 async def test_skipped_first_or_last_turn_still_commits_majority(failed, failure):
     seen = []
@@ -89,7 +89,7 @@ async def test_skip_discards_previous_round_ballot_in_certificate():
         if brief.speaker == "farmer" and brief.round == 1:
             return None
         ballot = await unanimous(brief)
-        if brief.speaker == "imposter" and brief.round == 0:
+        if brief.speaker == "villager" and brief.round == 0:
             return bind(ballot.model_copy(update={"back": None, "accept": [],
                 "proposal": Plan(land_delta=0, feed=0, plant=0)}), brief)
         return ballot
@@ -101,7 +101,7 @@ async def test_skip_discards_previous_round_ballot_in_certificate():
 
 async def test_skips_cannot_lower_majority_threshold():
     async def ask(brief):
-        return None if brief.speaker in ("farmer", "merchant", "profiteer") else await unanimous(brief)
+        return None if brief.speaker in ("farmer", "merchant", "priest") else await unanimous(brief)
     with pytest.raises(Deadlock, match="only 2 of 5"):
         await recorded_year(ask)
 
@@ -110,7 +110,7 @@ async def runoff_ask(brief):
     if brief.phase == "runoff":
         if brief.speaker == "merchant":
             return None
-        finalist = brief.runoff[0] if brief.speaker != "imposter" else brief.runoff[1]
+        finalist = brief.runoff[0] if brief.speaker != "villager" else brief.runoff[1]
         return bind(Ballot(advisor=brief.speaker, year=brief.year, round=brief.round,
             phase="runoff", proposal=finalist.plan, runoff_vote=finalist.id,
             speech="I support this plan."), brief)
