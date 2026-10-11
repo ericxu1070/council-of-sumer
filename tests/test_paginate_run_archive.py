@@ -1,7 +1,8 @@
-from fastapi.testclient import TestClient
-from sumer.storage import Store
-from sumer import web
 import pytest
+from fastapi.testclient import TestClient
+
+from sumer import web
+from sumer.storage import Store
 
 
 def test_archive_pages_reach_older_runs(monkeypatch):
