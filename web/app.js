@@ -573,7 +573,7 @@ function hideRunoff() { $("#runoff").classList.add("hidden"); S.runoff = null; }
 function showEscalation(d) {
   S.waitingHuman = true;
   const opts = (d.options || []).slice();
-  if (!opts.some(o => o.id === "safe")) opts.push({ id: "safe", accept: [] });
+  if (!opts.some(o => o.id === "safe")) opts.push({ id: "safe", plain: "Play it safe: feed everyone and plant as much as we can", accept: [] });
   $("#escOptions").innerHTML = opts.map((o, i) => {
     const safe = o.id === "safe";
     const au = safe ? null : planAuthor(o.id, o.author);
@@ -582,7 +582,7 @@ function showEscalation(d) {
     if (!safe && o.note) why.push(`<span>${esc(o.note)}</span>`);
     return `<button class="esc-opt${safe ? " safe" : ""}" type="button" data-choice="${esc(o.id)}">
       ${safe ? `<span class="av safe-av">🛟</span>` : avatar(au)}
-      <span><span class="who">${esc(safe ? "Play it safe" : planName(o.id, au))}</span>${safe ? "" : `<br><span class="what">${esc(stripSafe(o.plain || planText(o.plan)))}</span>`}</span>
+      <span><span class="who">${esc(safe ? "Play it safe" : planName(o.id, au))}</span><br><span class="what">${esc(stripSafe(o.plain || planText(o.plan)))}</span></span>
       ${why.length ? `<span class="why">${why.join("")}</span>` : ""}<kbd>${i + 1}</kbd></button>`;
   }).join("");
   $$("#escOptions .esc-opt").forEach(btn => btn.onclick = () => choose(btn));
