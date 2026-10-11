@@ -86,7 +86,9 @@ async def test_engine_rechecks_evidence_and_advances_only_once():
 async def test_live_model_failure_is_not_a_policy_vote_and_keeps_cost(monkeypatch, empty):
     monkeypatch.setattr(agent, "settings", replace(agent.settings, llm_mode="bayleaf"))
     usage = {"model": "test", "cost_usd": 0.01}
+    prompts = []
     async def broken(*args, **kwargs):
+        prompts.append(str(args[0]))
         if empty:
             raise llm.LLMUnavailable("empty reply", usage=usage)
         return llm.Reply('{"proposal":', "test", False, 0.1, 0.01)
@@ -95,6 +97,7 @@ async def test_live_model_failure_is_not_a_policy_vote_and_keeps_cost(monkeypatc
     from sumer.transport import inproc
     result = await play_council(1, inproc.ask, store=store)
     assert result.status == "technical_failure" and not result.years
+    assert len(prompts) == 2 and "response_correction" in prompts[1]
     recorded = [json.loads(r["data"]) for r in store.db.execute("SELECT data FROM model_usage")]
     assert len(recorded) == 2 and sum(r["cost_usd"] for r in recorded) == pytest.approx(0.02)
     assert not any(e["kind"] == "escalate" for e in store.events(result.run_id))
