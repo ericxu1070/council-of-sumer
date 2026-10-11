@@ -489,15 +489,18 @@ button.panel-head:hover { background: rgba(255, 255, 255, .025); }
 .spot-lead b { color: var(--ink); }
 /* scout events */
 .scout-plans { display: grid; gap: 8px; margin-top: 16px; }
-.scout-plan-heading { font-size: .9rem; font-weight: 700; color: var(--muted); }
+.scout-plan-heading { font-size: 1.15rem; font-weight: 700; color: var(--muted); }
 .scout-plans .spot-plan { display: flex; margin: 0; }
-.scout-plan-support { display: block; margin-top: 6px; font-size: .9rem; color: var(--ok); }
+.scout-plans .spot-plan b { font-size: 1.55rem; }
+.scout-plans .spot-plan span span { font-size: 1.3rem; }
+.scout-plan-support { display: block; margin-top: 6px; font-size: 1.1rem; color: var(--ok); }
+.spot.scout .spot-kicker { font-size: 1.35rem; }
 .scout-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 24px; }
 .scout-ev { position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 16px 10px 14px; border-radius: 0; border: 1px solid var(--line-2); background: var(--bg-2); color: var(--ink);
   transition: transform .15s var(--ease), border-color .15s, background .15s, box-shadow .15s; }
 .scout-ev:hover:not(:disabled), .scout-ev:focus-visible { transform: translateY(-2px); border-color: color-mix(in srgb, var(--speak) 60%, transparent); background: var(--panel-2); box-shadow: 0 10px 28px rgba(0, 0, 0, .35); }
 .scout-ev .emoji { font-size: 2.4rem; }
-.scout-ev b { font-size: 1.2rem; font-weight: 800; }
+.scout-ev b { font-size: 1.5rem; font-weight: 800; }
 .scout-ev small { font-size: .9rem; color: var(--muted); line-height: 1.3; }
 .scout-ev kbd { position: absolute; top: 9px; left: 10px; font: 700 .8rem/1 var(--mono); color: var(--faint); padding: 3px 6px; border-radius: 0; border: 1px solid var(--line); }
 .scout-ev:disabled, .spot-actions .btn:disabled { opacity: .45; cursor: default; transform: none; }

@@ -129,7 +129,7 @@ function renderRiverPlans(rows = S.planRows) {
     return `<article class="river-plan" data-plan-id="${esc(row.id)}" style="--c:${adv(author).color}">
       <div class="river-plan-head">${avatar(author, "mini")}<b>${esc(planName(row.id, author))}</b></div>
       <div class="river-plan-request">${esc(request || "Plan details pending")}</div>
-      <div class="river-plan-support"><b>${supporters.length} of ${N()} for</b>${supporters.length ? supporters.map(id => `<span class="river-supporter">${avatar(id, "mini")}<span>${esc(adv(id).short)}</span></span>`).join("") : '<span class="river-no-votes">No votes yet</span>'}</div>
+      <div class="river-plan-support"><b>${supporters.length} of ${N()} for</b>${supporters.length ? supporters.map(id => `<span class="river-supporter" role="img" aria-label="${esc(adv(id).short)}">${avatar(id, "mini")}</span>`).join("") : '<span class="river-no-votes">No votes yet</span>'}</div>
     </article>`;
   }).join("");
 }

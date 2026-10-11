@@ -102,12 +102,14 @@ const os = require('node:os');
     assert.equal(await page.locator('.river-plan').count(),2);
     assert.equal(await page.locator('.river-plan').first().isVisible(),true);
     assert.match(await page.locator('.river-plan').first().textContent(),/plant 800 acres/);
-    assert.deepEqual(await page.locator('.river-plan').first().locator('.river-supporter').allTextContents(),['Provider','Farmer']);
+    assert.deepEqual(await page.locator('.river-plan').first().locator('.river-supporter').evaluateAll(els=>els.map(el=>el.getAttribute('aria-label'))),['Provider','Farmer']);
+    assert.deepEqual(await page.locator('.river-supporter').allTextContents(), ['', '', '']);
+    assert.equal(await page.locator('.river-supporter img').count(), 3);
     assert.equal(await page.locator('.cg-conversation').count(),2);
     assert.match(await page.locator('.cg-conversation title').first().textContent(),/Provider talks to Farmer/);
     // Votes change without replacing the plan's original author or request.
     await page.evaluate(turn=>renderTurn({...turn,support:turn.support.map(row=>({...row,accept:row.author==='farmer'?['farmer']:['merchant','provider']}))},false),turn);
-    assert.deepEqual(await page.locator('.river-plan').last().locator('.river-supporter').allTextContents(),['Merchant','Provider']);
+    assert.deepEqual(await page.locator('.river-plan').last().locator('.river-supporter').evaluateAll(els=>els.map(el=>el.getAttribute('aria-label'))),['Merchant','Provider']);
     assert.match(await page.locator('.river-plan').first().textContent(),/Farmer's plan/);
     await page.evaluate(turn=>renderTurn(turn,false),turn);
     // A failed advisor turn dismisses the stage card without creating empty content.
@@ -258,8 +260,8 @@ const os = require('node:os');
       addRunoffVote('farmer','farmer-y1-r1',true);
       addRunoffVote('merchant','merchant-y1-r1',true);
     });
-    assert.deepEqual(await page.locator('.river-plan').first().locator('.river-supporter').allTextContents(),['Farmer']);
-    assert.deepEqual(await page.locator('.river-plan').last().locator('.river-supporter').allTextContents(),['Merchant']);
+    assert.deepEqual(await page.locator('.river-plan').first().locator('.river-supporter').evaluateAll(els=>els.map(el=>el.getAttribute('aria-label'))),['Farmer']);
+    assert.deepEqual(await page.locator('.river-plan').last().locator('.river-supporter').evaluateAll(els=>els.map(el=>el.getAttribute('aria-label'))),['Merchant']);
     await page.evaluate(()=>render('year_start',{year:2},true));
     assert.equal(await page.locator('.river-plan').count(),0, 'New years clear old plans');
     assert.deepEqual(errors,[]);
