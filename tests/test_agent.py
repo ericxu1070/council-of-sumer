@@ -60,9 +60,7 @@ async def test_agent_preserves_the_models_runoff_choice(llm_reply):
 
 
 @pytest.mark.parametrize("changes", [
-    {"proposal": {"land_delta": 0, "feed": 100000, "plant": 0}},
     {"proposal": {"land_delta": 0, "feed": 2000.5, "plant": 0}},
-    {"proposal": {"land_delta": 0, "feed\u00a0": 100000, "plant\u00a0": 0}},
     {"proposal": {"land_delta": 0, "feed\u00a0": True, "plant\u00a0": 0}},
     {"proposal": {"land_delta": 0, "feed\u00a0": 2000, "plant\u00a0": 0, "extra ": 1}},
     {"proposal": {"land_delta": 0, "feed": 2000, "feed\u00a0": 1800, "plant": 0}},
@@ -89,26 +87,73 @@ async def test_unseated_speaker_cannot_receive_a_model_vote(llm_reply):
         validate_reply(ballot, brief)
 
 
-async def test_budget_retry_receives_rejected_proposal_and_shortfall(monkeypatch):
-    from sumer import llm
+@pytest.mark.parametrize("land_delta,plant,expected_feed", [
+    (0, 500, 1540), (50, 500, 690), (-50, 501, 2260),
+    (0, 0, 1790), (90, 520, 0),
+])
+async def test_food_overspending_is_repaired_and_disclosed(
+    llm_reply, land_delta, plant, expected_feed,
+):
+    original = {"land_delta": land_delta, "feed": 2260, "plant": plant}
+    llm_reply["proposal"] = original
+    brief = brief_for().model_copy(update={
+        "state": State(population=113, grain=1790, land_price=17).public(),
+    })
+    ballot = await agent.decide("farmer", brief)
+    assert validate_reply(ballot, brief) is ballot
+    assert ballot.proposal.model_dump() == {**original, "feed": expected_feed}
+    if expected_feed < original["feed"]:
+        repair = ballot.trace["budget_repair"]
+        assert repair["original"] == original
+        assert repair["repaired"] == ballot.proposal.model_dump()
+        assert repair["food_reduction_bushels"] == 2260 - expected_feed
+        assert f"Food reduced to {expected_feed} bushels" in ballot.speech
+        assert len(ballot.speech.split()) <= 25
+    else:
+        assert "budget_repair" not in ballot.trace
+    assert ballot.trace["chosen"]["plan"] == ballot.proposal.model_dump()
 
-    prompts = []
+
+@pytest.mark.parametrize("proposal", [
+    {"land_delta": 200, "feed": 2260, "plant": 0},
+    {"land_delta": 100, "feed": 2260, "plant": 600},
+    {"land_delta": 0, "feed": 2260, "plant": 1001},
+    {"land_delta": -1001, "feed": 2260, "plant": 0},
+    {"land_delta": 0, "feed": -1, "plant": 0},
+])
+async def test_food_repair_cannot_hide_other_invalid_amounts(llm_reply, proposal):
+    llm_reply["proposal"] = proposal
+    brief = brief_for().model_copy(update={
+        "state": State(population=113, grain=1790, land_price=17).public(),
+    })
+    ballot = await agent.decide("farmer", brief)
+    assert ballot.error
+    with pytest.raises(ValueError):
+        validate_reply(ballot, brief)
+
+
+async def test_year_four_overspending_does_not_retry_or_skip(llm_reply, monkeypatch):
+    from sumer import llm
+    from sumer.deliberation import deliberate_year
+    from sumer.transport.inproc import ask
+
+    llm_reply["proposal"] = {"land_delta": 0, "feed": 2260, "plant": 500}
+    calls = []
     async def chat(messages):
-        prompts.append(messages)
-        proposal = {"land_delta": 0, "feed": 1040, "plant": 520 if len(prompts) == 1 else 220}
-        return llm.Reply(json.dumps({"proposal": proposal, "speech": "Provider, we need seed."}),
-                         "test", False, 0.0, 0.0)
+        calls.append(messages)
+        return llm.Reply(json.dumps(llm_reply), "test", False, 0.0, 0.0)
     monkeypatch.setattr(llm, "chat", chat)
-    brief = brief_for().model_copy(update={"state": State(population=52, grain=1150).public()})
-    rejected = await agent.decide("farmer", brief)
-    assert "\"grain_shortfall_bushels\": 150" in rejected.error
-    corrected = brief.model_copy(update={"errors": {"farmer": rejected.error}})
-    ballot = await agent.decide("farmer", corrected)
-    assert validate_reply(ballot, corrected) is ballot
-    user = json.loads(prompts[-1][1]["content"].split("\n\n")[0])
-    assert "budget_rules" not in user
-    assert user["response_correction"]["farmer"] == rejected.error
-    assert ballot.proposal.plant == 220
+    events = []
+    async def emit(kind, data):
+        events.append((kind, data))
+    roster = resolve_council([{"id": "merchant"}, {"id": "farmer"}, {"id": "provider"}])
+    result = await deliberate_year(
+        seed=3, state=State(year=4, population=113, grain=1790, land_price=17),
+        ask=ask, history=[], max_rounds=1, scheduled_news=None, advisors=roster, emit=emit,
+    )
+    assert len(calls) == 3
+    assert not any(k in ("validation_error", "agent_skipped") for k, _ in events)
+    assert result.plan.feed == 1540
 
 
 # ---- replay safety ----

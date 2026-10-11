@@ -1,8 +1,8 @@
 """Each advisor asks the LLM to choose its proposal, votes, and explanation.
 
-The prompt contains the city state, beliefs, mandates, and conversation. No
-policy suggestion, utility score, acceptance threshold, or veto constrains
-its choice. Code validates only legal budgets and ballot/request structure.
+The prompt contains the city state, beliefs, mandates, and conversation.
+Code reduces unaffordable food allocations after reserving grain for trade
+and seed, then validates budgets and ballot/request structure.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import math
 from sumer import llm
 from sumer.advisors import ADVISORS, Advisor, advisors_for, mentions, short
 from sumer.config import settings
-from sumer.game import State, legalize
+from sumer.game import State, legalize, repair_food_allocation
 from sumer.memory import BeliefUpdate, PrivateMemory, revise
 from sumer.observability import context_headers, span
 from sumer.protocol import Ballot, Brief, Plan, bind
@@ -61,7 +61,9 @@ confidence (low/medium/high), and nonempty uncertainty (max 300).
 Speech must be at most 25 words. {address_instruction}
 Action format: land_delta is acres to buy (positive) or sell (negative); feed is bushels
 allocated to food; plant is acres to sow. All three amounts must be whole numbers;
-feed and plant cannot be negative. The engine validates budgets without changing them.
+feed and plant cannot be negative. If food exceeds the grain left after trading and seed,
+the engine reduces food to that remaining amount. This can cause starvation; account for it.
+Other invalid amounts are rejected rather than changed.
 On a retry, use response_correction's rejected amounts and all shortfalls to revise your
 proposal; correcting one limit is not enough if another limit still fails.
 Reply with ONLY a JSON object, fields in this order:
@@ -246,7 +248,12 @@ def _llm_turn(advisor_id: str, brief: Brief, data: dict, reply) -> Ballot:
     if back is not None and (not isinstance(back, str) or back not in table):
         raise ValueError("Backing must identify a tabled plan.")
     plan = table[back].plan if back else Plan.model_validate(data["proposal"])
-    legalize(_state(brief), plan.decision())
+    original = plan
+    if back:
+        legalize(_state(brief), plan.decision())
+    else:
+        repaired = repair_food_allocation(_state(brief), plan.decision())
+        plan = Plan(**repaired.as_dict())
     accept = data.get("accept", [])
     if not isinstance(accept, list) or any(not isinstance(i, str) or i not in table for i in accept):
         raise ValueError("Accept votes must identify tabled plans.")
@@ -254,10 +261,18 @@ def _llm_turn(advisor_id: str, brief: Brief, data: dict, reply) -> Ballot:
     if back and back not in accept:
         accept.append(back)
     speech = _speech(data)
+    trace = _trace(advisor_id, brief, plan, data, reply, update)
+    if plan != original:
+        trace["budget_repair"] = {
+            "original": original.model_dump(), "repaired": plan.model_dump(),
+            "food_reduction_bushels": original.feed - plan.feed,
+        }
+        notice = f"Food reduced to {plan.feed} bushels to fit the budget."
+        speech = _trim(speech, 25 - len(notice.split())) + " " + notice
     return Ballot(advisor=advisor_id, year=brief.year, round=brief.round, phase="discuss",
                   proposal=plan, back=back, accept=accept, speech=speech,
                   addressed=mentions(speech, exclude=advisor_id, advisors=advisors_for(brief.advisors)), source="llm",
-                  belief_update=update, trace=_trace(advisor_id, brief, plan, data, reply, update))
+                  belief_update=update, trace=trace)
 
 
 def _llm_runoff(advisor_id: str, brief: Brief, data: dict, reply) -> Ballot:
