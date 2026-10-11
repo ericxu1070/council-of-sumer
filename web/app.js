@@ -165,8 +165,8 @@ const G = (() => {
   };
 })();
 // Keep transport details available under the hood; the main view is the city council.
-const hubLabel = () => S.hood ? (S.meta?.transport === "inproc" ? "LOCAL" : "SLIM") : "Council";
-function setHubSub(sub = "city square") { G.setHub({ label: hubLabel(), sub }); }
+const hubLabel = () => "";
+function setHubSub() { G.setHub({ label: "", sub: "" }); }
 const STANCE = {
   agree: ["agree", "✓", "Agrees with the leading plan"],
   disagree: ["disagree", "✕", "Does not back the leading plan"],
@@ -196,9 +196,12 @@ function renderYear() {
   $("#roundLabel").classList.toggle("hidden", !S.round || S.completed >= S.years);
   $("#roundLabel").textContent = S.round ? `Round ${S.round.number}${S.round.limit && S.round.number <= S.round.limit ? ` of ${S.round.limit}` : ""}` : "";
 }
-function setPhase(title, sub = "") {
-  $("#phase").textContent = title;
-  $("#phaseSub").innerHTML = sub;
+function setPhase(title) {
+  const phase = /ready|gathers|conven|no king/i.test(title) ? "Ready"
+    : /reign complete/i.test(title) ? "End"
+    : /runoff|re-vote|voting|your move/i.test(title) ? "Voting"
+    : /debate|discuss|year .* begins/i.test(title) ? "Discussion" : title;
+  $("#phase").textContent = phase;
 }
 function voteDots(accept = []) {
   return `<span class="dots">${S.advisors.map(a => {
@@ -501,7 +504,11 @@ function confetti() {
 
 function renderNews(d, instant) {
   const mine = d.injected;
-  append(`<span class="emoji">📯</span><div><b>${mine ? "Your scout reports" : "Scout report"}</b>${esc(d.text || d.kind)}</div>`, `note${mine ? " you" : ""}`, { instant });
+  if (mine) {
+    const labels = { plague: "Plague", rats: "Rats", good_harvest: "Good harvest", bad_harvest: "Bad harvest", low_price: "Cheap land", high_price: "Costly land" };
+    append(`<div><b>${esc(labels[d.kind] || cap(d.kind || "Omen"))}</b></div>`, "note you", { instant });
+    if (!instant) window.CityEffects?.effect(d.kind);
+  } else append(`<span class="emoji">📯</span><div><b>Scout report</b>${esc(d.text || d.kind)}</div>`, "note", { instant });
 }
 
 /* ---------------- runoff ---------------- */
@@ -842,6 +849,7 @@ function resetGame(d) {
   hideSpot();
   closeEscalation();
   S.scoutRequest = null; S.compareVote = null;
+  window.CityEffects?.clear();
   hideRunoff();
   Object.assign(S, { leadHtml: "", cmpHtml: "", year: 0, round: null, completed: 0, hist: [], roundBase: {}, plans: {}, lastPlain: {}, stance: {}, running: true, waitingHuman: false });
   S.years = d.years || S.meta?.years || 5;
@@ -945,7 +953,14 @@ function render(kind, d, instant) {
       G.idle(instant); setHubSub();
       setPhase("Decision", outcomeBadge(d));
       renderYear_(d, instant);
-      if (!instant) { showYearSpot(d); narrate(d.narration_url); }
+      if (!instant) {
+        const report = d.report || d.state?.last_report || {};
+        const effects = [];
+        if (report.plague_deaths > 0) effects.push("plague");
+        if (report.rats > 0) effects.push("rats");
+        window.CityEffects?.effect(effects);
+        showYearSpot(d); narrate(d.narration_url);
+      }
       hideRunoff();
       break;
     case "end":
@@ -1060,16 +1075,12 @@ function showScout(d) {
   S.scoutRequest = d;
   const rows = [...(d.rows || [])].sort((x, y) => (y.accept?.length || 0) - (x.accept?.length || 0));
   rows.forEach(r => { if (r.id && r.author) S.plans[r.id] = r.author; });
-  const lead = rows[0], n = lead?.accept?.length || 0;
   const events = (d.options || []).filter(o => o.id !== "skip");
-  const cmp = S.cmpHtml || ""; S.cmpHtml = "";
-  spotlight("scout", `<div class="spot-kicker">Year ${esc(d.year)} · the votes are in</div>
-    <div class="spot-title">${lead ? `${esc(planName(lead.id, lead.author))} leads` : "No plan leads"}</div>
-    ${lead ? `<div class="spot-lead">${voteDots(lead.accept)}<span><b>${n} of ${N()}</b> agree</span></div>` : ""}
-    ${cmp}
-    <div class="scout-grid">${events.map((o, i) => `<button class="scout-ev" type="button" data-scout="${esc(o.id)}" title="${esc(o.detail)}"><span class="emoji">${SCOUT_ICON[o.id] || "📯"}</span><b>${esc(o.label)}</b><kbd>${i + 1}</kbd></button>`).join("")}</div>
-    <div class="spot-actions"><button class="btn primary" type="button" data-scout="skip">Let the vote stand</button></div>
-    <div class="spot-hint">Press <kbd>1</kbd>-<kbd>${events.length}</kbd> to send a scout, <kbd>Enter</kbd> to continue</div>`, { cls: "scout" });
+  S.cmpHtml = "";
+  const labels = { plague: "Plague", rats: "Rats", good_harvest: "Good harvest", bad_harvest: "Bad harvest", low_price: "Cheap land", high_price: "Costly land" };
+  spotlight("scout", `<div class="spot-kicker">Omens</div>
+    <div class="scout-grid">${events.map((o, i) => `<button class="scout-ev" type="button" data-scout="${esc(o.id)}"><span class="emoji">${SCOUT_ICON[o.id] || "📯"}</span><b>${esc(labels[o.id] || o.label)}</b><kbd>${i + 1}</kbd></button>`).join("")}</div>
+    <div class="spot-actions"><button class="btn primary" type="button" data-scout="skip">Leave be</button></div>`, { cls: "scout" });
   const btns = $$("#spot [data-scout]");
   btns.forEach(b => {
     b.disabled = S.paused;
@@ -1085,7 +1096,7 @@ function showScout(d) {
       }
     };
   });
-  setPhase("Your move", "<span>Send a scout to shake the vote, or let it stand</span>");
+  setPhase("Voting");
   idleTyping();
   startCountdown();
 }

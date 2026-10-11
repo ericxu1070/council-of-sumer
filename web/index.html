@@ -11,6 +11,7 @@
 <!-- Non-blocking: on slow venue Wi-Fi the page renders in the system font first. -->
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'">
 <link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="city-effects.css">
 </head>
 <body>
 <div class="app" id="app">
@@ -20,7 +21,7 @@
       <div class="brand-text"><h1 class="brand-name">Council of Sumer</h1></div>
     </div>
     <div class="yearbox" aria-live="polite">
-      <div class="year-heading"><div class="year-label" id="yearLabel">Ready</div><span class="round-label hidden" id="roundLabel"></span></div>
+      <div class="year-heading"><div class="year-label" id="yearLabel">Ready</div><span class="phase" id="phase">Ready</span><span class="round-label hidden" id="roundLabel"></span></div>
       <div class="year-steps" id="yearSteps" aria-hidden="true"></div>
     </div>
     <div class="top-actions">
@@ -31,6 +32,7 @@
         <span>Under the hood</span><span class="switch" aria-hidden="true"></span>
       </button>
       <button class="icon-btn" id="muteBtn" type="button" aria-pressed="false" title="Mute the narrator" aria-label="Mute the narrator">🔊</button>
+      <button class="btn primary convene" id="conveneBtn" type="button">Convene the council</button>
       <button class="btn" id="pauseBtn" type="button" disabled aria-pressed="false">Pause</button>
       <button class="icon-btn" id="setupBtn" type="button" title="Setup" aria-label="Open setup" aria-expanded="false">☰</button>
     </div>
@@ -40,12 +42,6 @@
     <section class="council" aria-label="The council">
       <div class="city-map" id="cityMap" role="img" aria-label="Bird’s-eye view of Sumer. City totals appear when a council convenes."></div>
       <div class="stage" id="stage">
-        <div class="phase-row">
-          <div class="phase" id="phase"></div>
-          <div class="phase-sub" id="phaseSub"></div>
-          <div class="legend"><span class="lg-agree"><i></i>agrees with plan</span><span class="lg-disagree"><i></i>doesn’t back plan</span></div>
-          <button class="btn primary convene" id="conveneBtn" type="button">Convene the council</button>
-        </div>
         <div class="runoff hidden" id="runoff" aria-live="polite"></div>
       </div>
       <div class="graph" id="graph" aria-label="Council graph: green connections show agreement, red dashed connections show disagreement"></div>
@@ -124,6 +120,7 @@
 <script src="faces.js"></script>
 <script src="graph.js"></script>
 <script src="city.js"></script>
+<script src="city-effects.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

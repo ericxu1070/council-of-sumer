@@ -8,7 +8,7 @@ const os = require('node:os');
 // Optional browser smoke check: install Playwright separately, then run this file
 // with its package on NODE_PATH. Uses local fixtures, with no model or API calls.
 (async () => {
-  const files = new Set(['index.html','app.css','app.js','graph.js','faces.js','city.js']);
+  const files = new Set(['index.html','app.css','app.js','graph.js','faces.js','city.js','city-effects.js','city-effects.css']);
   const server = http.createServer(async (req, res) => {
     const file = req.url === '/' ? 'index.html' : req.url.slice(1);
     if (!files.has(file)) { res.writeHead(404).end(); return; }

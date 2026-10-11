@@ -37,7 +37,7 @@
       <path d="M40 798v-40m-8 10 8-10 8 10" fill="none" stroke="#bab394" stroke-width="2"/>
       <text x="40" y="817" text-anchor="middle" font-family="system-ui" font-size="12" fill="#bab394">N</text>
     </svg>`;
-    cards.innerHTML = resources.map(r => `<div class="resource" style="--resource-color:${r.color}">
+    cards.innerHTML = resources.map(r => `<div class="resource" style="--resource-color:${r.color}" title="1 ${r.noun} = ${r.step} ${r.unit}">
       <span class="resource-head"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round">${r.icon}</svg>${r.label}</span>
       <span class="resource-value" id="city-value-${r.key}">—</span>
       <span class="resource-scale">1 ${r.noun} = ${r.step} ${r.unit}</span>
