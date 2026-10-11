@@ -187,13 +187,18 @@ function renderYear() {
     steps.push(`<span class="${i <= S.completed ? "done" : i === S.year ? "now" : ""}"></span>`);
   }
   $("#yearSteps").innerHTML = steps.join("");
-  $("#yearLabel").textContent = !S.year ? (S.running ? "Convening" : "Ready") : S.completed >= S.years ? `All ${S.years} years done` : `Year ${S.year} of ${S.years}`;
+  $("#yearLabel").textContent = `Year ${S.year || "—"} / ${S.years}`;
   $("#roundLabel").classList.toggle("hidden", !S.round);
   $("#roundLabel").textContent = S.round ? `Round ${S.round.number}${S.round.limit && S.round.number <= S.round.limit ? ` of ${S.round.limit}` : ""}` : "";
 }
-function setPhase(title, sub = "") {
-  $("#phase").textContent = title;
-  $("#phaseSub").innerHTML = sub;
+function setPhase(title) {
+  // One phase beside the year, without another explanatory banner over the city.
+  const phase = /ready|gathers|conven/i.test(title) ? "Ready"
+    : /reign complete/i.test(title) ? "End"
+    : /runoff|re-vote|voting/i.test(title) ? "Voting"
+    : /discuss|year .* begins/i.test(title) ? "Discussion"
+    : title;
+  $("#phase").textContent = phase;
 }
 function voteDots(accept = []) {
   return `<span class="dots">${S.advisors.map(a => {
@@ -205,13 +210,13 @@ function voteDots(accept = []) {
 /* ---------------- typing indicator ---------------- */
 function typing(html) { $("#typing").innerHTML = html || ""; }
 const bounce = `<span class="bounce" aria-hidden="true"><i></i><i></i><i></i></span>`;
-function typingFor(id) { typing(`${avatar(id, "mini")}<span><b>${esc(adv(id).short)}</b> is typing</span>${bounce}`); }
+function typingFor(id) { typing(`${avatar(id, "mini")}<span><b>${esc(adv(id).short)}</b></span>${bounce}`); }
 function idleTyping() {
-  if (S.paused) typing(`<span>The council is paused</span>`);
-  else if (S.scoutRequest) typing(`<span>Choose a scout event or skip</span>`);
-  else if (S.waitingHuman) typing(`<span>Waiting for <b>your decision</b></span>`);
-  else if (narrating) typing(`<span>🔊 The narrator is speaking</span>`);
-  else if (S.running) typing(`<span>The council is thinking</span>${bounce}`);
+  if (S.paused) typing(`<span>Paused</span>`);
+  else if (S.scoutRequest) typing(`<span></span>`);
+  else if (S.waitingHuman) typing(`<span>Your call</span>`);
+  else if (narrating) typing(`<span>Narration</span>`);
+  else if (S.running) typing(`<span></span>${bounce}`);
   else typing("");
 }
 
@@ -259,11 +264,11 @@ function scrollBottom(instant) {
 }
 function welcome() {
   feed().innerHTML = `<div class="welcome">
-    <div class="welcome-kicker">Ready to convene</div>
-    <h1>${N()} advisor${N() === 1 ? "" : "s"}. One city. No king.</h1>
-    <p>Each advisor is an AI agent with its own goal. They argue over the SLIM message bus, vote, and run ancient Sumer for five years. When they are stuck, you decide.</p>
-    <div class="welcome-actions"><button class="btn primary" id="welcomeStart" type="button">Convene the council</button>
-    <button class="btn" id="welcomeSetup" type="button">Choose voters</button></div></div>`;
+    <div class="welcome-kicker">On the banks of the Euphrates</div>
+    <h1>Sumer</h1>
+    <p>${N()} voices. ${S.years} harvests.</p>
+    <div class="welcome-actions"><button class="btn primary" id="welcomeStart" type="button">Begin reign</button>
+    <button class="btn" id="welcomeSetup" type="button">Council</button></div></div>`;
   $("#welcomeStart").onclick = start;
   $("#welcomeSetup").onclick = () => openDrawer(true);
   syncSetupLock();
@@ -311,9 +316,9 @@ function renderTurn(d, instant) {
     if (pid) foot.push(`<span class="vote-chip runoff-pick" style="--k:var(--vote-${side})">Votes for ${side.toUpperCase()}: ${avatar(planAuthor(pid), "mini")}<b>${esc(planName(pid))}</b></span>`);
   } else {
     const plain = d.plain || planText(d.proposal);
-    if (plain) foot.push(`<span class="plan-chip"><span class="emoji">📜</span><span>${esc(plain)}</span></span>`);
+    if (plain) foot.push(`<span class="plan-chip"><span class="emoji" aria-hidden="true">≡</span><span>${esc(plain)}</span></span>`);
     const acc = [...new Set((d.accept || []).map(id => planAuthor(id)).filter(Boolean))];
-    if (acc.length) foot.push(`<span class="vote-chip" title="Plans ${esc(a.short)} would accept">👍 ${acc.map(x => x === d.advisor ? "own" : `${esc(adv(x).short)}'s`).join(", ")} plan${acc.length > 1 ? "s" : ""}</span>`);
+    if (acc.length) foot.push(`<span class="vote-chip" title="Plans ${esc(a.short)} would accept">+ ${acc.map(x => x === d.advisor ? "own" : `${esc(adv(x).short)}'s`).join(", ")} plan${acc.length > 1 ? "s" : ""}</span>`);
   }
   const src = d.source ? `<span class="tag hood-only">${esc(d.source === "llm" ? "LLM" : d.source)}</span>` : "";
   const think = d.thought ? `<button class="think-btn" type="button" aria-expanded="${S.hood}" title="What ${esc(a.short)} privately thought">💭</button>` : "";
@@ -421,7 +426,11 @@ function renderEnd(d, instant) {
 
 function renderNews(d, instant) {
   const mine = d.injected;
-  append(`<span class="emoji">📯</span><div><b>${mine ? "Your scout reports" : "Scout report"}</b>${esc(d.text || d.kind)}</div>`, `note${mine ? " you" : ""}`, { instant });
+  if (mine) {
+    const labels = { plague: "Plague", rats: "Rats", good_harvest: "Good harvest", bad_harvest: "Bad harvest", low_price: "Cheap land", high_price: "Costly land" };
+    append(`<div><b>${esc(labels[d.kind] || cap(d.kind || "Omen"))}</b></div>`, "note you", { instant });
+    if (!instant) window.CityView?.effect(d.kind);
+  } else append(`<div><b>News</b>${esc(d.text || d.kind)}</div>`, "note", { instant });
 }
 
 /* ---------------- runoff ---------------- */
@@ -443,7 +452,7 @@ function showRunoff(d, instant) {
   el.className = "runoff";
   el.innerHTML = `${side(a, "a")}<div class="ro-vs">vs</div>${side(b, "b")}`;
   setPhase("Runoff vote", `<span>${esc(planName(a.id, a.author))} <b>vs</b> ${esc(planName(b.id, b.author))}</span>${d.reason ? `<span class="hood-only tag">${esc(d.reason)}</span>` : ""}`);
-  append(`<span class="emoji">⚖️</span><div><b>Runoff</b>No plan won a majority. Each advisor now votes for ${esc(planName(a.id, a.author))} or ${esc(planName(b.id, b.author))}.</div>`, "note", { instant });
+  append(`<span class="emoji">⚖️</span><div><b>Runoff</b>${esc(planName(a.id, a.author))} · ${esc(planName(b.id, b.author))}</div>`, "note", { instant });
 }
 function addRunoffVote(advisor, pid, instant) {
   const R = S.runoff;
@@ -686,7 +695,7 @@ narrator.addEventListener("error", () => { if (narrating) { narrating = false; c
 function stopNarration() { N_Q.length = 0; narrator.pause(); narrating = false; clearTimeout(narrateWatch); }
 function renderMute() {
   const b = $("#muteBtn");
-  b.textContent = muted ? "🔇" : "🔊";
+  b.textContent = muted ? "×" : "♪";
   b.setAttribute("aria-pressed", String(muted));
   b.title = b.ariaLabel = muted ? "Unmute the narrator" : "Mute the narrator";
 }
@@ -759,6 +768,7 @@ function resetGame(d) {
   stopNarration();
   closeEscalation();
   S.scoutRequest = null; S.compareVote = null;
+  window.CityView?.clearEffects();
   hideRunoff();
   Object.assign(S, { leadHtml: "", year: 0, round: null, completed: 0, hist: [], roundBase: {}, plans: {}, stance: {}, running: true, waitingHuman: false });
   S.years = d.years || S.meta?.years || 5;
@@ -778,7 +788,7 @@ function render(kind, d, instant) {
     case "game":
       resetGame(d);
       setPhase("The council gathers", `<span>${N()} advisors, ${S.years} years, no king to break ties.</span>`);
-      append(`<span class="emoji">🏛️</span><div><b>The council convenes</b>${N()} advisors will run the city for ${S.years} years. Each has a different goal. They must agree, or ask you.</div>`, "note", { instant });
+      append(`<span class="emoji" aria-hidden="true">∴</span><div><b>The council convenes</b>${N()} seats · ${S.years} years</div>`, "note", { instant });
       break;
     case "year_start":
       S.year = d.year; S.round = null; S.stance = {}; S.plans = {}; S.leadHtml = ""; renderStances(); hideRunoff();
@@ -827,7 +837,9 @@ function render(kind, d, instant) {
       if (d.choice !== "skip") S.compareVote = d.rows;
       $$("[data-scout-request]").filter(el => el.dataset.scoutRequest === d.request_id).forEach(el => {
         $$("button", el).forEach(b => b.disabled = true);
-        $(".scout-status", el).textContent = d.choice === "skip" ? "Skipped · council continues" : "Scout sent · the council will re-vote";
+        $(".scout-status", el).textContent = d.choice === "skip" ? "Left be" : cap(d.choice.replaceAll("_", " "));
+        const chosen = $(`[data-scout="${CSS.escape(d.choice)}"]`, el);
+        chosen?.classList.add("chosen");
       });
       break;
     case "news": renderNews(d, instant); break;
@@ -856,7 +868,14 @@ function render(kind, d, instant) {
       G.idle(instant); setHubSub(`year ${d.year} decided`);
       setPhase("Decision", outcomeBadge(d));
       renderYear_(d, instant);
-      if (!instant) narrate(d.narration_url);
+      if (!instant) {
+        const report = d.report || d.state?.last_report || {};
+        const effects = [];
+        if (report.plague_deaths > 0) effects.push("plague");
+        if (report.rats > 0) effects.push("rats");
+        window.CityView?.effect(effects);
+        narrate(d.narration_url);
+      }
       hideRunoff();
       break;
     case "end":
@@ -934,18 +953,17 @@ function compareVotes(rows, instant) {
 }
 function showScout(d, instant) {
   S.scoutRequest = d;
-  const card = append(`<div class="card-kicker">The votes are in</div><h3>Send a scout, or keep this vote?</h3>
-    <p>Choose an event to change the conditions and let every agent vote again.</p>
-    ${voteSummary(d.rows)}
-    <div class="scout-options">${d.options.map(option => `<button class="btn scout-option${option.id === "skip" ? " primary" : ""}" type="button" data-scout="${esc(option.id)}"><b>${esc(option.label)}</b><small>${esc(option.detail)}</small></button>`).join("")}</div>
-    <p class="scout-status" role="status">Waiting for your choice</p>`, "card scout-card", { instant });
+  const labels = { plague: "Plague", rats: "Rats", good_harvest: "Good harvest", bad_harvest: "Bad harvest", low_price: "Cheap land", high_price: "Costly land", skip: "Leave be" };
+  const card = append(`<div class="card-kicker">Omens</div>
+    <div class="scout-options">${d.options.map(option => `<button class="btn scout-option${option.id === "skip" ? " primary" : ""}" type="button" data-scout="${esc(option.id)}"><b>${esc(labels[option.id] || option.label)}</b></button>`).join("")}</div>
+    <p class="scout-status" role="status"></p>`, "card scout-card", { instant });
   card.dataset.scoutRequest = d.request_id;
   $$("[data-scout]", card).forEach(button => button.onclick = async () => {
     $$("button", card).forEach(b => b.disabled = true);
     try { await api("/api/scout", { run_id: S.runId, request_id: d.request_id, choice: button.dataset.scout }); }
     catch (e) { toast(e.message); $$("button", card).forEach(b => b.disabled = S.paused); }
   });
-  setPhase("Voting complete", "<span>Choose a scout event for a re-vote, or skip.</span>");
+  setPhase("Voting");
   idleTyping();
 }
 function setPaused(paused) {

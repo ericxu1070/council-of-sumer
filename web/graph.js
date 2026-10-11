@@ -178,15 +178,14 @@
     layer = el("div"); layer.style.cssText = "position:absolute;inset:0";
     hubEl = el("div", "cg-hub", `<div class="cg-hub-body">
       <svg viewBox="0 0 100 100" aria-hidden="true">
-        <circle class="orbit" cx="50" cy="50" r="58" fill="none" stroke="var(--cg-speak)" stroke-width="1.2" stroke-dasharray="2 7" stroke-linecap="round"/>
-        <circle class="orbit2" cx="50" cy="50" r="66" fill="none" stroke="var(--cg-listen)" stroke-width="1" stroke-dasharray="18 10 2 10"/>
-        <path class="hex" d="${hexPath(50, 50, 46, 9)}"/>
+        <path class="hex" d="M8 88H92V65H79V43H67V23H57V9H43V23H33V43H21V65H8Z"/>
+        <path d="M43 65h14v23H43Z" fill="#5c4329"/>
       </svg>
       <div class="cg-hub-core"><div class="cg-hub-label">SLIM</div><div class="cg-hub-sub">message bus</div></div></div>`);
     ripple = el("div", "cg-ripple"); hubEl.appendChild(ripple);
     hubBody = hubEl.querySelector(".cg-hub-body");
     hubLabel = hubEl.querySelector(".cg-hub-label"); hubSub = hubEl.querySelector(".cg-hub-sub");
-    hubEl.title = "AGNTCY SLIM message bus";
+    hubEl.title = "Council temple";
     layer.appendChild(hubEl);
     root.append(svg, layer);
     container.appendChild(root);
@@ -337,6 +336,7 @@
     });
     const dur = instant || RM() || document.hidden ? 0 : 650;
     tween = { t0: performance.now(), dur, list: order.map(id => nodes.get(id)).filter(Boolean).map(nd => ({ nd, fx: nd.x, fy: nd.y })) };
+    if (bubble && lastSpeak) placeBubble(bubble, lastSpeak.speaker);
     if (dur) kick(); else frame(performance.now()); // hidden tabs get no rAF: snap now
   }
 

@@ -321,17 +321,17 @@ the existing advisor roles and sequential coordination; they are not directory p
 
 ### City overview and council connections
 
-The chamber places the council in a city square over a simple bird’s-eye map. Green
-connections show approval of another advisor’s plan; dashed red connections show an
-addressed advisor’s plan being left out of an approval ballot, or the unchosen
-runoff finalist. Polls show everyone’s position on the leading plan. Connections
-last 1.2 seconds, use check/cross symbols, respect reduced motion, and do not replay
-when loading recorded events.
+The chamber uses crude carved portraits, clay tablets, earth colors, and a stepped
+temple in the middle of the city. The year and current phase sit in the top bar.
+Green and dashed red connections show plan support and dissent for 1.2 seconds;
+recorded event replay suppresses these flashes.
 
-Fields, grain sacks, and homes update with the recorded city state: one plot means
-100 acres, one sack means 200 bushels, and one home means 10 people. Faded symbols
-represent partial units. Exact totals are always shown; a note explains when a
-large total exceeds the number of symbols the map can show.
+Fields, grain sacks, and homes follow recorded city state. Exact totals sit under
+the map; symbol units and map limits are available on hover. The Omens tablet has
+compact choices without explanatory subtitles. Plague and rat omens briefly
+animate on the map when injected news arrives and when their effects appear in a
+year’s report. Animations clear after a few seconds, clear on a new reign, and
+become still illustrations with reduced motion enabled.
 
 For the optional browser smoke check, install Playwright in a temporary directory
 and run `scripts/check_city_ui.cjs` with that directory’s `node_modules` on

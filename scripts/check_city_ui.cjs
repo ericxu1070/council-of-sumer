@@ -8,7 +8,7 @@ const os = require('node:os');
 // Optional browser smoke check: install Playwright separately, then run this file
 // with its package on NODE_PATH. Uses local fixtures, with no model or API calls.
 (async () => {
-  const files = new Set(['index.html','app.css','app.js','graph.js','faces.js','city.js']);
+  const files = new Set(['index.html','app.css','app.js','graph.js','faces.js','sumer-faces.js','city.js','sumer.css']);
   const server = http.createServer(async (req, res) => {
     const file = req.url === '/' ? 'index.html' : req.url.slice(1);
     if (!files.has(file)) { res.writeHead(404).end(); return; }
@@ -78,7 +78,7 @@ const os = require('node:os');
     });
     assert.equal(await page.locator('#city-population use').first().getAttribute('opacity'),'0.675');
     assert.equal(await page.locator('#city-grain use[opacity="1"]').count(),0);
-    assert.match(await page.locator('#city-overflow-acres').textContent(),/4,000/);
+    assert.match(await page.locator('#city-value-acres').evaluate(el=>el.parentElement.title),/4000/);
     assert.deepEqual(await page.evaluate(()=>turnRelations({advisor:'provider',runoff_vote:'farmer-y1-r1',accept:['farmer-y1-r1']})),[
       {from:'provider',to:'farmer',agree:true},{from:'provider',to:'merchant',agree:false}
     ]);
