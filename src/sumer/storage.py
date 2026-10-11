@@ -19,6 +19,12 @@ def encoded(value) -> str:
     return json.dumps(value, sort_keys=True, ensure_ascii=False)
 
 
+def _objects(value):
+    """Yield only object members from an OTLP repeated field."""
+    if isinstance(value, list):
+        yield from (item for item in value if isinstance(item, dict))
+
+
 class Store:
     def __init__(self, path: str | Path):
         if str(path) != ":memory:":
@@ -247,17 +253,22 @@ class Store:
                     record = json.loads(line)
                 except ValueError:
                     continue
-                for resource in record.get("resourceSpans", record.get("resource_spans", [])):
-                    for scope in resource.get("scopeSpans", resource.get("scope_spans", [])):
-                        for s in scope.get("spans", []):
+                if not isinstance(record, dict):
+                    continue
+                for resource in _objects(record.get("resourceSpans", record.get("resource_spans", []))):
+                    for scope in _objects(resource.get("scopeSpans", resource.get("scope_spans", []))):
+                        for s in _objects(scope.get("spans", [])):
                             attrs = {a["key"]: a["value"].get("stringValue", a["value"].get("intValue"))
-                                     for a in s.get("attributes", [])}
+                                     for a in _objects(s.get("attributes", []))
+                                     if isinstance(a.get("key"), str) and isinstance(a.get("value"), dict)}
                             rid = attrs.get("sumer.run_id")
-                            if not rid or not self.db.execute("SELECT 1 FROM runs WHERE id=?", (rid,)).fetchone():
+                            if not isinstance(rid, str) or not rid or not self.db.execute(
+                                    "SELECT 1 FROM runs WHERE id=?", (rid,)).fetchone():
                                 continue
                             trace_id = s.get("traceId", s.get("trace_id"))
                             span_id = s.get("spanId", s.get("span_id"))
-                            if trace_id and span_id:
+                            if (isinstance(trace_id, str) and trace_id
+                                    and isinstance(span_id, str) and span_id):
                                 cur = self.db.execute("INSERT OR IGNORE INTO spans VALUES(?,?,?,?)",
                                     (trace_id, span_id, rid, encoded(s)))
                                 count += cur.rowcount
