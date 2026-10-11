@@ -1,6 +1,8 @@
 import json
-from fastapi.testclient import TestClient
+
 import pytest
+from fastapi.testclient import TestClient
+
 from sumer import web
 from sumer.game import RULE_VERSION
 
