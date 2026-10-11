@@ -1,5 +1,6 @@
 /* Notes are trimmed while the visual theme stays the same as main. */
-.top .phase { font-size: 1rem; font-weight: 600; border-left: 1px solid var(--line-2); padding-left: 10px; }
+.top .phase { font-size: 1rem; font-weight: 600; }
+.council-status { border-left: 1px solid var(--line-2); padding-left: 10px; }
 .year-heading { flex-wrap: wrap; justify-content: center; }
 .stage:has(.runoff.hidden) { display: none; }
 .city-event-overlay { position: fixed; inset: 0; width: 100vw; height: 100dvh; z-index: 70; pointer-events: none; overflow: hidden; shape-rendering: crispEdges; }
