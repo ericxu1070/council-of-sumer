@@ -2,7 +2,7 @@
 .top .phase { font-size: 1rem; font-weight: 600; }
 .council-status { border-left: 1px solid var(--line-2); padding-left: 10px; }
 .year-heading { flex-wrap: wrap; justify-content: center; }
-.stage:has(.runoff.hidden) { display: none; }
+.stage:has(.runoff.hidden):has(.river-plans.hidden) { display: none; }
 .city-event-overlay { position: fixed; inset: 0; width: 100vw; height: 100dvh; z-index: 70; pointer-events: none; overflow: hidden; shape-rendering: crispEdges; }
 .city-traveler { animation: city-migrate var(--duration) linear var(--delay) both; }
 .city-sprite { animation: city-scurry .1s steps(2,end) infinite; }

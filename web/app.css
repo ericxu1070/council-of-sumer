@@ -671,3 +671,20 @@ body:not(.hood) .cg-hub-label { font-size: 14px; letter-spacing: .03em; }
 @media (max-width: 360px) { .spot { padding-top: 140px; } }
 
 .scout-mark { width: 34px; height: 34px; color: var(--speak); margin: 2px 0 4px; }
+
+/* Live proposals sit over the river in the top row of the city. */
+.stage { min-width: 0; }
+.stage:has(.river-plans:not(.hidden)) { padding: 0; border: 0; background: transparent; box-shadow: none; }
+.river-plans { display: flex; gap: 10px; overflow-x: auto; padding: 2px 2px 8px; scrollbar-width: thin; scroll-snap-type: x proximity; }
+.river-plan { flex: 1 0 250px; min-width: 0; padding: 10px 12px; border: 1px solid #729da0; border-top: 3px solid var(--c); background: rgba(25,39,38,.96); box-shadow: 0 4px 12px #0003; scroll-snap-align: start; }
+.river-plan-head { display: flex; align-items: center; gap: 7px; font-size: .9rem; }
+.river-plan-head .av, .river-supporter .av { width: 22px; height: 22px; flex: none; }
+.river-plan-request { margin: 6px 0; font-size: .8rem; line-height: 1.4; color: var(--ink); }
+.river-plan-support { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: .7rem; max-height: 58px; overflow-y: auto; }
+.river-plan-support > b { color: var(--ok); white-space: nowrap; }
+.river-supporter { display: inline-flex; align-items: center; gap: 4px; }
+.river-no-votes { color: var(--muted); }
+@media (max-width: 900px) {
+  .river-plan { flex-basis: 265px; }
+  .river-plans { padding-bottom: 6px; }
+}

@@ -73,7 +73,18 @@ const os = require('node:os');
       render("game",{advisors:S.advisors,years:5,state:{population:100,grain:2800,acres:1000}},false);
       render("year_start",{year:1,state:{population:100,grain:2800,acres:1000}},false);
     });
-    const turn={advisor:'provider',speech:'Farmer, I support your plan. Merchant, I cannot support yours.',round:1,year:1,plan_id:'farmer-y1-r1',backed:true,addressed:['farmer','merchant'],accept:['farmer-y1-r1'],support:[{id:'farmer-y1-r1',author:'farmer'},{id:'merchant-y1-r1',author:'merchant'}]};
+    const turn={advisor:'provider',speech:'Farmer, I support your plan. Merchant, I cannot support yours.',round:1,year:1,plan_id:'farmer-y1-r1',backed:true,addressed:['farmer','merchant'],accept:['farmer-y1-r1'],support:[{id:'farmer-y1-r1',author:'farmer',plan:{land_delta:0,feed:2000,plant:800},accept:['provider','farmer']},{id:'merchant-y1-r1',author:'merchant',plain:'Buy 20 acres, feed 1,800 bushels, plant 700 acres',accept:['merchant']}]};
+    await page.evaluate(turn=>renderTurn(turn,false),turn);
+    assert.equal(await page.locator('.river-plan').count(),2);
+    assert.equal(await page.locator('.river-plan').first().isVisible(),true);
+    assert.match(await page.locator('.river-plan').first().textContent(),/plant 800 acres/);
+    assert.deepEqual(await page.locator('.river-plan').first().locator('.river-supporter').allTextContents(),['Provider','Farmer']);
+    assert.equal(await page.locator('.cg-conversation').count(),2);
+    assert.match(await page.locator('.cg-conversation title').first().textContent(),/Provider talks to Farmer/);
+    // Votes change without replacing the plan's original author or request.
+    await page.evaluate(turn=>renderTurn({...turn,support:turn.support.map(row=>({...row,accept:row.author==='farmer'?['farmer']:['merchant','provider']}))},false),turn);
+    assert.deepEqual(await page.locator('.river-plan').last().locator('.river-supporter').allTextContents(),['Merchant','Provider']);
+    assert.match(await page.locator('.river-plan').first().textContent(),/Farmer's plan/);
     await page.evaluate(turn=>renderTurn(turn,false),turn);
     // A failed advisor turn dismisses the stage card without creating empty content.
     for (const instant of [false, true]) {
@@ -114,6 +125,12 @@ const os = require('node:os');
     assert.equal(await page.locator('.cg-relation.disagree').count(),3);
     await page.evaluate(()=>CouncilGraph.idle());
     assert.equal(await page.locator('.cg-relation').count(),0);
+    assert.equal(await page.locator('.cg-conversation').count(),0);
+    await page.evaluate(()=>CouncilGraph.speak({speaker:'provider',to:['villager'],text:'How are the city homes?',instant:true}));
+    assert.equal(await page.locator('.cg-conversation').count(),1, 'Conversation links do not require a proposal or a vote');
+    await page.evaluate(()=>CouncilGraph.speak({speaker:'provider',text:'Council, hear me.',instant:true}));
+    assert.equal(await page.locator('.cg-conversation').count(),4, 'Broadcasts connect the speaker to every listener');
+    await page.evaluate(()=>CouncilGraph.idle());
     assert.deepEqual(await page.evaluate(()=>turnRelations({advisor:'provider',addressed:['imposter'],accept:[]})),[]);
     await page.evaluate(()=>{
       recordState(1,{population:5,grain:0,acres:5100});
@@ -211,6 +228,16 @@ const os = require('node:os');
       await page.waitForTimeout(700);
       await checkSeatsClearResources();
     }
+    await page.evaluate(()=>{
+      setAdvisors([{id:'farmer',short:'Farmer'},{id:'merchant',short:'Merchant'}]);
+      showRunoff({a:{id:'farmer-y1-r1',author:'farmer',plan:{land_delta:0,feed:2000,plant:800}},b:{id:'merchant-y1-r1',author:'merchant',plan:{land_delta:20,feed:1800,plant:700}}},true);
+      addRunoffVote('farmer','farmer-y1-r1',true);
+      addRunoffVote('merchant','merchant-y1-r1',true);
+    });
+    assert.deepEqual(await page.locator('.river-plan').first().locator('.river-supporter').allTextContents(),['Farmer']);
+    assert.deepEqual(await page.locator('.river-plan').last().locator('.river-supporter').allTextContents(),['Merchant']);
+    await page.evaluate(()=>render('year_start',{year:2},true));
+    assert.equal(await page.locator('.river-plan').count(),0, 'New years clear old plans');
     assert.deepEqual(errors,[]);
     console.log('PASS: city resources, clear council seats, removed map decorations, vote links, omen plan details and ties, mobile omen controls, reduced motion, 1/5/21 advisor rosters, clamor shouts, no browser errors.');
   } finally {
