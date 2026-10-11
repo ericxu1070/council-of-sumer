@@ -57,6 +57,13 @@ def test_shout_audio_uses_only_whitelisted_text(client, tts_calls):
     assert tts_calls == [("merchant", "More fields!", voice.ADVISOR_MODEL)]
 
 
+def test_custom_agent_voices_can_shout(client, tts_calls):
+    key = voice.CUSTOM_VOICE_KEYS[0]
+    assert key in client.get("/api/clamor").json()["voices"]
+    assert client.get(f"/api/clamor/{key}/feed/0").status_code == 200
+    assert tts_calls == [(key, "Feed the people!", voice.ADVISOR_MODEL)]
+
+
 @pytest.mark.parametrize("path", [
     "/api/clamor/narrator/feed/0",      # the narrator never clamors
     "/api/clamor/custom-scribe/feed/0",  # voices are keys, not advisor ids

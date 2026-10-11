@@ -42,8 +42,8 @@ def phrase(stance: str, index: int) -> str:
 
 
 def voice_keys() -> set[str]:
-    """Advisor voices a shout may use (never the narrator)."""
-    return set(voice.DEFAULT_VOICES) - {"narrator"}
+    """Seat voices a shout may use: the built-in advisors and the custom-agent choices, never the narrator."""
+    return set(voice.SEAT_VOICES)
 
 
 async def shout(speaker: str, stance: str, index: int) -> bytes | None:
