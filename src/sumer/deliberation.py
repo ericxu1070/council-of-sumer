@@ -81,6 +81,7 @@ class YearResult:
     certificate: dict | None = None
     human_resolution: dict | None = None
     summary: str = ""  # the narrator's plain-English line, set after the year is played
+    speech: dict | None = None  # the year-end speech (narrator.year_speech), set with the summary
 
     def record(self) -> dict:
         return {

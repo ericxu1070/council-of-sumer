@@ -22,6 +22,7 @@ from sumer.game import (
     YearRolls,
     legalize,
 )
+from sumer.voice import SEAT_VOICES, custom_voice_for
 
 VILLAGER_MANDATE = (
     "Maximize the expected final numeric score over the whole reign: "
@@ -121,6 +122,7 @@ class Advisor:
     emoji: str
     bias: float = 0.0  # preference intensity and resistance to concessions, from 0 to 1
     aliases: tuple[str, ...] = field(default_factory=tuple)  # other names that address it
+    tts_voice: str = ""  # the text-to-speech voice key it speaks in (see sumer.voice)
 
     def public(self) -> dict:
         return {
@@ -132,6 +134,7 @@ class Advisor:
             "emoji": self.emoji,
             "voice": self.voice,
             "bias": self.bias,
+            "tts_voice": self.tts_voice,
         }
 
     def beliefs_for(self, b: Beliefs) -> Beliefs:
@@ -157,7 +160,7 @@ class Advisor:
 
 
 ADVISORS: dict[str, Advisor] = {
-    a.id: replace(a, mandate=compromise_mandate(a.mandate))
+    a.id: replace(a, mandate=compromise_mandate(a.mandate), tts_voice=a.id)
     for a in [
         Advisor(
             id="provider", title="Provider", short="Provider", bias=0.25,
@@ -226,9 +229,12 @@ class CouncilSeat(BaseModel):
     voice: str | None = Field(default=None, min_length=1, max_length=200)
     color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
     emoji: str | None = Field(default=None, min_length=1, max_length=12)
+    tts_voice: str | None = Field(default=None, max_length=32)
 
     @model_validator(mode="after")
     def custom_identity(self):
+        if self.tts_voice is not None and self.tts_voice not in SEAT_VOICES:
+            raise ValueError("Choose one of the listed voices.")
         if self.mandate and len(self.mandate.removesuffix(f" {COMPROMISE_GUIDANCE}")) > 2000:
             raise ValueError("Agent instructions must be at most 2000 characters.")
         if self.id not in ADVISORS and (self.short is None or self.mandate is None):
@@ -258,6 +264,7 @@ def resolve_council(seats: list[dict | CouncilSeat] | None = None) -> dict[str, 
                 voice=seat.voice or base.voice,
                 color=seat.color or base.color,
                 emoji=seat.emoji or base.emoji,
+                tts_voice=seat.tts_voice or base.tts_voice,
             )
         else:
             roster[seat.id] = Advisor(
@@ -269,6 +276,7 @@ def resolve_council(seats: list[dict | CouncilSeat] | None = None) -> dict[str, 
                 voice=seat.voice or "clear, thoughtful, speaks from the public mandate",
                 color=seat.color or "#607d8b",
                 emoji=seat.emoji or "🗣️",
+                tts_voice=seat.tts_voice or custom_voice_for(seat.id),
             )
     counts = Counter(a.short.casefold() for a in roster.values())
     occurrences: Counter[str] = Counter()

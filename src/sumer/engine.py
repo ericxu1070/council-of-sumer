@@ -225,7 +225,7 @@ def commit(store: Store, run_id: str, state: State, result: YearResult,
         with span("budget.validate", run_id=run_id, year=state.year, candidate_id=result.adopted_id):
             legalize(state, result.plan)
         next_state = advance(state, result.plan, rolls)
-        data = {**result.record(), "summary": result.summary, "start_state": state.public(),
+        data = {**result.record(), "summary": result.summary, "speech": result.speech, "start_state": state.public(),
                 "state": next_state.public(), "report": next_state.last_report,
                 "opening": {a: p.model_dump() for a, p in result.opening.items()},
                 "after_news": {a: p.model_dump() for a, p in result.after_news.items()},

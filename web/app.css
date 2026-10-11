@@ -235,6 +235,8 @@ button.panel-head:hover { background: rgba(255, 255, 255, .025); }
 .card-kicker { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--muted); font-weight: 600; font-size: .7rem; text-transform: uppercase; letter-spacing: .09em; }
 .card-kicker .outcome { text-transform: none; letter-spacing: 0; font-size: .74rem; }
 .card-summary { font-weight: 600; font-size: 1.05rem; line-height: 1.35; margin: 8px 0; color: var(--ink); letter-spacing: -.005em; }
+.card-quote { display: flex; gap: 8px; align-items: flex-start; margin: 0 0 8px; color: var(--ink-2); font-style: italic; line-height: 1.4; }
+.card-quote .av { flex: none; font-style: normal; }
 .card-plan { margin-bottom: 2px; }
 /* Flex so a lone last tile spans the row; values sit on a shared baseline under 1- or 2-line captions. */
 .nums { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -325,6 +327,8 @@ button.panel-head:hover { background: rgba(255, 255, 255, .025); }
 .voter-bias { display: grid; grid-template-columns: minmax(0, 1fr) 84px; align-items: center; gap: 10px; margin-left: 50px; font-size: .78rem; color: var(--muted); }
 .voter-card .voter-bias input { margin-left: 0; width: 100%; }
 .voter-card textarea { resize: vertical; font: inherit; font-weight: 400; }
+.voter-voice { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; margin-left: 50px; font-size: .78rem; color: var(--muted); }
+.voter-card .voter-voice select { width: 100%; }
 .voter-card :is(select, input, textarea):focus { outline: none; border-color: color-mix(in srgb, var(--speak) 60%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--speak) 15%, transparent); }
 .voter-mandate { font-size: .8rem; color: var(--muted); margin: 0; overflow-wrap: anywhere; }
 .setup-error { margin: 0; padding: 9px 12px; color: #fecaca; background: color-mix(in srgb, var(--bad) 14%, transparent); border: 1px solid color-mix(in srgb, var(--bad) 35%, transparent); border-radius: 0; font-size: .85rem; }

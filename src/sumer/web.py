@@ -3,8 +3,8 @@
 Pacing: council messages (each turn, news, runoff steps, escalation) go out
 one at a time, exactly `live.pace_s` seconds apart (default 0.8 s, PACE_S or
 POST /api/pace; 0 fast-forwards). After each year's result the
-server waits for the narrator to finish reading the year's summary, plus a
-second, before the next year starts.
+server waits for the winning advisor to state the plan and the narrator to
+read the year's headline, plus a second, before the next year starts.
 """
 
 from __future__ import annotations
@@ -17,8 +17,9 @@ import os
 import time
 import zipfile
 from contextlib import asynccontextmanager
+from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -93,7 +94,7 @@ class Live:
         self.pending: asyncio.Future | None = None
         self.council = None
         self.game_no = 0
-        self.narration: dict[int, bytes] = {}
+        self.narration: dict[tuple[int, str], bytes] = {}  # (year, "speech" | "headline")
         self.next_at = 0.0  # loop time when the next paced message may go out
 
 
@@ -118,18 +119,28 @@ async def paced_emit(kind: str, data: dict) -> None:
     if kind in PACED:
         live.next_at = loop.time() + live.pace_s
     elif kind == "year":
-        # Let the narrator finish reading the year before the next debate starts.
-        text = data.get("summary") or ""
-        await asyncio.sleep(voice.seconds(live.narration.get(data["year"]), text) + 1.0)
+        # Let the winner and the narrator finish before the next debate starts.
+        speech = data.get("speech") or {}
+        await asyncio.sleep(sum(
+            voice.seconds(live.narration.get((data["year"], part)), speech.get(key) or "")
+            for part, key in (("speech", "text"), ("headline", "headline"))
+        ) + 1.0)
 
 
-async def _narrate(year: int, text: str) -> str | None:
-    audio = await voice.narrate(text)
-    if audio is None:
-        live.narration.pop(year, None)
-        return None
-    live.narration[year] = audio
-    return f"/api/narration/{year}?game={live.game_no}"
+async def _narrate(year: int, speech: dict) -> dict[str, str]:
+    """The winner's plan in their own voice, then the headline in the narrator's."""
+    voice_key = speech.get("voice", "")
+    plan = (voice.narrate(speech["text"]) if voice_key == "narrator"
+            else voice.speak(voice_key, speech["text"]))
+    clips = await asyncio.gather(plan, voice.narrate(speech["headline"]))
+    urls = {}
+    for part, audio in zip(("speech", "headline"), clips, strict=True):
+        if audio is None:
+            live.narration.pop((year, part), None)
+            continue
+        live.narration[(year, part)] = audio
+        urls[part] = f"/api/narration/{year}?part={part}&game={live.game_no}"
+    return urls
 
 
 async def _ask(brief: Brief) -> Ballot | Delivery | None:
@@ -339,6 +350,7 @@ async def meta():
         "llm": settings.llm_mode,
         "model": settings.llm_model if settings.llm_mode == "bayleaf" else "unavailable",
         "voice": voice.enabled(),
+        "voices": voice.custom_voice_options(),
         "max_rounds": settings.max_rounds,
         "escalation_timeout_s": settings.escalation_timeout_s,
         "budget_usd": settings.llm_budget_usd,
@@ -459,19 +471,20 @@ async def bench():
     return JSONResponse(data)
 
 
-@app.get("/api/voice/{advisor}")
-async def speak(advisor: str, text: str):
-    if advisor not in ADVISORS:
-        raise HTTPException(404)
-    audio = await voice.speak(advisor, text)
+@app.get("/api/voice/{key}")
+async def speak(key: str, text: str = Query(min_length=1, max_length=400)):
+    # Only listed voice keys reach ElevenLabs; the client never names a raw voice ID.
+    if key not in voice.SEAT_VOICES:
+        raise HTTPException(404, "unknown voice")
+    audio = await voice.speak(key, text)
     if audio is None:
         raise HTTPException(404, "voice unavailable")
     return Response(audio, media_type="audio/mpeg")
 
 
 @app.get("/api/narration/{year}")
-async def narration(year: int):
-    audio = live.narration.get(year)
+async def narration(year: int, part: Literal["speech", "headline"] = "speech"):
+    audio = live.narration.get((year, part))
     if audio is None:
         raise HTTPException(404, "no narration for that year")
     return Response(audio, media_type="audio/mpeg", headers={"Cache-Control": "no-store"})
