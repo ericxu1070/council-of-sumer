@@ -1,0 +1,231 @@
+{
+  "generated": "2026-10-11T00:31:27",
+  "seeds": 30,
+  "transport": "inproc",
+  "llm": "mock",
+  "seconds": 433.2,
+  "rows": [
+    {
+      "policy": "Farmer alone",
+      "key": "dictator_farmer",
+      "score": 1189.8,
+      "survived": "30/30",
+      "starved": 0,
+      "population": 102.5,
+      "fairness": 0.407,
+      "satisfaction": {
+        "farmer": 1.0,
+        "priest": 0.407,
+        "general": 0.901,
+        "merchant": 0.613
+      }
+    },
+    {
+      "policy": "Lone ruler (equal weights, no debate)",
+      "key": "lone_ruler",
+      "score": 1126.7,
+      "survived": "30/30",
+      "starved": 2.3,
+      "population": 99.9,
+      "fairness": 0.423,
+      "satisfaction": {
+        "farmer": 0.998,
+        "priest": 0.423,
+        "general": 0.894,
+        "merchant": 0.591
+      }
+    },
+    {
+      "policy": "Council (4 agents, negotiated)",
+      "key": "council",
+      "score": 1048.3,
+      "survived": "30/30",
+      "starved": 4.1,
+      "population": 96.5,
+      "fairness": 0.459,
+      "satisfaction": {
+        "farmer": 0.997,
+        "priest": 0.459,
+        "general": 0.829,
+        "merchant": 0.555
+      },
+      "consensus": 152,
+      "majority": 99,
+      "escalated": 49,
+      "mean_rounds": 4.15
+    },
+    {
+      "policy": "General alone",
+      "key": "dictator_general",
+      "score": 1032.8,
+      "survived": "30/30",
+      "starved": 4.4,
+      "population": 95.7,
+      "fairness": 0.254,
+      "satisfaction": {
+        "farmer": 0.996,
+        "priest": 0.254,
+        "general": 1.0,
+        "merchant": 0.5
+      }
+    },
+    {
+      "policy": "Average of selfish openings",
+      "key": "average",
+      "score": -2317.3,
+      "survived": "10/30",
+      "starved": 81.2,
+      "population": 2.1,
+      "fairness": 0.388,
+      "satisfaction": {
+        "farmer": 0.401,
+        "priest": 0.418,
+        "general": 0.388,
+        "merchant": 0.733
+      }
+    },
+    {
+      "policy": "Priest alone",
+      "key": "dictator_priest",
+      "score": -3147.4,
+      "survived": "0/30",
+      "starved": 88.1,
+      "population": 1.9,
+      "fairness": 0.0,
+      "satisfaction": {
+        "farmer": 0.102,
+        "priest": 1.0,
+        "general": 0.0,
+        "merchant": 0.449
+      }
+    },
+    {
+      "policy": "Merchant alone",
+      "key": "dictator_merchant",
+      "score": -3163.6,
+      "survived": "0/30",
+      "starved": 93.7,
+      "population": 0.2,
+      "fairness": 0.125,
+      "satisfaction": {
+        "farmer": 0.167,
+        "priest": 0.125,
+        "general": 0.357,
+        "merchant": 1.0
+      }
+    }
+  ],
+  "info": [
+    {
+      "decider": "Council",
+      "score with scouts": 1048.3,
+      "score silent": 998.5,
+      "plans changed by news": "84/287 years"
+    },
+    {
+      "decider": "Lone ruler",
+      "score with scouts": 1126.7,
+      "score silent": 1132.0,
+      "plans changed by news": "-"
+    }
+  ],
+  "info_examples": [
+    {
+      "seed": 1,
+      "year": 8,
+      "news": "Locusts sighted in the east. Expect a poor harvest, 1 to 2 bushels per acre.",
+      "without": {
+        "land_delta": -36,
+        "feed": 1320,
+        "plant": 660
+      },
+      "with": {
+        "land_delta": -71,
+        "feed": 1320,
+        "plant": 640
+      }
+    },
+    {
+      "seed": 1,
+      "year": 9,
+      "news": "Traders from Lagash say land will sell for 25 bushels an acre next year.",
+      "without": {
+        "land_delta": -64,
+        "feed": 1440,
+        "plant": 576
+      },
+      "with": {
+        "land_delta": 128,
+        "feed": 1440,
+        "plant": 720
+      }
+    },
+    {
+      "seed": 2,
+      "year": 1,
+      "news": "Locusts sighted in the east. Expect a poor harvest, 1 to 2 bushels per acre.",
+      "without": {
+        "land_delta": -100,
+        "feed": 2000,
+        "plant": 900
+      },
+      "with": {
+        "land_delta": 0,
+        "feed": 1800,
+        "plant": 1000
+      }
+    },
+    {
+      "seed": 2,
+      "year": 5,
+      "news": "Locusts sighted in the east. Expect a poor harvest, 1 to 2 bushels per acre.",
+      "without": {
+        "land_delta": -36,
+        "feed": 2240,
+        "plant": 693
+      },
+      "with": {
+        "land_delta": 146,
+        "feed": 2240,
+        "plant": 875
+      }
+    },
+    {
+      "seed": 2,
+      "year": 6,
+      "news": "The river flooded richly. Expect a strong harvest, 4 to 5 bushels per acre.",
+      "without": {
+        "land_delta": -46,
+        "feed": 2380,
+        "plant": 829
+      },
+      "with": {
+        "land_delta": -44,
+        "feed": 2380,
+        "plant": 790
+      }
+    },
+    {
+      "seed": 3,
+      "year": 3,
+      "news": "Traders from Lagash say land will sell for 24 bushels an acre next year.",
+      "without": {
+        "land_delta": -81,
+        "feed": 2160,
+        "plant": 729
+      },
+      "with": {
+        "land_delta": 162,
+        "feed": 2160,
+        "plant": 972
+      }
+    }
+  ],
+  "lessons": [
+    "Negotiation beats averaging: the council scored 1048.3 vs -2317.3 for averaging each advisor's selfish plan (10/30 reigns survived vs 30/30).",
+    "A single equal-weight ruler scored 1126.7 vs the council's 1048.3. The council's edge is fairness: its worst-served advisor averaged 0.459 satisfaction vs 0.423 under the lone ruler.",
+    "News changed the adopted plan in 84 of 287 years where it arrived. Scouts moved the council's mean score from 998.5 (silent) to 1048.3.",
+    "Outcomes over 300 council-years: 152 consensus, 99 majority with recorded dissent, 49 escalated to a human. Mean rounds per year: 4.15.",
+    "Single-mandate rule fails: Priest alone, Merchant alone lost most reigns. One objective is not enough, which is why each advisor's red line matters."
+  ]
+}

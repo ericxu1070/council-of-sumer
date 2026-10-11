@@ -1,0 +1,486 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Council of Sumer</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23c9a46a'/><path d='M8 22 16 8l8 14z' fill='%23241a12'/></svg>">
+<style>
+:root {
+  --bg: #17120d;
+  --panel: #221a13;
+  --panel-2: #2b2118;
+  --line: #3d3024;
+  --text: #f1e6d4;
+  --muted: #b4a48c;
+  --faint: #7d6f5c;
+  --clay: #c9a46a;
+  --lapis: #4b7bd1;
+  --ok: #5fae6e;
+  --warn: #d9a23a;
+  --bad: #d4553f;
+  --radius: 10px;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var(--sans); }
+button, select, input { font: inherit; color: inherit; }
+header {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel);
+}
+h1 { margin: 0; font-size: 20px; letter-spacing: .02em; }
+h1 small { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 8px; }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+.chip {
+  border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px;
+  font-size: 12px; color: var(--muted); background: var(--panel-2); white-space: nowrap;
+}
+.chip b { color: var(--text); font-weight: 600; }
+.tabs { display: flex; gap: 4px; }
+.tab { background: none; border: 0; padding: 6px 12px; border-radius: 8px; color: var(--muted); cursor: pointer; }
+.tab[aria-selected="true"] { background: var(--panel-2); color: var(--text); }
+
+main { display: grid; grid-template-columns: 300px 1fr; gap: 16px; padding: 16px 20px; max-width: 1500px; margin: 0 auto; }
+@media (max-width: 960px) { main { grid-template-columns: 1fr; padding: 12px 16px; } }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+.panel h2 { margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; }
+aside { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
+.stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.stat { background: var(--panel-2); border-radius: 8px; padding: 8px 10px; }
+.stat .k { font-size: 11px; color: var(--muted); }
+.stat .v { font: 600 20px/1.2 var(--mono); }
+.stat .d { font: 12px var(--mono); color: var(--faint); min-height: 16px; }
+.stat .d.up { color: var(--ok); } .stat .d.down { color: var(--bad); }
+
+.controls { display: grid; gap: 10px; }
+.row { display: flex; gap: 8px; align-items: center; }
+.row label { color: var(--muted); font-size: 12px; min-width: 64px; }
+input[type=number], select {
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; width: 100%;
+}
+input[type=range] { width: 100%; accent-color: var(--clay); }
+.btn {
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px;
+  cursor: pointer; transition: border-color .15s, background .15s;
+}
+.btn:hover { border-color: var(--clay); }
+.btn.primary { background: var(--clay); color: #1b140d; border-color: var(--clay); font-weight: 600; }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.news-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.news-btns .btn { font-size: 12px; padding: 6px 8px; }
+.hint { color: var(--faint); font-size: 12px; margin: 0; }
+
+.stage { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.banner {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--panel);
+}
+.banner .round { font: 600 13px var(--mono); color: var(--muted); }
+.banner .title { font-weight: 600; }
+.badge { font: 600 11px var(--mono); letter-spacing: .06em; padding: 3px 8px; border-radius: 6px; text-transform: uppercase; }
+.badge.consensus { background: color-mix(in srgb, var(--ok) 22%, transparent); color: var(--ok); }
+.badge.majority { background: color-mix(in srgb, var(--warn) 22%, transparent); color: var(--warn); }
+.badge.escalated { background: color-mix(in srgb, var(--bad) 22%, transparent); color: var(--bad); }
+.badge.news { background: color-mix(in srgb, var(--lapis) 25%, transparent); color: #8fb0ee; }
+.badge.llm { background: color-mix(in srgb, var(--lapis) 25%, transparent); color: #8fb0ee; }
+.badge.policy { background: var(--panel-2); color: var(--muted); }
+
+.council { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 700px) { .council { grid-template-columns: 1fr; } }
+.advisor {
+  background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--c);
+  border-radius: var(--radius); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; min-width: 0;
+  transition: box-shadow .3s;
+}
+.advisor.speaking { box-shadow: 0 0 0 2px color-mix(in srgb, var(--c) 60%, transparent); }
+.advisor .top { display: flex; align-items: baseline; gap: 8px; }
+.advisor .name { font-weight: 700; color: var(--c); }
+.advisor .top .badge { margin-left: auto; }
+.advisor .mandate { color: var(--muted); font-size: 12px; }
+.advisor .redline { color: var(--faint); font-size: 12px; }
+.plan { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.plan div { background: var(--panel-2); border-radius: 6px; padding: 5px 8px; }
+.plan .k { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.plan .v { font: 600 15px var(--mono); }
+.speech { font-style: italic; color: var(--text); min-height: 40px; }
+.votes { display: flex; gap: 6px; flex-wrap: wrap; font-size: 12px; }
+.vote { font: 11px var(--mono); border-radius: 5px; padding: 2px 6px; border: 1px solid var(--line); color: var(--muted); }
+.vote.acc { border-color: var(--ok); color: var(--ok); }
+.vote.vet { border-color: var(--bad); color: var(--bad); }
+.sat { height: 4px; background: var(--panel-2); border-radius: 2px; overflow: hidden; }
+.sat > i { display: block; height: 100%; background: var(--c); width: 0; transition: width .4s; }
+
+.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+@media (max-width: 1100px) { .split { grid-template-columns: 1fr; } }
+.log { max-height: 420px; overflow: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 4px; }
+.entry { font-size: 13px; padding: 6px 8px; border-radius: 6px; background: var(--panel-2); }
+.entry .who { font-weight: 600; }
+.entry.news { border-left: 3px solid var(--lapis); }
+.entry.outcome { border-left: 3px solid var(--clay); }
+.entry .meta { color: var(--faint); font: 11px var(--mono); }
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+th, td { text-align: right; padding: 5px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--muted); font-weight: 600; }
+td.mono, .mono { font-family: var(--mono); }
+.table-wrap { overflow-x: auto; }
+.diff { font: 12px var(--mono); color: var(--muted); }
+.diff b { color: #8fb0ee; font-weight: 600; }
+
+dialog {
+  background: var(--panel); color: var(--text); border: 1px solid var(--bad); border-radius: 14px;
+  max-width: 720px; width: calc(100% - 32px); padding: 20px;
+}
+dialog::backdrop { background: rgba(0,0,0,.6); }
+dialog h3 { margin: 0 0 4px; }
+.options { display: grid; gap: 10px; margin-top: 14px; }
+.option { display: flex; gap: 12px; align-items: center; background: var(--panel-2); border-radius: 10px; padding: 10px 12px; flex-wrap: wrap; }
+.option .desc { flex: 1; min-width: 200px; }
+.countdown { font: 600 13px var(--mono); color: var(--bad); }
+.toast { position: fixed; bottom: 16px; right: 16px; background: var(--bad); color: #fff; padding: 10px 14px; border-radius: 8px; display: none; max-width: 420px; }
+.final { font-size: 15px; }
+.hidden { display: none !important; }
+#benchView { padding: 16px 20px; max-width: 1500px; margin: 0 auto; }
+#benchView .panel + .panel { margin-top: 16px; }
+.lede { color: var(--muted); max-width: 900px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Council of Sumer <small>four advisors, no king</small></h1>
+  <nav class="tabs" role="tablist">
+    <button class="tab" role="tab" aria-selected="true" data-view="chamberView">Chamber</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="benchView">Evidence</button>
+  </nav>
+  <div class="chips">
+    <span class="chip">Transport <b id="chipTransport">-</b></span>
+    <span class="chip">Reasoning <b id="chipLlm">-</b></span>
+    <span class="chip">Ballots <b>HMAC signed</b></span>
+  </div>
+</header>
+
+<div id="chamberView">
+<main>
+  <aside>
+    <section class="panel">
+      <h2>The city</h2>
+      <div class="stats">
+        <div class="stat"><div class="k">Year</div><div class="v" id="sYear">-</div><div class="d" id="dYear"></div></div>
+        <div class="stat"><div class="k">People</div><div class="v" id="sPop">-</div><div class="d" id="dPop"></div></div>
+        <div class="stat"><div class="k">Grain (bushels)</div><div class="v" id="sGrain">-</div><div class="d" id="dGrain"></div></div>
+        <div class="stat"><div class="k">Land (acres)</div><div class="v" id="sAcres">-</div><div class="d" id="dAcres"></div></div>
+        <div class="stat"><div class="k">Land price</div><div class="v" id="sPrice">-</div><div class="d">bushels per acre</div></div>
+        <div class="stat"><div class="k">Starved so far</div><div class="v" id="sStarved">-</div><div class="d" id="dStarved"></div></div>
+      </div>
+    </section>
+
+    <section class="panel controls">
+      <h2>Run a reign</h2>
+      <div class="row"><label for="seed">Seed</label><input id="seed" type="number" value="7" min="0"></div>
+      <div class="row"><label for="rounds">Rounds</label>
+        <select id="rounds"><option>3</option><option>4</option><option selected>5</option><option>6</option></select></div>
+      <div class="row"><label for="reveal">Scouts</label>
+        <select id="reveal"><option value="1" selected>Report mid-debate</option><option value="0">Silent</option></select></div>
+      <div class="row"><label for="pace">Pace</label><input id="pace" type="range" min="0" max="4" step="0.2" value="1.2"></div>
+      <div class="row">
+        <button class="btn primary" id="startBtn" style="flex:1">Convene the council</button>
+        <button class="btn" id="stopBtn">Stop</button>
+      </div>
+      <div class="row hidden" id="voiceRow"><label for="voiceOn">Voices</label>
+        <select id="voiceOn"><option value="0">Off</option><option value="1">ElevenLabs</option></select></div>
+    </section>
+
+    <section class="panel controls">
+      <h2>Send a scout</h2>
+      <p class="hint">Reveal true news about this year mid-debate and watch proposals shift.</p>
+      <div class="news-btns">
+        <button class="btn" data-news="harvest">Harvest</button>
+        <button class="btn" data-news="rats">Granary rats</button>
+        <button class="btn" data-news="plague">Plague</button>
+        <button class="btn" data-news="market">Land market</button>
+      </div>
+    </section>
+  </aside>
+
+  <section class="stage">
+    <div class="banner" id="banner">
+      <span class="round" id="roundLabel">Idle</span>
+      <span class="title" id="bannerText">Pick a seed and convene the council.</span>
+      <span id="bannerBadge"></span>
+    </div>
+
+    <div class="council" id="council"></div>
+
+    <div class="split">
+      <section class="panel">
+        <h2>Debate</h2>
+        <div class="log" id="log"></div>
+      </section>
+      <section class="panel">
+        <h2>Reign so far</h2>
+        <div class="table-wrap">
+          <table id="years">
+            <thead><tr><th>Year</th><th>Outcome</th><th>Rounds</th><th>Land</th><th>Feed</th><th>Plant</th><th>Yield</th><th>Starved</th><th>People</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="final" id="final"></p>
+        <div id="newsDiff"></div>
+      </section>
+    </div>
+  </section>
+</main>
+</div>
+
+<div id="benchView" class="hidden">
+  <section class="panel">
+    <h2>Council vs simpler deciders</h2>
+    <p class="lede">Every policy plays the same seeds, so all of them face the same harvests, rats, and plagues. Score rewards people alive and wealth and punishes starvation. Fairness is the lowest average satisfaction among the four advisors: how well the worst-served mandate fared.</p>
+    <div class="table-wrap"><table id="benchTable"><thead></thead><tbody></tbody></table></div>
+    <p class="hint" id="benchMeta"></p>
+  </section>
+  <section class="panel">
+    <h2>Does new information change decisions?</h2>
+    <div class="table-wrap"><table id="infoTable"><thead></thead><tbody></tbody></table></div>
+  </section>
+  <section class="panel">
+    <h2>What we learned</h2>
+    <ul id="lessons" class="lede"></ul>
+  </section>
+</div>
+
+<dialog id="escalation">
+  <h3>The council cannot decide. You must.</h3>
+  <p id="escReason" class="hint"></p>
+  <div class="options" id="escOptions"></div>
+  <p class="countdown" id="escCountdown"></p>
+</dialog>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const fmt = n => (n ?? 0).toLocaleString("en-US");
+const NAMES = {};
+let meta = null, prevState = null, currentYear = 1;
+const audioQueue = [];
+let playing = false;
+
+async function api(path, body) {
+  const r = await fetch(path, body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {});
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+function toast(msg) {
+  const t = $("#toast"); t.textContent = msg; t.style.display = "block";
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.style.display = "none", 6000);
+}
+
+function planText(p) {
+  if (!p) return "-";
+  const land = p.land_delta > 0 ? `buy ${p.land_delta}` : p.land_delta < 0 ? `sell ${-p.land_delta}` : "hold";
+  return `${land} acres, feed ${fmt(p.feed)}, plant ${fmt(p.plant)}`;
+}
+
+function buildCouncil() {
+  const root = $("#council"); root.innerHTML = "";
+  for (const a of meta.advisors) {
+    NAMES[a.id] = a.title;
+    const el = document.createElement("article");
+    el.className = "advisor"; el.id = `adv-${a.id}`; el.style.setProperty("--c", a.color);
+    el.innerHTML = `
+      <div class="top"><span class="name">${a.title}</span><span class="badge policy src">waiting</span></div>
+      <div class="mandate">${a.mandate}</div>
+      <div class="redline">Red line: ${a.red_line}</div>
+      <div class="plan">
+        <div><div class="k">Land</div><div class="v land">-</div></div>
+        <div><div class="k">Feed</div><div class="v feed">-</div></div>
+        <div><div class="k">Plant</div><div class="v plant">-</div></div>
+      </div>
+      <div class="speech">&nbsp;</div>
+      <div class="votes"></div>
+      <div class="sat" title="Satisfaction with last adopted plan"><i></i></div>`;
+    root.appendChild(el);
+  }
+}
+
+function setStat(id, v, prev, invert = false) {
+  $(`#s${id}`).textContent = fmt(v);
+  const d = $(`#d${id}`); if (!d) return;
+  if (prev == null || prev === v) { d.textContent = ""; d.className = "d"; return; }
+  const delta = v - prev, good = invert ? delta < 0 : delta > 0;
+  d.textContent = `${delta > 0 ? "+" : ""}${fmt(delta)} last year`;
+  d.className = `d ${good ? "up" : "down"}`;
+}
+
+function showState(s) {
+  $("#sYear").textContent = Math.min(s.year, 10);
+  $("#dYear").textContent = s.year > 10 ? "reign complete" : "of 10";
+  setStat("Pop", s.population, prevState?.population);
+  setStat("Grain", s.grain, prevState?.grain);
+  setStat("Acres", s.acres, prevState?.acres);
+  $("#sPrice").textContent = s.land_price;
+  setStat("Starved", s.starved_total, prevState?.starved_total, true);
+  prevState = s;
+}
+
+function logEntry(html, cls = "") {
+  const e = document.createElement("div"); e.className = `entry ${cls}`; e.innerHTML = html;
+  const log = $("#log"); log.appendChild(e); log.scrollTop = log.scrollHeight;
+}
+
+function enqueueVoice(advisor, text) {
+  if ($("#voiceOn").value !== "1" || !text) return;
+  audioQueue.push({ advisor, text }); if (!playing) playNext();
+}
+function playNext() {
+  const item = audioQueue.shift(); if (!item) { playing = false; return; }
+  playing = true;
+  const card = $(`#adv-${item.advisor}`); card?.classList.add("speaking");
+  const a = new Audio(`/api/voice/${item.advisor}?text=${encodeURIComponent(item.text)}`);
+  const done = () => { card?.classList.remove("speaking"); playNext(); };
+  a.onended = done; a.onerror = done; a.play().catch(done);
+}
+
+function onBallots(d) {
+  const tally = Object.fromEntries((d.tally || []).map(t => [t.id, t]));
+  for (const b of d.ballots) {
+    const el = $(`#adv-${b.advisor}`); if (!el) continue;
+    $(".land", el).textContent = b.proposal.land_delta > 0 ? `+${b.proposal.land_delta}` : b.proposal.land_delta;
+    $(".feed", el).textContent = fmt(b.proposal.feed);
+    $(".plant", el).textContent = fmt(b.proposal.plant);
+    $(".speech", el).textContent = b.speech ? `"${b.speech}"` : "";
+    const src = $(".src", el); src.textContent = b.source === "llm" ? "LLM" : "policy"; src.className = `badge ${b.source} src`;
+    const votes = $(".votes", el); votes.innerHTML = "";
+    for (const id of b.accept) votes.insertAdjacentHTML("beforeend", `<span class="vote acc">accepts ${id.split("-")[0]}</span>`);
+    for (const id of b.veto) votes.insertAdjacentHTML("beforeend", `<span class="vote vet">vetoes ${id.split("-")[0]}</span>`);
+    logEntry(`<span class="who" style="color:${meta.advisors.find(a => a.id === b.advisor).color}">${NAMES[b.advisor]}</span>
+      <span class="meta">r${d.round + 1} ${b.source}</span><br>${b.speech || planText(b.proposal)}`);
+    enqueueVoice(b.advisor, b.speech);
+  }
+  if (d.tally?.length) {
+    const best = [...d.tally].sort((a, b) => b.accept.length - a.accept.length)[0];
+    $("#bannerText").textContent = `Leading: ${NAMES[best.author]}'s plan, ${best.accept.length} of 4 accept${best.veto.length ? `, vetoed by ${best.veto.map(v => NAMES[v]).join(", ")}` : ""}`;
+  } else {
+    $("#bannerText").textContent = "Opening proposals tabled.";
+  }
+}
+
+function onYear(d) {
+  const r = d.report || {};
+  const tr = document.createElement("tr");
+  tr.innerHTML = `<td>${d.year}</td><td><span class="badge ${d.outcome}">${d.outcome}</span></td><td class="mono">${d.rounds}</td>
+    <td class="mono">${d.plan.land_delta}</td><td class="mono">${fmt(d.plan.feed)}</td><td class="mono">${fmt(d.plan.plant)}</td>
+    <td class="mono">${r.yield_per_acre ?? "-"}</td><td class="mono">${r.starved ?? "-"}</td><td class="mono">${fmt(d.state.population)}</td>`;
+  $("#years tbody").appendChild(tr);
+  const extra = d.dissent?.length ? ` Dissent kept on record: ${d.dissent.map(x => NAMES[x]).join(", ")}.` : "";
+  logEntry(`<span class="badge ${d.outcome}">${d.outcome}</span> <b>Year ${d.year}</b>: ${planText(d.plan)}. ${d.reason}${extra}
+    <div class="meta">Harvest ${fmt(r.harvest)} (${r.yield_per_acre}/acre), rats ate ${fmt(r.rats)}, ${r.starved} starved, ${r.immigrants} arrived${r.plague_deaths ? `, plague killed ${r.plague_deaths}` : ""}</div>`, "outcome");
+  $("#bannerBadge").innerHTML = `<span class="badge ${d.outcome}">${d.outcome}</span>`;
+  for (const [a, v] of Object.entries(d.satisfaction || {})) $(`#adv-${a} .sat > i`).style.width = `${Math.round(v * 100)}%`;
+  if (d.news?.length && Object.keys(d.after_news || {}).length) {
+    const rows = Object.keys(d.opening).map(a => {
+      const o = d.opening[a], n = d.after_news[a];
+      const changed = JSON.stringify(o) !== JSON.stringify(n);
+      return `<tr><td>${NAMES[a]}</td><td class="mono">${planText(o)}</td><td class="mono">${changed ? "<b>" + planText(n) + "</b>" : "same"}</td></tr>`;
+    }).join("");
+    $("#newsDiff").innerHTML = `<h2 style="margin-top:14px">Year ${d.year}: before and after the news</h2>
+      <p class="diff">${d.news.join(" ")}</p>
+      <div class="table-wrap"><table><thead><tr><th>Advisor</th><th>Opening</th><th>After news</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+  showState(d.state);
+}
+
+function onEscalate(d) {
+  $("#escReason").textContent = d.reason;
+  const box = $("#escOptions"); box.innerHTML = "";
+  for (const o of d.options) {
+    const who = o.id === "safe" ? (o.note || "Safe fallback") :
+      `${NAMES[o.id.split("-")[0]]}'s plan. Accepted by ${o.accept.map(a => NAMES[a]).join(", ") || "nobody"}${o.veto.length ? `. Vetoed by ${o.veto.map(a => NAMES[a]).join(", ")}` : ""}.`;
+    const div = document.createElement("div"); div.className = "option";
+    div.innerHTML = `<div class="desc"><div class="mono">${planText(o.plan)}</div><div class="hint">${who}</div></div>`;
+    const btn = document.createElement("button"); btn.className = "btn primary"; btn.textContent = "Choose";
+    btn.onclick = async () => { try { await api("/api/escalation", { choice: o.id }); } catch (e) { toast(e.message); } closeEsc(); };
+    div.appendChild(btn); box.appendChild(div);
+  }
+  let left = meta.escalation_timeout_s || 60;
+  $("#escCountdown").textContent = `Safe fallback in ${left}s`;
+  clearInterval(onEscalate.t);
+  onEscalate.t = setInterval(() => { left -= 1; $("#escCountdown").textContent = `Safe fallback in ${left}s`; if (left <= 0) closeEsc(); }, 1000);
+  $("#escalation").showModal();
+  logEntry(`<span class="badge escalated">escalated</span> ${d.reason} Asking a human.`, "outcome");
+}
+function closeEsc() { clearInterval(onEscalate.t); if ($("#escalation").open) $("#escalation").close(); }
+
+function handle(ev) {
+  const { kind, data: d } = ev;
+  if (kind === "game") {
+    prevState = null; $("#log").innerHTML = ""; $("#years tbody").innerHTML = ""; $("#final").textContent = ""; $("#newsDiff").innerHTML = "";
+    buildCouncil(); showState(d.state);
+    $("#roundLabel").textContent = "Year 1"; $("#bannerText").textContent = `Seed ${d.seed}. The council convenes.`; $("#bannerBadge").innerHTML = "";
+  } else if (kind === "round") {
+    currentYear = d.year;
+    $("#roundLabel").textContent = `Year ${d.year}, round ${d.round + 1}`;
+  } else if (kind === "news") {
+    logEntry(`<span class="badge news">${d.injected ? "scout sent" : "news"}</span> ${d.text}`, "news");
+    $("#bannerText").textContent = d.text;
+    $("#bannerBadge").innerHTML = `<span class="badge news">new information</span>`;
+  } else if (kind === "ballots") onBallots(d);
+  else if (kind === "year") onYear(d);
+  else if (kind === "escalate") onEscalate(d);
+  else if (kind === "escalation_timeout") { closeEsc(); logEntry("No human answered in time. Using the safe fallback plan.", "outcome"); }
+  else if (kind === "end") {
+    const r = d.rating;
+    $("#roundLabel").textContent = "Reign complete";
+    $("#bannerText").textContent = `Verdict: ${r.verdict}. Score ${r.score}.`;
+    $("#final").innerHTML = `<b>Verdict: ${r.verdict}</b>. ${fmt(r.population)} people, ${fmt(r.acres)} acres, ${fmt(r.grain)} bushels. Average starvation ${r.avg_starved_pct}%. Outcomes: ${Object.entries(d.outcomes).map(([k, v]) => `${v} ${k}`).join(", ")}.`;
+  } else if (kind === "error") toast(d.message);
+}
+
+function connect() {
+  const es = new EventSource("/api/events");
+  es.onmessage = m => handle(JSON.parse(m.data));
+  es.onerror = () => { es.close(); setTimeout(connect, 1500); };
+}
+
+async function loadBench() {
+  const b = await api("/api/bench");
+  if (b.missing) { $("#benchMeta").textContent = "No results yet. Run: uv run sumer bench"; return; }
+  const cols = ["policy", "score", "survived", "starved", "population", "fairness", "consensus", "majority", "escalated"];
+  const label = { policy: "Decider", score: "Mean score", survived: "Reigns survived", starved: "Mean starved", population: "Mean people", fairness: "Fairness (min sat.)", consensus: "Consensus yrs", majority: "Majority yrs", escalated: "Escalated yrs" };
+  $("#benchTable thead").innerHTML = `<tr>${cols.map(c => `<th>${label[c]}</th>`).join("")}</tr>`;
+  $("#benchTable tbody").innerHTML = b.rows.map(r => `<tr>${cols.map(c => `<td class="${c === "policy" ? "" : "mono"}">${r[c] ?? "-"}</td>`).join("")}</tr>`).join("");
+  $("#benchMeta").textContent = `${b.seeds} seeds, transport ${b.transport}, reasoning ${b.llm}. Generated ${b.generated}.`;
+  const icols = Object.keys(b.info[0] || {});
+  $("#infoTable thead").innerHTML = `<tr>${icols.map(c => `<th>${c}</th>`).join("")}</tr>`;
+  $("#infoTable tbody").innerHTML = b.info.map(r => `<tr>${icols.map(c => `<td class="mono">${r[c]}</td>`).join("")}</tr>`).join("");
+  $("#lessons").innerHTML = (b.lessons || []).map(l => `<li>${l}</li>`).join("");
+}
+
+document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
+  document.querySelectorAll(".tab").forEach(x => x.setAttribute("aria-selected", x === t));
+  $("#chamberView").classList.toggle("hidden", t.dataset.view !== "chamberView");
+  $("#benchView").classList.toggle("hidden", t.dataset.view !== "benchView");
+  if (t.dataset.view === "benchView") loadBench().catch(e => toast(e.message));
+});
+$("#startBtn").onclick = () => api("/api/game", { seed: +$("#seed").value, reveal_news: $("#reveal").value === "1", max_rounds: +$("#rounds").value }).catch(e => toast(e.message));
+$("#stopBtn").onclick = () => api("/api/stop", {}).catch(e => toast(e.message));
+$("#pace").oninput = e => api("/api/pace", { pace_s: +e.target.value }).catch(() => {});
+document.querySelectorAll("[data-news]").forEach(b => b.onclick = () => api("/api/news", { kind: b.dataset.news }).then(r => logEntry(`<span class="badge news">scout sent</span> Arrives next round: ${r.report.text}`, "news")).catch(e => toast(e.message)));
+
+(async () => {
+  meta = await api("/api/meta");
+  $("#chipTransport").textContent = meta.transport === "slim" ? "AGNTCY SLIM" : "in-process";
+  $("#chipLlm").textContent = meta.llm === "bayleaf" ? meta.model : "policy (offline)";
+  $("#rounds").value = String(meta.max_rounds);
+  if (meta.voice) $("#voiceRow").classList.remove("hidden");
+  buildCouncil();
+  connect();
+})();
+</script>
+</body>
+</html>
