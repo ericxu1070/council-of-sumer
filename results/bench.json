@@ -1,308 +1,303 @@
 {
-  "generated": "2026-10-11T02:13:01",
-  "seeds": 30,
+  "generated": "2026-10-11T12:38:45",
+  "seeds": 16,
+  "rule_version": "hamurabi-integer-v2",
   "transport": "inproc",
-  "llm": "mock",
-  "seconds": 65.8,
+  "llm": "openrouter:deepseek/deepseek-v4.1-flash",
+  "seconds": 741.3,
   "rows": [
     {
-      "policy": "Farmer alone",
-      "key": "dictator_farmer",
-      "score": 1225.1,
-      "survived": "30/30",
-      "starved": 0,
-      "population": 102.8,
-      "fairness": 0.36,
-      "satisfaction": {
-        "farmer": 1.0,
-        "priest": 0.398,
-        "general": 0.859,
-        "merchant": 0.817,
-        "builder": 0.921,
-        "healer": 0.36,
-        "diplomat": 0.569
-      }
-    },
-    {
-      "policy": "Council (7 agents, negotiated)",
-      "key": "council",
-      "score": 1216.6,
-      "survived": "30/30",
-      "starved": 0.4,
-      "population": 102.5,
-      "fairness": 0.386,
-      "satisfaction": {
-        "farmer": 0.932,
-        "priest": 0.386,
-        "general": 0.894,
-        "merchant": 0.779,
-        "builder": 0.981,
-        "healer": 0.552,
-        "diplomat": 0.798
-      },
-      "consensus": 0,
-      "majority": 123,
-      "runoff": 6,
-      "escalated": 21,
-      "years": 150,
-      "mean_rounds": 2.93,
-      "mean_turns": 20.1
-    },
-    {
-      "policy": "General alone",
-      "key": "dictator_general",
-      "score": 1215.6,
-      "survived": "30/30",
-      "starved": 0.5,
-      "population": 102.4,
-      "fairness": 0.275,
-      "satisfaction": {
-        "farmer": 0.977,
-        "priest": 0.275,
-        "general": 1.0,
-        "merchant": 0.814,
-        "builder": 0.958,
-        "healer": 0.354,
-        "diplomat": 0.712
-      }
-    },
-    {
-      "policy": "Physician alone",
-      "key": "dictator_healer",
-      "score": 1158.0,
-      "survived": "30/30",
-      "starved": 0,
-      "population": 100.1,
-      "fairness": 0.257,
-      "satisfaction": {
-        "farmer": 0.526,
-        "priest": 0.624,
-        "general": 0.425,
-        "merchant": 0.257,
-        "builder": 0.41,
-        "healer": 1.0,
-        "diplomat": 0.313
-      }
-    },
-    {
-      "policy": "Lone ruler (equal weights, no debate)",
-      "key": "lone_ruler",
-      "score": 1157.6,
-      "survived": "30/30",
-      "starved": 2.5,
-      "population": 99.8,
-      "fairness": 0.375,
-      "satisfaction": {
-        "farmer": 0.911,
-        "priest": 0.375,
-        "general": 0.896,
-        "merchant": 0.782,
-        "builder": 0.98,
-        "healer": 0.61,
-        "diplomat": 0.835
-      }
-    },
-    {
-      "policy": "Builder alone",
-      "key": "dictator_builder",
-      "score": 829.8,
-      "survived": "30/30",
-      "starved": 15.0,
-      "population": 84.5,
-      "fairness": 0.296,
-      "satisfaction": {
-        "farmer": 0.844,
-        "priest": 0.378,
-        "general": 0.775,
-        "merchant": 0.873,
-        "builder": 1.0,
-        "healer": 0.296,
-        "diplomat": 0.675
-      }
-    },
-    {
-      "policy": "Average of selfish openings",
-      "key": "average",
-      "score": -238.5,
-      "survived": "30/30",
-      "starved": 50.3,
-      "population": 31.2,
-      "fairness": 0.0,
-      "satisfaction": {
-        "farmer": 0.0,
-        "priest": 0.717,
-        "general": 0.031,
-        "merchant": 0.698,
-        "builder": 0.082,
-        "healer": 0.086,
-        "diplomat": 0.595
-      }
-    },
-    {
-      "policy": "Envoy alone",
-      "key": "dictator_diplomat",
-      "score": -1737.9,
-      "survived": "19/30",
-      "starved": 85.1,
-      "population": 5.1,
-      "fairness": 0.0,
-      "satisfaction": {
-        "farmer": 0.0,
-        "priest": 0.364,
-        "general": 0.029,
-        "merchant": 0.882,
-        "builder": 0.091,
-        "healer": 0.006,
-        "diplomat": 1.0
-      }
-    },
-    {
+      "completed": 16,
+      "deadlocks": 0,
+      "technical_failures": 0,
       "policy": "Merchant alone",
       "key": "dictator_merchant",
-      "score": -1742.5,
-      "survived": "19/30",
-      "starved": 85.2,
-      "population": 5.0,
-      "fairness": 0.0,
+      "score": 1221.1,
+      "survived": "16/16",
+      "starved": 0,
+      "population": 99.8,
+      "fairness": 0.999,
       "satisfaction": {
-        "farmer": 0.0,
-        "priest": 0.539,
-        "general": 0.041,
+        "provider": 1.0,
+        "farmer": 1.0,
         "merchant": 1.0,
-        "builder": 0.1,
-        "healer": 0.002,
-        "diplomat": 0.433
+        "priest": 0.999,
+        "villager": 1.0
       }
     },
     {
+      "completed": 16,
+      "deadlocks": 0,
+      "technical_failures": 0,
+      "policy": "Farmer alone",
+      "key": "dictator_farmer",
+      "score": 1214.3,
+      "survived": "16/16",
+      "starved": 0,
+      "population": 99.4,
+      "fairness": 0.999,
+      "satisfaction": {
+        "provider": 1.0,
+        "farmer": 1.0,
+        "merchant": 0.999,
+        "priest": 0.999,
+        "villager": 1.0
+      }
+    },
+    {
+      "completed": 16,
+      "deadlocks": 0,
+      "technical_failures": 0,
+      "policy": "Average of selfish openings",
+      "key": "average",
+      "score": 1210.6,
+      "survived": "16/16",
+      "starved": 0,
+      "population": 99.3,
+      "fairness": 0.999,
+      "satisfaction": {
+        "provider": 1.0,
+        "farmer": 1.0,
+        "merchant": 0.999,
+        "priest": 0.999,
+        "villager": 1.0
+      }
+    },
+    {
+      "completed": 16,
+      "deadlocks": 0,
+      "technical_failures": 0,
+      "policy": "Lone ruler (equal weights, no debate)",
+      "key": "lone_ruler",
+      "score": 1207.3,
+      "survived": "16/16",
+      "starved": 0,
+      "population": 99.2,
+      "fairness": 0.999,
+      "satisfaction": {
+        "provider": 1.0,
+        "farmer": 1.0,
+        "merchant": 0.999,
+        "priest": 1.0,
+        "villager": 1.0
+      }
+    },
+    {
+      "completed": 16,
+      "deadlocks": 0,
+      "technical_failures": 0,
+      "policy": "Provider alone",
+      "key": "dictator_provider",
+      "score": 1205.5,
+      "survived": "16/16",
+      "starved": 0,
+      "population": 99.2,
+      "fairness": 0.999,
+      "satisfaction": {
+        "provider": 1.0,
+        "farmer": 1.0,
+        "merchant": 0.999,
+        "priest": 1.0,
+        "villager": 1.0
+      }
+    },
+    {
+      "completed": 16,
+      "deadlocks": 0,
+      "technical_failures": 0,
+      "policy": "Villager alone",
+      "key": "dictator_villager",
+      "score": 1205.5,
+      "survived": "16/16",
+      "starved": 0,
+      "population": 99.2,
+      "fairness": 0.999,
+      "satisfaction": {
+        "provider": 1.0,
+        "farmer": 1.0,
+        "merchant": 0.999,
+        "priest": 1.0,
+        "villager": 1.0
+      }
+    },
+    {
+      "completed": 16,
+      "deadlocks": 0,
+      "technical_failures": 0,
       "policy": "Priest alone",
       "key": "dictator_priest",
-      "score": -1800.1,
-      "survived": "19/30",
-      "starved": 85.1,
-      "population": 5.1,
-      "fairness": 0.0,
+      "score": 1189.8,
+      "survived": "16/16",
+      "starved": 0,
+      "population": 98.4,
+      "fairness": 0.996,
       "satisfaction": {
-        "farmer": 0.0,
+        "provider": 0.999,
+        "farmer": 0.998,
+        "merchant": 0.996,
         "priest": 1.0,
-        "general": 0.0,
-        "merchant": 0.137,
-        "builder": 0.0,
-        "healer": 0.0,
-        "diplomat": 0.071
+        "villager": 0.999
       }
+    },
+    {
+      "completed": 15,
+      "deadlocks": 1,
+      "technical_failures": 0,
+      "policy": "Council (5 agents, negotiated)",
+      "key": "council",
+      "score": -75.1,
+      "survived": "11/15",
+      "starved": 29.3,
+      "population": 69.1,
+      "fairness": 0.919,
+      "satisfaction": {
+        "provider": 0.921,
+        "farmer": 0.919,
+        "merchant": 0.92,
+        "priest": 0.92,
+        "villager": 0.921
+      },
+      "consensus": 65,
+      "majority": 5,
+      "runoff": 0,
+      "escalated": 0,
+      "years": 70,
+      "mean_rounds": 1.24,
+      "mean_turns": 5.8
+    },
+    {
+      "completed": 16,
+      "deadlocks": 0,
+      "technical_failures": 0,
+      "policy": "Lone LLM (one prompt, all goals)",
+      "key": "lone_llm",
+      "score": -722.5,
+      "survived": "9/16",
+      "starved": 40.4,
+      "population": 54.4,
+      "fairness": 0.858,
+      "satisfaction": {
+        "provider": 0.861,
+        "farmer": 0.858,
+        "merchant": 0.859,
+        "priest": 0.86,
+        "villager": 0.86
+      },
+      "llm_fallbacks": 2
     }
   ],
   "info": [
     {
       "decider": "Council",
-      "score with scouts": 1216.6,
-      "score silent": 1198.5,
-      "plans changed by news": "59/140 years"
+      "score with scouts": -75.1,
+      "score silent": -181.9,
+      "plans changed by news": "10/69 years"
     },
     {
       "decider": "Lone ruler",
-      "score with scouts": 1157.6,
-      "score silent": 1118.1,
+      "score with scouts": 1207.3,
+      "score silent": 1214.1,
       "plans changed by news": "-"
     }
   ],
   "info_examples": [
     {
       "seed": 2,
-      "year": 1,
-      "news": "Locusts sighted in the east. Expect a poor harvest, 1 to 2 bushels per acre.",
+      "year": 4,
+      "news": "Traders from Lagash say land will sell for 17 bushels an acre next year.",
       "without": {
-        "land_delta": 0,
-        "feed": 2000,
-        "plant": 1000
+        "land_delta": -20,
+        "feed": 415,
+        "plant": 0
       },
       "with": {
-        "land_delta": -50,
-        "feed": 2300,
-        "plant": 950
-      }
-    },
-    {
-      "seed": 3,
-      "year": 2,
-      "news": "The river flooded richly. Expect a strong harvest, 4 to 5 bushels per acre.",
-      "without": {
-        "land_delta": 0,
-        "feed": 2120,
-        "plant": 1000
-      },
-      "with": {
-        "land_delta": 50,
-        "feed": 2438,
-        "plant": 1050
-      }
-    },
-    {
-      "seed": 3,
-      "year": 5,
-      "news": "Locusts sighted in the east. Expect a poor harvest, 1 to 2 bushels per acre.",
-      "without": {
-        "land_delta": 110,
-        "feed": 2875,
-        "plant": 1212
-      },
-      "with": {
-        "land_delta": 0,
-        "feed": 2500,
-        "plant": 1102
+        "land_delta": -40,
+        "feed": 1600,
+        "plant": 0
       }
     },
     {
       "seed": 4,
-      "year": 2,
+      "year": 3,
       "news": "Locusts sighted in the east. Expect a poor harvest, 1 to 2 bushels per acre.",
       "without": {
-        "land_delta": 0,
-        "feed": 2200,
-        "plant": 1000
-      },
-      "with": {
-        "land_delta": -50,
-        "feed": 2530,
-        "plant": 950
-      }
-    },
-    {
-      "seed": 5,
-      "year": 2,
-      "news": "Locusts sighted in the east. Expect a poor harvest, 1 to 2 bushels per acre.",
-      "without": {
-        "land_delta": 0,
-        "feed": 1288,
-        "plant": 560
+        "land_delta": -20,
+        "feed": 1520,
+        "plant": 0
       },
       "with": {
         "land_delta": 0,
-        "feed": 1120,
-        "plant": 560
+        "feed": 1000,
+        "plant": 100
       }
     },
     {
-      "seed": 5,
+      "seed": 8,
       "year": 3,
       "news": "Locusts sighted in the east. Expect a poor harvest, 1 to 2 bushels per acre.",
       "without": {
         "land_delta": 0,
-        "feed": 759,
-        "plant": 330
+        "feed": 1050,
+        "plant": 0
+      },
+      "with": {
+        "land_delta": -40,
+        "feed": 2050,
+        "plant": 0
+      }
+    },
+    {
+      "seed": 10,
+      "year": 2,
+      "news": "The river flooded richly. Expect a strong harvest, 4 to 5 bushels per acre.",
+      "without": {
+        "land_delta": -100,
+        "feed": 2180,
+        "plant": 0
+      },
+      "with": {
+        "land_delta": -50,
+        "feed": 1000,
+        "plant": 640
+      }
+    },
+    {
+      "seed": 11,
+      "year": 4,
+      "news": "The river flooded richly. Expect a strong harvest, 4 to 5 bushels per acre.",
+      "without": {
+        "land_delta": -40,
+        "feed": 2240,
+        "plant": 0
       },
       "with": {
         "land_delta": 0,
-        "feed": 660,
-        "plant": 330
+        "feed": 1290,
+        "plant": 460
+      }
+    },
+    {
+      "seed": 13,
+      "year": 2,
+      "news": "Locusts sighted in the east. Expect a poor harvest, 1 to 2 bushels per acre.",
+      "without": {
+        "land_delta": 0,
+        "feed": 2100,
+        "plant": 1000
+      },
+      "with": {
+        "land_delta": 0,
+        "feed": 2100,
+        "plant": 900
       }
     }
   ],
   "lessons": [
-    "Negotiation beats averaging: the council scored 1216.6 vs -238.5 for averaging each advisor's selfish plan (30/30 reigns survived vs 30/30).",
-    "A single equal-weight ruler scored 1157.6 vs the council's 1216.6 (the council is ahead). The council's worst-served advisor averaged 0.386 satisfaction vs 0.375 under the lone ruler.",
-    "News changed the adopted plan in 59 of 140 years where it arrived. Scouts moved the council's mean score from 1198.5 (silent) to 1216.6.",
-    "Outcomes over 150 council-years: 0 consensus, 123 majority with recorded dissent, 6 decided by runoff, 21 escalated to a human. Mean rounds per year: 2.93, mean turns per year: 20.1."
+    "Negotiation comparison: the council scored -75.1 vs 1210.6 for averaging each advisor's selfish plan (16/16 reigns survived vs 11/15).",
+    "A single equal-weight ruler scored 1207.3 vs the council's -75.1. The council's worst-served advisor averaged 0.919 satisfaction vs 0.999 under the lone ruler.",
+    "News changed the adopted plan in 10 of 69 years where it arrived. Scouts moved the council's mean score from -181.9 (silent) to -75.1.",
+    "Outcomes over 70 council-years: 65 consensus, 5 majority with recorded dissent, 0 decided by runoff, 0 escalated to a human. Mean rounds per year: 1.24, mean turns per year: 5.8.",
+    "A single LLM given every goal in one prompt scored -722.5 (9/16 reigns survived, 40.4 starved per reign) vs the council's -75.1 (11/15, 29.3). In 2 of its years the LLM's plan was still over budget after one corrected retry and the equal-weight ruler decided instead.",
+    "Council reigns excluded from the score: 1 deadlocked, 0 technical failures (of 16)."
   ]
 }

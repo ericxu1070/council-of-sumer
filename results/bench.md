@@ -1,30 +1,29 @@
-> Historical results from the previous game and voting rules. These are not completion evidence for the revised implementation. Regenerate with the existing benchmark command.
-
-# Benchmark (30 seeds, transport inproc, reasoning mock)
+# Benchmark (16 seeds, transport inproc, reasoning openrouter:deepseek/deepseek-v4.1-flash)
 
 | policy | score | survived | starved | population | fairness |
 |---|---|---|---|---|---|
-| Farmer alone | 1225.1 | 30/30 | 0 | 102.8 | 0.36 |
-| Council (7 agents, negotiated) | 1216.6 | 30/30 | 0.4 | 102.5 | 0.386 |
-| General alone | 1215.6 | 30/30 | 0.5 | 102.4 | 0.275 |
-| Physician alone | 1158.0 | 30/30 | 0 | 100.1 | 0.257 |
-| Lone ruler (equal weights, no debate) | 1157.6 | 30/30 | 2.5 | 99.8 | 0.375 |
-| Builder alone | 829.8 | 30/30 | 15.0 | 84.5 | 0.296 |
-| Average of selfish openings | -238.5 | 30/30 | 50.3 | 31.2 | 0.0 |
-| Envoy alone | -1737.9 | 19/30 | 85.1 | 5.1 | 0.0 |
-| Merchant alone | -1742.5 | 19/30 | 85.2 | 5.0 | 0.0 |
-| Priest alone | -1800.1 | 19/30 | 85.1 | 5.1 | 0.0 |
+| Merchant alone | 1221.1 | 16/16 | 0 | 99.8 | 0.999 |
+| Farmer alone | 1214.3 | 16/16 | 0 | 99.4 | 0.999 |
+| Average of selfish openings | 1210.6 | 16/16 | 0 | 99.3 | 0.999 |
+| Lone ruler (equal weights, no debate) | 1207.3 | 16/16 | 0 | 99.2 | 0.999 |
+| Provider alone | 1205.5 | 16/16 | 0 | 99.2 | 0.999 |
+| Villager alone | 1205.5 | 16/16 | 0 | 99.2 | 0.999 |
+| Priest alone | 1189.8 | 16/16 | 0 | 98.4 | 0.996 |
+| Council (5 agents, negotiated) | -75.1 | 11/15 | 29.3 | 69.1 | 0.919 |
+| Lone LLM (one prompt, all goals) | -722.5 | 9/16 | 40.4 | 54.4 | 0.858 |
 
 ## New information
 
 | decider | score with scouts | score silent | plans changed by news |
 |---|---|---|---|
-| Council | 1216.6 | 1198.5 | 59/140 years |
-| Lone ruler | 1157.6 | 1118.1 | - |
+| Council | -75.1 | -181.9 | 10/69 years |
+| Lone ruler | 1207.3 | 1214.1 | - |
 
 ## Lessons
 
-- Negotiation beats averaging: the council scored 1216.6 vs -238.5 for averaging each advisor's selfish plan (30/30 reigns survived vs 30/30).
-- A single equal-weight ruler scored 1157.6 vs the council's 1216.6 (the council is ahead). The council's worst-served advisor averaged 0.386 satisfaction vs 0.375 under the lone ruler.
-- News changed the adopted plan in 59 of 140 years where it arrived. Scouts moved the council's mean score from 1198.5 (silent) to 1216.6.
-- Outcomes over 150 council-years: 0 consensus, 123 majority with recorded dissent, 6 decided by runoff, 21 escalated to a human. Mean rounds per year: 2.93, mean turns per year: 20.1.
+- Negotiation comparison: the council scored -75.1 vs 1210.6 for averaging each advisor's selfish plan (16/16 reigns survived vs 11/15).
+- A single equal-weight ruler scored 1207.3 vs the council's -75.1. The council's worst-served advisor averaged 0.919 satisfaction vs 0.999 under the lone ruler.
+- News changed the adopted plan in 10 of 69 years where it arrived. Scouts moved the council's mean score from -181.9 (silent) to -75.1.
+- Outcomes over 70 council-years: 65 consensus, 5 majority with recorded dissent, 0 decided by runoff, 0 escalated to a human. Mean rounds per year: 1.24, mean turns per year: 5.8.
+- A single LLM given every goal in one prompt scored -722.5 (9/16 reigns survived, 40.4 starved per reign) vs the council's -75.1 (11/15, 29.3). In 2 of its years the LLM's plan was still over budget after one corrected retry and the equal-weight ruler decided instead.
+- Council reigns excluded from the score: 1 deadlocked, 0 technical failures (of 16).

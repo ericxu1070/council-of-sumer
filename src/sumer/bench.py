@@ -6,7 +6,9 @@ results/bench.json (read by the UI's Evidence tab) and results/bench.md.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import os
 import statistics as st
 import time
 from copy import deepcopy
@@ -53,6 +55,8 @@ def _row(policy: str, games: list) -> dict:
         "fairness": round(min(sat.values()), 3),
         "satisfaction": {a: round(v, 3) for a, v in sat.items()},
     }
+    if policy == "lone_llm":
+        row["llm_fallbacks"] = sum(g.llm_fallbacks for g in games)
     if policy == "council":
         for k in ("consensus", "majority", "runoff", "escalated"):
             row[k] = sum(g.outcomes.get(k, 0) for g in games)
@@ -62,44 +66,65 @@ def _row(policy: str, games: list) -> dict:
     return row
 
 
+# Seeds are independent, so they run concurrently (LLM calls dominate wall time).
+CONCURRENCY = int(os.getenv("BENCH_CONCURRENCY", "6"))
+
+
+async def _per_seed(seeds: list[int], fn) -> list:
+    gate = asyncio.Semaphore(max(CONCURRENCY, 1))
+
+    async def one(seed):
+        async with gate:
+            return await fn(seed)
+
+    return await asyncio.gather(*(one(s) for s in seeds))
+
+
 async def _counterfactual_info(seeds: list[int], ask) -> dict:
     """For every year where news arrived, rerun the same year from the same
     state without the news, and check whether the adopted plan changes."""
+    results = await _per_seed(seeds, lambda seed: _counterfactual_seed(seed, ask))
+    news_years = sum(r[0] for r in results)
+    changed = sum(r[1] for r in results)
+    shifts = [x for r in results for x in r[2]]
+    return {"news_years": news_years, "changed": changed, "examples": shifts[:6]}
+
+
+async def _counterfactual_seed(seed: int, ask) -> tuple[int, int, list]:
     news_years = changed = 0
-    shifts = []
-    for seed in seeds:
-        state, rolls = new_game(seed)
-        history: list[dict] = []
-        private_memories = {}
-        while not state.over:
-            news = scheduled_news(seed, state.year, rolls, True)
-            kw = {"seed": seed, "state": state, "ask": ask, "history": history,
-                  "max_rounds": settings.max_rounds}
+    shifts: list[dict] = []
+    state, rolls = new_game(seed)
+    history: list[dict] = []
+    private_memories = {}
+    while not state.over:
+        news = scheduled_news(seed, state.year, rolls, True)
+        kw = {"seed": seed, "state": state, "ask": ask, "history": history,
+              "max_rounds": settings.max_rounds}
+        try:
+            before_memories = deepcopy(private_memories)
+            with_news = await deliberate_year(**kw, scheduled_news=news,
+                                              private_memories=private_memories)
+        except (Deadlock, TechnicalFailure):
+            break
+        if news:
             try:
-                before_memories = deepcopy(private_memories)
-                with_news = await deliberate_year(**kw, scheduled_news=news,
-                                                  private_memories=private_memories)
+                without = await deliberate_year(**kw, scheduled_news=None,
+                                                private_memories=before_memories)
             except (Deadlock, TechnicalFailure):
                 break
-            if news:
-                try:
-                    without = await deliberate_year(**kw, scheduled_news=None,
-                                                    private_memories=before_memories)
-                except (Deadlock, TechnicalFailure):
-                    break
-                news_years += 1
-                if with_news.plan != without.plan:
-                    changed += 1
-                    shifts.append({
-                        "seed": seed,
-                        "year": state.year,
-                        "news": news["text"],
-                        "without": without.plan.__dict__,
-                        "with": with_news.plan.__dict__,
-                    })
-            state = advance(state, with_news.plan, rolls)
-            history.append(with_news.record())
-    return {"news_years": news_years, "changed": changed, "examples": shifts[:6]}
+            news_years += 1
+            if with_news.plan != without.plan:
+                changed += 1
+                shifts.append({
+                    "seed": seed,
+                    "year": state.year,
+                    "news": news["text"],
+                    "without": without.plan.__dict__,
+                    "with": with_news.plan.__dict__,
+                })
+        state = advance(state, with_news.plan, rolls)
+        history.append(with_news.record())
+    return news_years, changed, shifts
 
 
 async def run(n_seeds: int, transport: str = "inproc") -> dict:
@@ -114,15 +139,18 @@ async def run(n_seeds: int, transport: str = "inproc") -> dict:
         ask = inproc.ask
 
     t0 = time.time()
-    games: dict[str, list] = {"council": [], "council_silent": []}
-    for s in seeds:
-        games["council"].append(await play_council(s, ask))
-        games["council_silent"].append(await play_council(s, ask, reveal_news=False))
-        print(f"seed {s}: council {games['council'][-1].rating['score']}", flush=True)
+    async def council_seed(s):
+        pair = (await play_council(s, ask), await play_council(s, ask, reveal_news=False))
+        print(f"seed {s}: council {pair[0].rating['score']} ({pair[0].status})", flush=True)
+        return pair
+
+    pairs = await _per_seed(seeds, council_seed)
+    games: dict[str, list] = {"council": [p[0] for p in pairs],
+                              "council_silent": [p[1] for p in pairs]}
 
     policies = list(SIMPLE) + (["lone_llm"] if settings.llm_mode == "bayleaf" else [])
     for p in policies:
-        games[p] = [await play_simple(s, p) for s in seeds]
+        games[p] = await _per_seed(seeds, lambda s, p=p: play_simple(s, p))
     games["lone_ruler_silent"] = [await play_simple(s, "lone_ruler", reveal_news=False) for s in seeds]
 
     rows = [_row(p, games[p]) for p in ["council", *policies]]
@@ -159,6 +187,20 @@ async def run(n_seeds: int, transport: str = "inproc") -> dict:
     ]
     if c["score"] is None:
         lessons = [f"Council runs paused or failed: {c['deadlocks']} deadlocks, {c['technical_failures']} technical failures. No completed-reign score is reported."]
+    if "lone_llm" in by:
+        llm_row = by["lone_llm"]
+        lessons.append(
+            f"A single LLM given every goal in one prompt scored {llm_row['score']} "
+            f"({llm_row['survived']} reigns survived, {llm_row['starved']} starved per reign) vs the "
+            f"council's {c['score']} ({c['survived']}, {c['starved']}). In "
+            f"{llm_row.get('llm_fallbacks', 0)} of its years the LLM's plan was still over budget "
+            "after one corrected retry and the equal-weight ruler decided instead."
+        )
+    if c["deadlocks"] or c["technical_failures"]:
+        lessons.append(
+            f"Council reigns excluded from the score: {c['deadlocks']} deadlocked, "
+            f"{c['technical_failures']} technical failures (of {n_seeds})."
+        )
     collapsed = [r["policy"] for r in rows if r["key"].startswith("dictator_")
                  and int(r["survived"].split("/")[0]) < n_seeds / 2]
     if collapsed:
