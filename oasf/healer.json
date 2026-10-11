@@ -1,6 +1,6 @@
 {
   "name": "Council of Sumer: Royal Physician",
-  "description": "Keep the city healthy: generous rations, food in store, no crowding to breed plague. Red line: Will never accept feeding the people less than 90% of what they need. Proposes or backs tabled plans, records standing accept/veto votes, and participates in sequential discussion and runoff turns over A2A/SLIM in the seven-advisor council.",
+  "description": "Keep the city healthy: generous rations, food in store, no crowding to breed plague. Proposes or backs tabled plans, records standing accept votes, and participates in sequential discussion and runoff turns over A2A/SLIM in the seven-advisor council.",
   "version": "1.0.0",
   "schema_version": "1.0.0",
   "authors": [

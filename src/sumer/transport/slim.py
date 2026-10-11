@@ -46,7 +46,7 @@ def agent_card(advisor_id: str, advisor: Advisor | None = None):
         name=advisor_id,
         url="",
         version="1.0.0",
-        description=f"{a.title}. Mandate: {a.mandate} Red line: {a.red_line}",
+        description=f"{a.title}. Mandate: {a.mandate}",
         defaultInputModes=["application/json"],
         defaultOutputModes=["application/json"],
         capabilities=AgentCapabilities(streaming=False),

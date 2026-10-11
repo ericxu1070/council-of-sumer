@@ -205,7 +205,7 @@ def _summarize(seed, policy, state, results: list[YearResult], advisor_ids=None)
     g.mean_turns = round(sum(r.turns for r in results) / max(len(results), 1), 1)
     g.satisfaction = {
         a: round(sum(r.satisfaction[a] for r in results) / max(len(results), 1), 3)
-        for a in advisor_ids
+        for a in advisor_ids if a in ADVISOR_IDS
     }
     g.info_shifted = sum(
         1 for r in results

@@ -1,18 +1,14 @@
-"""The seven advisors: public mandates, red lines, and how each scores a plan.
+"""Public council personas and diagnostic outcome scores.
 
-Each advisor judges a plan by forecasting next year's city under its current
-beliefs and scoring the forecast against its own mandate. Mandates conflict
-by design: the General wants land and the Envoy wants quiet borders, the
-Builder wants every field sown and the Priest wants seed kept in the granary,
-the Farmer wants the city to grow and the Physician wants it uncrowded and
-well fed, and the Merchant wants wealth at market prices.
+Presets provide familiar mandates; custom agents carry any free-form mandate.
+The LLM alone chooses proposals and votes. Forecasts and numeric utilities
+are reserved for reports and offline comparisons and never guide its choices.
 """
 
 from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field, replace
-from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -90,12 +86,10 @@ class Advisor:
     title: str
     short: str  # the name the others call this advisor by, e.g. "Builder"
     mandate: str
-    red_line: str
-    voice: str  # how the advisor talks, used by the LLM and the templates
+    voice: str  # how the advisor talks, used by the LLM
     color: str
     emoji: str
     aliases: tuple[str, ...] = field(default_factory=tuple)  # other names that address it
-    profile: str = ""  # quantitative policy inherited by a custom council seat
 
     def public(self) -> dict:
         return {
@@ -103,16 +97,14 @@ class Advisor:
             "title": self.title,
             "short": self.short,
             "mandate": self.mandate,
-            "red_line": self.red_line,
             "color": self.color,
             "emoji": self.emoji,
             "voice": self.voice,
-            "profile": self.profile or self.id,
         }
 
     def beliefs_for(self, b: Beliefs) -> Beliefs:
         """The Priest plans for a bad year unless the news says otherwise."""
-        if (self.profile or self.id) != "priest":
+        if self.id != "priest":
             return b
         return replace(
             b,
@@ -121,7 +113,7 @@ class Advisor:
         )
 
     def utility(self, f: Forecast, state: State) -> float:
-        match self.profile or self.id:
+        match self.id:
             case "farmer":
                 return f.population - 4 * f.starved
             case "priest":
@@ -142,25 +134,9 @@ class Advisor:
             case "diplomat":
                 # Quiet borders: every acre bought or sold provokes a neighbor.
                 return -abs(f.land_delta) + 0.02 * f.grain
-        raise ValueError(self.id)
-
-    def violates_red_line(self, f: Forecast, state: State) -> bool:
-        match self.profile or self.id:
-            case "farmer":
-                return f.starved_frac > 0.10
-            case "priest":
-                return f.grain < 0.5 * f.population * FOOD_PER_PERSON
-            case "general":
-                return f.land_delta < -0.10 * state.acres
-            case "merchant":
-                return False  # the Merchant always has a price
-            case "builder":
-                return f.plant < 0.5 * f.sowable
-            case "healer":
-                return f.fed_frac < 0.90
-            case "diplomat":
-                return f.land_delta > 0.10 * state.acres
-        raise ValueError(self.id)
+        # Custom mandates are interpreted by the model. This generic city
+        # wealth measure is diagnostic only, never a guide to its vote.
+        return f.wealth
 
 
 ADVISORS: dict[str, Advisor] = {
@@ -171,7 +147,6 @@ ADVISORS: dict[str, Advisor] = {
             title="Voice of the Farmers",
             short="Farmer",
             mandate="Grow the population. Nobody starves.",
-            red_line="Will never accept a plan that starves more than 10% of the people.",
             voice="earnest, speaks for families, cites hungry children",
             color="#3f8f4f",
             emoji="\U0001f33e",
@@ -182,7 +157,6 @@ ADVISORS: dict[str, Advisor] = {
             title="High Priest of Enlil",
             short="Priest",
             mandate="Keep the temple granaries full against famine. Plans for a bad harvest.",
-            red_line="Will never accept a plan that, in a bad year, leaves less than half a year of food in store.",
             voice="solemn, cautious, invokes omens and the gods",
             color="#8a5cc2",
             emoji="\U0001f56f\ufe0f",
@@ -193,7 +167,6 @@ ADVISORS: dict[str, Advisor] = {
             title="General of the Walls",
             short="General",
             mandate="Hold and expand land. More acres, more soldiers.",
-            red_line="Will never accept selling more than 10% of our land in one year.",
             voice="blunt, martial, talks about borders and strength",
             color="#b5452f",
             emoji="\U0001f6e1\ufe0f",
@@ -203,7 +176,6 @@ ADVISORS: dict[str, Advisor] = {
             title="Chief Merchant",
             short="Merchant",
             mandate="Maximize the city's wealth at market prices. Buy land low, sell high.",
-            red_line="Has no red line. Everything has a price.",
             voice="quick, transactional, quotes prices",
             color="#c0911e",
             emoji="\U0001f4b0",
@@ -213,7 +185,6 @@ ADVISORS: dict[str, Advisor] = {
             title="Canal Builder",
             short="Builder",
             mandate="Plant as many acres as we can, every year, and gain the land and hands to sow more.",
-            red_line="Will never accept leaving more than half of the land we could sow fallow.",
             voice="practical, impatient, talks about canals, water, and idle fields",
             color="#2f7fb5",
             emoji="\U0001f9f1",
@@ -224,7 +195,6 @@ ADVISORS: dict[str, Advisor] = {
             title="Royal Physician",
             short="Physician",
             mandate="Keep the city healthy: generous rations, food in store, no crowding to breed plague.",
-            red_line="Will never accept feeding the people less than 90% of what they need.",
             voice="calm, clinical, warns about fever, crowding, and weak bodies",
             color="#c2577e",
             emoji="\U0001f33f",
@@ -235,7 +205,6 @@ ADVISORS: dict[str, Advisor] = {
             title="Envoy to Lagash",
             short="Envoy",
             mandate="Keep the peace with our neighbors. No land grabs, steady borders, modest trade.",
-            red_line="Will never accept buying more than 10% more land in one year.",
             voice="smooth, measured, speaks of treaties, neighbors, and goodwill",
             color="#3aa39a",
             emoji="\U0001f54a\ufe0f",
@@ -247,35 +216,24 @@ ADVISOR_IDS = list(ADVISORS)
 N_ADVISORS = len(ADVISOR_IDS)
 
 MAX_ADVISORS = 21
-PolicyProfile = Literal["farmer", "priest", "general", "merchant", "builder", "healer", "diplomat"]
 
 
 class CouncilSeat(BaseModel):
-    """A preset seat or a named custom persona with an enforced policy profile."""
+    """A preset seat or a custom persona whose mandate guides its LLM."""
 
     model_config = ConfigDict(extra="forbid", strict=True, str_strip_whitespace=True)
     id: str = Field(min_length=1, max_length=48, pattern=r"^[a-z][a-z0-9_-]*$")
-    profile: PolicyProfile | None = None
     short: str | None = Field(default=None, min_length=1, max_length=60)
     mandate: str | None = Field(default=None, min_length=1, max_length=2000)
     title: str | None = Field(default=None, min_length=1, max_length=80)
     voice: str | None = Field(default=None, min_length=1, max_length=200)
     color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
     emoji: str | None = Field(default=None, min_length=1, max_length=12)
-    red_line: str | None = None  # accepted when restoring an immutable public roster
 
     @model_validator(mode="after")
-    def grounded_profile(self):
-        if self.id in ADVISORS:
-            if self.profile is not None and self.profile != self.id:
-                raise ValueError("A preset seat must retain its own policy profile.")
-            profile = self.id
-        else:
-            if self.profile is None or self.short is None or self.mandate is None:
-                raise ValueError("Custom agents require a name, mandate, and policy profile.")
-            profile = self.profile
-        if self.red_line is not None and self.red_line != ADVISORS[profile].red_line:
-            raise ValueError("An agent's red line must match its policy profile.")
+    def custom_identity(self):
+        if self.id not in ADVISORS and (self.short is None or self.mandate is None):
+            raise ValueError("Custom agents require a name and mandate.")
         return self
 
 
@@ -290,19 +248,27 @@ def resolve_council(seats: list[dict | CouncilSeat] | None = None) -> dict[str, 
         seat = value if isinstance(value, CouncilSeat) else CouncilSeat.model_validate(value)
         if seat.id in roster:
             raise ValueError("Each agent must have a unique ID.")
-        base = ADVISORS[seat.profile or seat.id]
-        roster[seat.id] = replace(
-            base,
-            id=seat.id,
-            profile=base.id,
-            short=seat.short or base.short,
-            title=seat.title or seat.short or base.title,
-            mandate=seat.mandate or base.mandate,
-            voice=seat.voice or base.voice,
-            color=seat.color or base.color,
-            emoji=seat.emoji or base.emoji,
-            aliases=base.aliases if seat.id == base.id else (),
-        )
+        base = ADVISORS.get(seat.id)
+        if base is not None:
+            roster[seat.id] = replace(
+                base,
+                short=seat.short or base.short,
+                title=seat.title or seat.short or base.title,
+                mandate=seat.mandate or base.mandate,
+                voice=seat.voice or base.voice,
+                color=seat.color or base.color,
+                emoji=seat.emoji or base.emoji,
+            )
+        else:
+            roster[seat.id] = Advisor(
+                id=seat.id,
+                short=seat.short,
+                title=seat.title or seat.short,
+                mandate=seat.mandate,
+                voice=seat.voice or "clear, thoughtful, speaks from the public mandate",
+                color=seat.color or "#607d8b",
+                emoji=seat.emoji or "🗣️",
+            )
     counts = Counter(a.short.casefold() for a in roster.values())
     occurrences: Counter[str] = Counter()
     for advisor_id, advisor in roster.items():
@@ -421,9 +387,6 @@ def candidate_plans(state: State) -> list[Decision]:
     return list(seen.values())
 
 
-MIN_PASSABLE = 4  # fewer passable plans than this and the whole pool sets the score range
-
-
 def safe_plan(state: State) -> Decision:
     """The pre-committed fallback when the council cannot decide.
 
@@ -443,12 +406,7 @@ def safe_plan(state: State) -> Decision:
 
 
 class Scorer:
-    """Normalizes each advisor's utility to 0..1 over the plans that could pass.
-
-    The range is taken over the plans that cross nobody's red line, because
-    those are the real choices. A score of 0.6 then means "middling among
-    passable plans", not "better than starving half the city". If too few
-    plans are passable, the whole pool sets the range."""
+    """Scores outcomes for reports and offline comparisons, never for LLM guidance."""
 
     def __init__(self, state: State, beliefs: Beliefs, extra: list[Decision] = (),
                  advisors: dict[str, Advisor] | None = None):
@@ -459,15 +417,9 @@ class Scorer:
             raise ValueError("A scorer needs at least one advisor.")
         self.pool = candidate_plans(state) + [legalize(state, d) for d in extra]
         self._fc = {(a, d): self.forecast(a, d) for a in self.advisors for d in self.pool}
-        passable = [
-            d for d in self.pool
-            if not any(a.violates_red_line(self._fc[a.id, d], state)
-                       for a in self.advisors.values())
-        ]
-        basis = passable if len(passable) >= MIN_PASSABLE else self.pool
         self._range: dict[str, tuple[float, float]] = {}
         for a in self.advisors.values():
-            us = [a.utility(self._fc[a.id, d], state) for d in basis]
+            us = [a.utility(self._fc[a.id, d], state) for d in self.pool]
             self._range[a.id] = (min(us), max(us))
 
     def forecast(self, advisor_id: str, d: Decision) -> Forecast:
@@ -479,9 +431,6 @@ class Scorer:
         lo, hi = self._range[advisor_id]
         u = a.utility(self.forecast(advisor_id, d), self.state)
         return 0.5 if hi == lo else max(0.0, min(1.0, (u - lo) / (hi - lo)))
-
-    def vetoes(self, advisor_id: str, d: Decision) -> bool:
-        return self.advisors[advisor_id].violates_red_line(self.forecast(advisor_id, d), self.state)
 
 
 # ---- New information: scout reports derived from the true hidden dice ----

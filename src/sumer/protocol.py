@@ -4,7 +4,7 @@ The council talks in turns. For each turn the clerk sends a Brief to exactly
 one advisor (the `speaker`). The Brief carries the table with every plan's
 current support, what the earlier speakers said this round, and earlier
 rounds. The speaker answers with a Ballot: a proposal (or the plan it
-backs), accept and veto votes on the tabled plans, a short public speech, and
+backs), accept votes on the tabled plans, a short public speech, and
 a private thought. In a runoff the Ballot carries `runoff_vote` instead.
 
 The clerk only relays and tallies with a public rule; it never chooses a plan
@@ -57,7 +57,6 @@ class TabledProposal(BaseModel):
     speech: str = ""
     plain: str = ""
     accept: list[str] = Field(default_factory=list)  # advisors accepting it right now
-    veto: list[str] = Field(default_factory=list)
     backers: list[str] = Field(default_factory=list)  # advisors whose proposal this is
 
 
@@ -111,11 +110,10 @@ class Ballot(BaseModel):
     proposal: Plan
     back: str | None = None  # id of a tabled plan this advisor backs as its proposal
     accept: list[str] = Field(default_factory=list)
-    veto: list[str] = Field(default_factory=list)
     runoff_vote: str | None = None
     speech: str = ""  # public: the other advisors hear this
     addressed: list[str] = Field(default_factory=list)  # advisors the speech names
-    source: str = "policy"  # "llm" or "policy"
+    source: str = "llm"
     # Glass box: private reasoning. Humans see it; the other advisors never do.
     trace: dict = Field(default_factory=dict)
 
@@ -163,7 +161,7 @@ def validate_reply(delivery: Delivery | Ballot | None, brief: Brief) -> Ballot:
         public = {k: v for k, v in brief.state.items() if k not in ("acres_per_person", "starved")}
         legalize(State(**public), ballot.proposal.decision())
         table = {t.id: t for t in brief.table}
-        if any(pid not in table for pid in ballot.accept + ballot.veto):
+        if any(pid not in table for pid in ballot.accept):
             raise ValueError("Votes refer to an unknown proposal.")
         if ballot.back and (ballot.back not in table or table[ballot.back].plan != ballot.proposal):
             raise ValueError("Backing must identify the unchanged tabled plan.")
@@ -171,8 +169,6 @@ def validate_reply(delivery: Delivery | Ballot | None, brief: Brief) -> Ballot:
             pair = {t.id: t for t in brief.runoff}
             if ballot.runoff_vote not in pair or pair[ballot.runoff_vote].plan != ballot.proposal:
                 raise ValueError("Runoff vote must bind to the selected frozen finalist.")
-            if ballot.runoff_vote in ballot.veto:
-                raise ValueError("A runoff ballot cannot vote for its vetoed finalist.")
         elif ballot.runoff_vote is not None:
             raise ValueError("Discussion cannot cast a runoff ballot.")
         return ballot

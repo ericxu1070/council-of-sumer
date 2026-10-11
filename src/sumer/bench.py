@@ -165,7 +165,7 @@ async def run(n_seeds: int, transport: str = "inproc") -> dict:
     if collapsed:
         lessons.append(
             f"Single-mandate rule fails: {', '.join(collapsed)} lost most reigns. "
-            "One objective is not enough, which is why each advisor's red line matters."
+            "One objective is not enough; advisors must negotiate competing goals."
         )
     out = {
         "generated": datetime.now().isoformat(timespec="seconds"),

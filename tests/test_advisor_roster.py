@@ -1,7 +1,6 @@
-"""Run-local personas retain grounded preferences and enforced red lines."""
+"""Run-local personas are defined by names and free-form LLM mandates."""
 
 import json
-from dataclasses import replace
 
 import pytest
 
@@ -22,8 +21,7 @@ from sumer.protocol import Brief, validate_reply
 CUSTOM = {
     "id": "custom-river",
     "short": "River Keeper",
-    "mandate": "Keep every river family fed.",
-    "profile": "farmer",
+    "mandate": "Protect the river and represent the boat builders.",
 }
 
 
@@ -41,16 +39,24 @@ def brief_for(roster, speaker="custom-river", **updates):
     [{"id": "custom-x"}],
     [{**CUSTOM, "id": "../../farmer"}],
     [{**CUSTOM, "id": "BadId"}],
-    [{**CUSTOM, "profile": "invented"}],
     [{**CUSTOM, "short": "  "}],
     [{**CUSTOM, "mandate": "  "}],
     [{**CUSTOM, "surprise": True}],
     [{**CUSTOM, "red_line": "No restrictions."}],
-    [{"id": "farmer", "profile": "merchant"}],
+    [{**CUSTOM, "profile": "farmer"}],
 ])
 def test_invalid_rosters_are_rejected(seats):
     with pytest.raises(ValueError):
         resolve_council(seats)
+
+
+def test_custom_agent_requires_only_name_and_mandate_with_generic_style():
+    advisor = resolve_council([CUSTOM])["custom-river"]
+    assert advisor.short == "River Keeper" and advisor.title == "River Keeper"
+    assert advisor.mandate == CUSTOM["mandate"]
+    assert advisor.voice == "clear, thoughtful, speaks from the public mandate"
+    assert advisor.color == "#607d8b" and advisor.emoji == "🗣️"
+    assert not {"profile", "red_line"} & advisor.public().keys()
 
 
 def test_public_roster_roundtrips_and_presets_remain_unchanged():
@@ -59,7 +65,6 @@ def test_public_roster_roundtrips_and_presets_remain_unchanged():
     public = [a.public() for a in roster.values()]
     assert [a.public() for a in resolve_council(public).values()] == public
     assert list(roster) == ["builder", "custom-river"]
-    assert roster["custom-river"].red_line == ADVISORS["farmer"].red_line
     assert [a.public() for a in ADVISORS.values()] == original
     assert len(resolve_council()) == 7
     assert len(resolve_council([
@@ -67,20 +72,17 @@ def test_public_roster_roundtrips_and_presets_remain_unchanged():
     ])) == 21
 
 
-def test_subset_scorer_uses_only_seated_agents_and_custom_profile():
+def test_diagnostic_scorer_supports_custom_ids_without_a_preset_profile():
     state, _ = new_game(1)
     roster = resolve_council([CUSTOM])
     scorer = Scorer(state, Beliefs(), advisors=roster)
-    preset_scorer = Scorer(state, Beliefs(), advisors=resolve_council([{"id": "farmer"}]))
-    for plan in scorer.pool:
-        assert scorer.norm("custom-river", plan) == preset_scorer.norm("farmer", plan)
-        assert scorer.vetoes("custom-river", plan) == preset_scorer.vetoes("farmer", plan)
-    assert scorer.vetoes("custom-river", Decision(0, 0, 500))
+    plan = Decision(0, 2000, 1000)
+    forecast = scorer.forecast("custom-river", plan)
+    assert roster["custom-river"].utility(forecast, state) == forecast.wealth
+    assert 0 <= scorer.norm("custom-river", plan) <= 1
     assert set(scorer._range) == {"custom-river"}
     with pytest.raises(KeyError):
-        scorer.norm("priest", scorer.pool[0])
-    priest = resolve_council([{**CUSTOM, "profile": "priest"}])["custom-river"]
-    assert priest.beliefs_for(Beliefs()).expected_yield == 1.5
+        scorer.norm("priest", plan)
 
 
 def test_custom_name_mentions_do_not_import_unseated_aliases():
@@ -91,49 +93,57 @@ def test_custom_name_mentions_do_not_import_unseated_aliases():
     ]
 
 
-async def test_single_custom_agent_can_decide_and_trace_without_other_seats():
+def test_duplicate_display_names_are_numbered_and_addressed_independently():
+    roster = resolve_council([{"id": "farmer"}, {
+        "id": "custom-farmer", "short": "Farmer", "mandate": "Represent the farmers."
+    }])
+    assert [a.short for a in roster.values()] == ["Farmer1", "Farmer2"]
+    assert mentions("Farmer2, I agree.", advisors=roster) == ["custom-farmer"]
+    assert [a.public() for a in resolve_council([
+        a.public() for a in roster.values()
+    ]).values()] == [a.public() for a in roster.values()]
+
+
+async def test_single_custom_agent_decides_only_from_the_model(llm_reply):
     roster = resolve_council([CUSTOM])
     brief = brief_for(roster)
+    llm_reply["speech"] = "I support the river and its boat builders."
     ballot = await agent.decide("custom-river", brief)
     assert validate_reply(ballot, brief) is ballot
-    assert not ballot.error
-    assert "custom-river" == ballot.advisor
-    assert 0 <= ballot.trace["chosen"]["group_score"] <= 1
-    assert not ballot.trace["chosen"]["breaks_red_lines_of"]
-    assert "river family" in ballot.speech
+    assert not ballot.error and ballot.source == "llm"
+    assert ballot.advisor == "custom-river"
+    assert ballot.trace["chosen"] == {"plan": llm_reply["proposal"]}
+    assert not {"group_score", "my_score", "breaks_red_lines_of"} & ballot.trace["chosen"].keys()
+    prompt = agent._llm_messages("custom-river", brief)[0]["content"]
+    assert "sole advisor" in prompt and "all 1 accept" in prompt
 
 
-@pytest.mark.parametrize("crosses_red_line", [False, True])
-async def test_custom_llm_prompt_roster_and_hard_policy_enforcement(monkeypatch, crosses_red_line):
+@pytest.mark.parametrize("feed", [0, 2000])
+async def test_custom_llm_prompt_and_votes_do_not_use_deterministic_preferences(monkeypatch, feed):
     roster = resolve_council([CUSTOM, {"id": "builder"}, {"id": "merchant"}])
     brief = brief_for(roster)
     prompts = []
-    monkeypatch.setattr(agent, "settings", replace(agent.settings, llm_mode="bayleaf"))
 
     async def reply(messages):
         prompts.extend(messages)
         return llm.Reply(json.dumps({
-            "proposal": {"land_delta": 0, "feed": 0 if crosses_red_line else 2000, "plant": 1000},
-            "accept": [], "speech": "Builder, keep the river families fed.",
-            "thought": "The river families need food.",
+            "proposal": {"land_delta": 0, "feed": feed, "plant": 1000},
+            "accept": [], "speech": "Builder, keep the river open for our boats.",
+            "thought": "The river and the boat builders guide my decision.",
         }), "test", False, 0.0, 0.0)
 
     monkeypatch.setattr(llm, "chat", reply)
     ballot = await agent.decide("custom-river", brief)
     system = prompts[0]["content"]
-    assert "3 advisors govern" in system
-    assert "all 3 accept" in system
+    assert "3 advisors govern" in system and "all 3 accept" in system
     assert "2 of 3 accepts" in system
     assert CUSTOM["mandate"] in system
-    assert "River Keeper" in system and 'High Priest' not in system
-    if crosses_red_line:
-        assert "red line" in ballot.error
-        with pytest.raises(ValueError, match="red line"):
-            validate_reply(ballot, brief)
-    else:
-        assert validate_reply(ballot, brief) is ballot
-        assert not ballot.error and ballot.source == "llm"
-        assert ballot.addressed == ["builder"]
+    assert "River Keeper" in system and "High Priest" not in system
+    for removed in ("suggested_plan", "your score", "threshold", "red line", "policy_vote"):
+        assert removed not in json.dumps(prompts)
+    assert validate_reply(ballot, brief) is ballot
+    assert not ballot.error and ballot.proposal.feed == feed
+    assert ballot.addressed == ["builder"]
 
 
 def test_council_seat_is_strict():

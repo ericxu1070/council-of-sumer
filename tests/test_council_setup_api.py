@@ -5,6 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from sumer.storage import Store
+from tests.support import unanimous
 
 
 @pytest.fixture
@@ -14,6 +15,7 @@ def chamber(monkeypatch):
     journal = Store(":memory:")
     monkeypatch.setattr(web, "store", journal)
     monkeypatch.setattr(web, "live", web.Live())
+    monkeypatch.setattr(web, "_ask", unanimous)
     web.live.pace_s = 0
     with TestClient(web.app) as client:
         yield client, journal, web
@@ -24,15 +26,14 @@ def chamber(monkeypatch):
     [],
     [{"id": "farmer"}, {"id": "farmer"}],
     [{"id": "unknown"}],
-    [{"id": "custom-scribe", "short": "Scribe", "profile": "farmer"}],
+    [{"id": "custom-scribe", "short": "Scribe"}],
     [{"id": "custom-scribe", "short": "Scribe", "mandate": "Feed the city.",
       "profile": "unknown"}],
-    [{"id": "bad/id", "short": "Scribe", "mandate": "Feed the city.",
-      "profile": "farmer"}],
+    [{"id": "bad/id", "short": "Scribe", "mandate": "Feed the city."}],
     [{"id": "custom-scribe", "short": "Scribe", "mandate": "Feed the city.",
-      "profile": "farmer", "color": "red;position:fixed"}],
-    [{"id": f"custom-{i}", "short": f"Voter {i}", "mandate": "Feed the city.",
-      "profile": "farmer"} for i in range(22)],
+      "color": "red;position:fixed"}],
+    [{"id": f"custom-{i}", "short": f"Voter {i}", "mandate": "Feed the city."}
+     for i in range(22)],
 ])
 def test_invalid_council_rejected_before_creating_run(chamber, advisors):
     client, journal, web = chamber
@@ -46,7 +47,7 @@ def test_invalid_council_rejected_before_creating_run(chamber, advisors):
     [{"id": "farmer"}],
     [{"id": "farmer"}, {"id": "builder"}],
     [{"id": "custom-scribe", "short": "Scribe", "title": "Keeper of the Tablets",
-      "mandate": "Speak for the families and keep everyone fed.", "profile": "farmer",
+      "mandate": "Speak for the families and keep everyone fed.",
       "voice": "patient, explains choices simply"}],
 ])
 def test_selected_council_runs_and_replays_from_saved_roster(chamber, advisors):

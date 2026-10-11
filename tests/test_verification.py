@@ -112,7 +112,7 @@ async def test_stopped_run_retains_its_summary():
     assert store.events("stopped")[-1]["kind"] == "end"
 
 
-def test_live_api_preserves_seven_advisors_and_rejects_stale_choices(monkeypatch):
+def test_live_api_preserves_seven_advisors_and_rejects_stale_choices(monkeypatch, llm_reply):
     from sumer import web
     monkeypatch.setattr(web, "store", Store(":memory:"))
     monkeypatch.setattr(web, "live", web.Live())
@@ -155,3 +155,29 @@ async def test_runoff_certificate_preserves_the_seven_advisor_rule():
     advanced, event = commit(store, "runoff", state, result, rolls)
     assert advanced.year == 2 and event["data"]["outcome"] == "runoff"
     assert len(event["data"]["yes_voters"]) == 4 and len(event["data"]["dissent"]) == 3
+
+
+@pytest.mark.parametrize("outcome,supporters", [("majority", 4), ("runoff", 3)])
+async def test_engine_commits_majority_and_runoff_without_red_line_clearance(outcome, supporters):
+    from tests.test_council import _ballot, _ids_for, scripted
+    # All of these are legal budgets that the former Farmer/Physician vetoes blocked.
+    camps = [(0, 0, 1000), (0, 0, 900), (0, 0, 800)]
+    def script(brief):
+        if brief.phase == "runoff":
+            a, b = brief.runoff
+            vote = a.id if brief.speaker in ("farmer", "priest", "general", "merchant") else b.id
+            return _ballot(brief, vote=vote)
+        index = ["farmer", "priest", "general", "merchant", "builder", "healer", "diplomat"].index(brief.speaker)
+        plan = camps[0] if index < supporters else camps[1] if index < supporters + 2 else camps[2]
+        return _ballot(brief, plan, accept=_ids_for(brief, plan))
+    state, rolls = new_game(1)
+    store = Store(":memory:")
+    store.create_run(outcome, {"initial_state": state.public(), "max_rounds": 6})
+    async def emit(kind, data):
+        store.append(outcome, kind, data)
+    result = await deliberate_year(seed=1, run_id=outcome, state=state, ask=scripted(script),
+        history=[], max_rounds=6, scheduled_news=None, emit=emit)
+    advanced, event = commit(store, outcome, state, result, rolls)
+    assert result.outcome == outcome and advanced.over
+    assert len(event["data"]["yes_voters"]) == 4
+    assert "vetoes" not in (result.runoff or {})

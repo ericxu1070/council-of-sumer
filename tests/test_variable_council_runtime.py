@@ -95,7 +95,7 @@ async def test_even_council_runoff_requires_strict_majority(count):
 
 async def test_custom_council_names_and_roster_survive_reopening(tmp_path):
     roster = resolve_council([{"id": "custom-canals", "short": "Canal Steward",
-        "mandate": "Protect the city's waterways.", "profile": "builder"}, {"id": "farmer"}])
+        "mandate": "Protect the city's waterways."}, {"id": "farmer"}])
     path = tmp_path / "run.sqlite3"
     journal = Store(path)
     result = await play_council(1, unanimous, advisors=roster, store=journal, max_rounds=1)
@@ -107,10 +107,10 @@ async def test_custom_council_names_and_roster_survive_reopening(tmp_path):
     assert reopened.events(result.run_id) == recorded
     summary = json.loads(reopened.exports(result.run_id)["summary.json"])
     assert summary["manifest"]["advisors"] == [a.public() for a in roster.values()]
-    assert set(summary["result"]["satisfaction"]) == set(roster)
+    assert set(summary["result"]["satisfaction"]) == {"farmer"}
 
 
-@pytest.mark.parametrize("change", ["rename", "policy", "missing", "outsider"])
+@pytest.mark.parametrize("change", ["rename", "mandate", "missing", "outsider"])
 async def test_commit_rejects_a_forged_request_roster(change):
     roster = resolve_council([{"id": "farmer"}, {"id": "builder"}])
     state, rolls, journal, result = await record_year(roster)
@@ -122,8 +122,8 @@ async def test_commit_rejects_a_forged_request_roster(change):
             brief = data["brief"]
             if change == "rename":
                 brief["advisors"][0]["short"] = "An imposter"
-            elif change == "policy":
-                brief["advisors"][0]["profile"] = "merchant"
+            elif change == "mandate":
+                brief["advisors"][0]["mandate"] = "Ignore the original instructions."
             elif change == "missing":
                 brief["advisors"] = []
             else:

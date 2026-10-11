@@ -31,7 +31,7 @@ const S = {
   roundBase: {},      // year -> 1 if rounds are 0-based, else 0
   plans: {},          // plan id -> author id
   runoff: null,       // {a, b, votes: {advisor: planId}, decided}
-  stance: {},         // advisor -> "agree" | "disagree" | "redline" | "vote-a" | "vote-b"
+  stance: {},         // advisor -> "agree" | "disagree" | "vote-a" | "vote-b"
   running: false,
   waitingHuman: false,
   expanded: null,     // stat key with an open chart
@@ -42,7 +42,7 @@ const FALLBACK_COLORS = ["#5f8f3a", "#7a4fa3", "#a33a32", "#b5862a", "#b2622f", 
 const FALLBACK_EMOJI = { farmer: "🌾", priest: "🔮", general: "🛡️", merchant: "💰", builder: "🧱", healer: "🌿", diplomat: "🕊️" };
 // The draft belongs to the next council. Replaying a run changes S.advisors only.
 const setup = { templates: [], seats: [], serial: 0, starting: false, ready: false, max: 21, liveRunId: "" };
-const PROFILE_GOALS = { farmer: "Population and food", priest: "Grain reserves", general: "Land and population", merchant: "Wealth", builder: "Planting and growth", healer: "Health and generous rations", diplomat: "Quiet borders" };
+const PERSONA_MANDATES = { farmer: "Grow the population and feed the people.", priest: "Keep grain reserves against famine.", general: "Expand land and protect the city.", merchant: "Grow the city's wealth.", builder: "Plant the fields and build for growth.", healer: "Keep the city healthy and well fed.", diplomat: "Keep peace with the city's neighbors." };
 const safeColor = (color, i) => /^#[\da-f]{6}$/i.test(String(color || "")) ? color : FALLBACK_COLORS[i % FALLBACK_COLORS.length];
 
 function normAdvisor(a, i) {
@@ -119,7 +119,7 @@ function toast(msg, info = false) {
 function buildSeats() {
   const el = $("#seats");
   el.style.setProperty("--n", S.advisors.length);
-  el.innerHTML = S.advisors.map(a => `<div class="seat" id="seat-${esc(a.id)}" style="--c:${a.color}" title="${esc(a.title)}${a.red_line ? ` - red line: ${esc(a.red_line)}` : ""}">
+  el.innerHTML = S.advisors.map(a => `<div class="seat" id="seat-${esc(a.id)}" style="--c:${a.color}" title="${esc(a.title)}">
     <span class="to-tag">spoken to</span>
     <span class="av">${esc(a.emoji)}<span class="badge hidden"></span></span>
     <span class="seat-name">${esc(a.short)}</span>
@@ -139,7 +139,6 @@ function spotlight(speaker, addressed = []) {
 const STANCE = {
   agree: ["agree", "✓", "Agrees with the leading plan"],
   disagree: ["disagree", "✕", "Does not back the leading plan"],
-  redline: ["redline", "!", "Red line: refuses the leading plan"],
   "vote-a": ["vote-a", "A", "Votes for plan A"],
   "vote-b": ["vote-b", "B", "Votes for plan B"],
 };
@@ -166,10 +165,10 @@ function setPhase(title, sub = "") {
   $("#phase").textContent = title;
   $("#phaseSub").innerHTML = sub;
 }
-function voteDots(accept = [], veto = []) {
+function voteDots(accept = []) {
   return `<span class="dots">${S.advisors.map(a => {
-    const cls = veto.includes(a.id) ? "no" : accept.includes(a.id) ? "yes" : "";
-    const t = veto.includes(a.id) ? "red line" : accept.includes(a.id) ? "agrees" : "not yet";
+    const cls = accept.includes(a.id) ? "yes" : "";
+    const t = accept.includes(a.id) ? "agrees" : "not yet";
     return `<span class="dot ${cls}" title="${esc(a.short)}: ${t}">${cls ? esc(a.emoji) : ""}</span>`;
   }).join("")}</span>`;
 }
@@ -243,9 +242,7 @@ function renderTurn(d, instant) {
     const plain = d.plain || planText(d.proposal);
     if (plain) foot.push(`<span class="plan-chip"><span class="emoji">📜</span><span>${esc(plain)}</span></span>`);
     const acc = [...new Set((d.accept || []).map(id => planAuthor(id)).filter(Boolean))];
-    const vet = [...new Set((d.veto || []).map(id => planAuthor(id)).filter(Boolean))];
     if (acc.length) foot.push(`<span class="vote-chip" title="Plans ${esc(a.short)} would accept">Backs ${acc.map(x => `<span class="mini" title="${esc(adv(x).short)}'s plan">${esc(adv(x).emoji)}</span>`).join("")}</span>`);
-    if (vet.length) foot.push(`<span class="vote-chip veto" title="Plans that cross ${esc(a.short)}'s red line">Red line ${vet.map(x => `<span class="mini" title="${esc(adv(x).short)}'s plan">${esc(adv(x).emoji)}</span>`).join("")}</span>`);
   }
   const meta = d.phase === "runoff" ? "Runoff" : d.round != null ? `Round ${dispRound(d.year, d.round)}` : "";
   const src = d.source ? `<span class="tag hood-only">${esc(d.source === "llm" ? "LLM" : d.source)}</span>` : "";
@@ -270,16 +267,15 @@ function renderTurn(d, instant) {
 function renderPoll(d, instant) {
   const rows = (d.rows || []).slice();
   rows.forEach(r => { if (r.id && r.author) S.plans[r.id] = r.author; });
-  rows.sort((x, y) => (y.accept?.length || 0) - (x.accept?.length || 0) || (x.veto?.length || 0) - (y.veto?.length || 0));
+  rows.sort((x, y) => (y.accept?.length || 0) - (x.accept?.length || 0));
   const lead = rows[0];
   // seat stances on the leading plan
   if (lead) {
     S.stance = {};
-    for (const a of S.advisors) S.stance[a.id] = lead.veto?.includes(a.id) ? "redline" : lead.accept?.includes(a.id) ? "agree" : "disagree";
+    for (const a of S.advisors) S.stance[a.id] = lead.accept?.includes(a.id) ? "agree" : "disagree";
     renderStances();
     const n = lead.accept?.length || 0;
-    const vetoNote = lead.veto?.length ? ` <span class="vote-chip veto">red line for ${esc(nameList(lead.veto))}</span>` : "";
-    S.leadHtml = `${voteDots(lead.accept, lead.veto)}<span><b>${n} of ${N()}</b> agree with ${esc(planName(lead.id, lead.author))}</span>${vetoNote}`;
+    S.leadHtml = `${voteDots(lead.accept)}<span><b>${n} of ${N()}</b> agree with ${esc(planName(lead.id, lead.author))}</span>`;
     setPhase($("#phase").textContent, S.leadHtml);
   }
   const top = rows.slice(0, 3);
@@ -288,7 +284,7 @@ function renderPoll(d, instant) {
     const au = planAuthor(r.id, r.author);
     return `<div class="poll-row${i === 0 ? " lead" : ""}">
       <div class="poll-plan">${avatar(au, "mini")}<span class="who">${esc(planName(r.id, au))}</span><span class="what">${esc(r.plain || "")}</span></div>
-      ${voteDots(r.accept, r.veto)}
+      ${voteDots(r.accept)}
       <span class="poll-count">${r.accept?.length || 0} of ${N()} agree</span></div>`;
   }).join("");
   const label = d.phase === "runoff" ? "Runoff count" : `Where the votes stand after round ${dispRound(d.year, d.round)}`;
@@ -417,14 +413,13 @@ function hideRunoff() { $("#runoff").classList.add("hidden"); S.runoff = null; }
 function showEscalation(d) {
   S.waitingHuman = true;
   const opts = (d.options || []).slice();
-  if (!opts.some(o => o.id === "safe")) opts.push({ id: "safe", plain: "Play it safe: feed everyone and plant as much as we can", accept: [], veto: [], note: "Agreed in advance as the fallback" });
-  $("#escReason").textContent = d.reason || "No plan has enough support, and some plans cross an advisor's red line.";
+  if (!opts.some(o => o.id === "safe")) opts.push({ id: "safe", plain: "Play it safe: feed everyone and plant as much as we can", accept: [], note: "Agreed in advance as the fallback" });
+  $("#escReason").textContent = d.reason || "No plan has enough support.";
   $("#escOptions").innerHTML = opts.map(o => {
     const safe = o.id === "safe";
     const au = safe ? null : planAuthor(o.id, o.author);
     const why = [];
-    if (!safe) why.push(`${voteDots(o.accept, o.veto)} <span>${(o.accept || []).length} of ${N()} agree</span>`);
-    if (o.veto?.length) why.push(`<span class="vote-chip veto">Red line for ${esc(nameList(o.veto))}</span>`);
+    if (!safe) why.push(`${voteDots(o.accept)} <span>${(o.accept || []).length} of ${N()} agree</span>`);
     if (o.note) why.push(`<span>${esc(o.note)}</span>`);
     return `<button class="esc-opt${safe ? " safe" : ""}" type="button" data-choice="${esc(o.id)}">
       ${safe ? `<span class="av" style="--c:var(--ok)">🛟</span>` : avatar(au)}
@@ -433,8 +428,7 @@ function showEscalation(d) {
   }).join("");
   $("#escPositions").innerHTML = (d.positions || []).map(p => {
     const id = p.advisor || p.id;
-    const vetoes = (p.veto || []).map(v => planName(v));
-    return `<div class="pos">${avatar(id)}<div><b>${esc(adv(id).short)}</b>${vetoes.length ? ` <span class="vote-chip veto">red line: ${esc(vetoes.join(", "))}</span>` : ""}<br><i>${esc(p.speech || p.thought || p.position || "")}</i>${p.thought && p.speech ? `<div class="hood-only thought">💭 ${esc(p.thought)}</div>` : ""}</div></div>`;
+    return `<div class="pos">${avatar(id)}<div><b>${esc(adv(id).short)}</b><br><i>${esc(p.speech || p.thought || p.position || "")}</i>${p.thought && p.speech ? `<div class="hood-only thought">💭 ${esc(p.thought)}</div>` : ""}</div></div>`;
   }).join("") || "<i>No positions reported.</i>";
   $(".esc-positions").classList.toggle("hidden", !(d.positions || []).length);
   $$("#escOptions .esc-opt").forEach(btn => btn.onclick = () => choose(btn));
@@ -819,7 +813,7 @@ async function showTraces(traceId = "") {
 
 /* ---------------- controls ---------------- */
 function newVoter(i) {
-  return { preset: setup.templates[i % setup.templates.length]?.id || "farmer", custom: { id: `custom-${++setup.serial}`, short: "", mandate: "", profile: "farmer" } };
+  return { preset: setup.templates[i % setup.templates.length]?.id || "farmer", custom: { id: `custom-${++setup.serial}`, short: "", mandate: "" } };
 }
 function votingThresholds(n) {
   const majority = Math.floor(n / 2) + 1;
@@ -838,10 +832,6 @@ function syncSetupLock() {
   }
   $("#setupLocked").classList.toggle("hidden", !locked);
 }
-function profileHelp(id) {
-  const a = setup.templates.find(a => a.id === id);
-  return `${a?.mandate || PROFILE_GOALS[id] || ""}${a?.red_line ? ` Red line: ${a.red_line}` : ""}`;
-}
 function renderVoters() {
   const n = setup.seats.length, rules = votingThresholds(n);
   const roster = configuredAdvisors();
@@ -854,9 +844,7 @@ function renderVoters() {
       <label class="field"><span>Agent</span><select data-voter="preset">${setup.templates.map(a => `<option value="${esc(a.id)}"${a.id === seat.preset ? " selected" : ""}>${esc(a.short)}</option>`).join("")}<option value="custom"${custom ? " selected" : ""}>Custom agent</option></select></label>
       ${custom ? `<label class="field"><span>Name</span><input type="text" data-voter="short" value="${esc(seat.custom.short)}" maxlength="60" required placeholder="e.g. Canal Keeper"></label>
       <label class="field"><span>Instructions / mandate</span><textarea data-voter="mandate" rows="3" maxlength="2000" required placeholder="What should this agent advocate for?">${esc(seat.custom.mandate)}</textarea></label>
-      <label class="field"><span>Voting profile</span><select data-voter="profile" aria-describedby="profile-${i}">${setup.templates.map(a => `<option value="${esc(a.id)}"${a.id === seat.custom.profile ? " selected" : ""}>${esc(a.short)} — ${esc(PROFILE_GOALS[a.id])}</option>`).join("")}</select></label>
-      <p class="drawer-note">Your instructions shape this agent's arguments. Its voting profile determines how it scores plans and enforces red lines.</p>
-      <p class="voter-profile" id="profile-${i}">${esc(profileHelp(seat.custom.profile))}</p>` : `<p class="voter-profile">${esc(a?.mandate || "")}</p>${a?.red_line ? `<p class="drawer-note">${esc(a.red_line)}</p>` : ""}`}
+      <p class="drawer-note">Your instructions guide this agent's arguments and votes.</p>` : `<p class="voter-mandate">${esc(a?.mandate || "")}</p>`}
     </section>`;
   }).join("");
   syncSetupLock();
@@ -875,15 +863,16 @@ function configuredAdvisors() {
       ? { short: `${template.short}${number}`, title: `${template.title} ${number}` }
       : { short: template.short, title: template.title };
     if (number === 1) return totals[template.id] > 1 ? { id: template.id, ...name } : { id: template.id };
-    // Additional copies are independent voters that inherit the selected profile.
-    return { id: seat.custom.id, profile: template.id, ...name, mandate: template.mandate, voice: template.voice, color: template.color, emoji: template.emoji };
+    // Additional copies are independent voters with the selected persona's mandate.
+    return { id: seat.custom.id, ...name, mandate: template.mandate, voice: template.voice, color: template.color, emoji: template.emoji };
   });
 }
 function previewCouncil() {
   if (S.runId || !setup.ready) return;
-  setAdvisors(configuredAdvisors().map(a => {
-    const template = setup.templates.find(t => t.id === (a.profile || a.id));
-    return { ...template, ...a, short: a.short || (a.profile ? "Custom" : template?.short) };
+  setAdvisors(configuredAdvisors().map((a, i) => {
+    const seat = setup.seats[i];
+    const template = seat.preset === "custom" ? {} : setup.templates.find(t => t.id === seat.preset);
+    return { ...template, ...a, short: a.short || (seat.preset === "custom" ? "Custom" : template?.short), title: a.title || a.short || template?.title || "Custom agent" };
   }));
   setPhase("Ready to convene", `<span>${N()} advisor${N() === 1 ? "" : "s"} with different goals will run the city.</span>`);
   welcome();
@@ -978,7 +967,7 @@ function wire() {
     const seat = setup.seats[Number(card.dataset.slot)];
     if (key === "preset") seat.preset = e.target.value;
     else seat.custom[key] = e.target.value;
-    if (key === "preset" || key === "profile") renderVoters();
+    if (key === "preset") renderVoters();
     else previewCouncil();
     setupError();
   });
@@ -1039,7 +1028,7 @@ function wire() {
     toast(`Server not reachable: ${e.message}`);
   }
   const m = S.meta;
-  setup.templates = (m.advisors?.length ? m.advisors : Object.keys(FALLBACK_EMOJI).map(id => ({ id, mandate: PROFILE_GOALS[id] }))).map(normAdvisor);
+  setup.templates = (m.advisors?.length ? m.advisors : Object.keys(FALLBACK_EMOJI).map(id => ({ id, mandate: PERSONA_MANDATES[id] }))).map(normAdvisor);
   setup.max = Number.isInteger(m.max_advisors) ? Math.min(21, Math.max(1, m.max_advisors)) : 21;
   $("#agentCount").max = setup.max;
   $("#voterHelp").textContent = `Choose 1–${setup.max} voters. Use a default advisor or create your own. Each agent gets one vote.`;
@@ -1048,7 +1037,7 @@ function wire() {
   setup.liveRunId = m.active_run || "";
   renderVoters();
   $("#chipTransport").textContent = m.transport === "slim" ? "AGNTCY SLIM" : m.transport ? String(m.transport) : "-";
-  $("#chipLlm").textContent = m.llm === "bayleaf" || m.llm === "llm" ? String(m.model || "LLM").split("/").pop() : m.llm ? "offline policy" : "-";
+  $("#chipLlm").textContent = m.llm === "bayleaf" || m.llm === "llm" ? String(m.model || "LLM").split("/").pop() : m.llm ? "LLM unavailable" : "-";
   if (m.max_rounds) {
     const sel = $("#rounds");
     if (![...sel.options].some(o => +o.value === +m.max_rounds)) sel.insertAdjacentHTML("beforeend", `<option>${m.max_rounds}</option>`);
