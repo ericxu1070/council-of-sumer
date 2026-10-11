@@ -200,12 +200,16 @@ async def decide(advisor_id: str, brief: Brief) -> Ballot:
                 ballot = _llm_turn(advisor_id, brief, data, reply)
         except (llm.LLMUnavailable, ValueError, KeyError, TypeError, StopIteration) as exc:
             metadata = getattr(exc, "usage", None) or metadata
+            # "failed": a live call was tried and lost, so this turn will not replay from cache.
+            # "unreadable": the bad reply is cached, so a replay reproduces the same result.
+            kind = ("failed" if isinstance(exc, llm.LLMFailed)
+                    else "unavailable" if isinstance(exc, llm.LLMUnavailable) else "unreadable")
             # An error envelope is rejected by validation; it is never a policy vote.
             ballot = Ballot(advisor=advisor_id, year=brief.year, round=brief.round,
                             phase=brief.phase, proposal=Plan(land_delta=0, feed=0, plant=0),
                             source="llm", error=f"{type(exc).__name__}: {exc}",
                             speech="Unable to produce a valid turn response.",
-                            trace={"llm": metadata})
+                            trace={"llm": metadata, "fallback_kind": kind})
         return traced_reply(ballot, brief)
 
 

@@ -1,8 +1,8 @@
 """The chamber: runs one live game and streams every message to the browser (SSE).
 
 Pacing: council messages (each turn, news, runoff steps, escalation) go out
-one at a time, and after each one the server sleeps `live.pace_s` seconds
-(default 1 s, POST /api/pace; 0 fast-forwards). After each year's result the
+one at a time, exactly `live.pace_s` seconds apart (default 0.8 s, PACE_S or
+POST /api/pace; 0 fast-forwards). After each year's result the
 server waits for the narrator to finish reading the year's summary, plus a
 second, before the next year starts.
 """
@@ -90,22 +90,27 @@ class Live:
         self.council = None
         self.game_no = 0
         self.narration: dict[int, bytes] = {}
+        self.next_at = 0.0  # loop time when the next paced message may go out
 
 
 live = Live()
 
 
-# Council messages a person reads or hears: each is sent alone, then the
-# server pauses, so the browser receives them one by one, never in a burst.
+# Council messages a person reads or hears: each is sent alone, exactly one
+# pace apart, so the browser receives them one by one, never in a burst. The
+# next speaker thinks while the clock runs, so the wire time does not add up.
 PACED = {"turn", "news", "runoff", "runoff_result", "escalate"}
 
 
 async def paced_emit(kind: str, data: dict) -> None:
+    loop = asyncio.get_running_loop()
+    if kind in PACED and live.pace_s > 0:
+        await asyncio.sleep(max(0.0, live.next_at - loop.time()))
     await hub.emit(kind, data)
     if live.pace_s <= 0:
         return  # fast-forward
     if kind in PACED:
-        await asyncio.sleep(live.pace_s)
+        live.next_at = loop.time() + live.pace_s
     elif kind == "year":
         # Let the narrator finish reading the year before the next debate starts.
         text = data.get("summary") or ""

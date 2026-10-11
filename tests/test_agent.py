@@ -98,3 +98,27 @@ async def test_unseated_speaker_cannot_receive_a_model_vote(llm_reply):
     assert ballot.accept == [] and "chosen" not in ballot.trace
     with pytest.raises(ValueError, match="not seated"):
         validate_reply(ballot, brief)
+
+
+# ---- replay safety ----
+
+async def test_llm_call_is_retried_then_cached(monkeypatch, tmp_path):
+    from sumer import llm
+
+    calls = []
+
+    async def flaky(messages, temperature):
+        calls.append(1)
+        if len(calls) < 3:
+            raise llm.LLMFailed("timeout")
+        return llm.Reply('{"ok": 1}', "m", False, 0.1, 0.0)
+
+    monkeypatch.setattr(llm, "_call", flaky)
+    monkeypatch.setattr(llm, "enabled", lambda: True)
+    monkeypatch.setattr(llm, "spent_usd", lambda: 0.0)
+    monkeypatch.setattr(llm, "BACKOFF_S", (0.0, 0.0))
+    monkeypatch.setattr(llm, "_cache_path", lambda m: tmp_path / "reply.json")
+    r = await llm.chat([{"role": "user", "content": "hi"}])
+    assert r.content == '{"ok": 1}' and len(calls) == 3
+    again = await llm.chat([{"role": "user", "content": "hi"}])
+    assert again.cached and len(calls) == 3

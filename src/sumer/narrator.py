@@ -1,4 +1,4 @@
-"""The narrator: one or two plain-English sentences about each year.
+"""The narrator: two short plain-English sentences about each year.
 
 Built from templates, so it is deterministic and needs no LLM. Written for a
 non-technical audience: what the council decided, why in one phrase, and what
@@ -7,140 +7,80 @@ happened to the city.
 
 from __future__ import annotations
 
-from sumer.advisors import short
-from sumer.deliberation import YearResult
+from sumer.advisors import ADVISORS, short
+from sumer.deliberation import YearResult, voting_rules
 from sumer.game import FOOD_PER_PERSON, State
 
-NEWS_PHRASE = {
-    ("harvest", "poor"): "Warned of locusts",
-    ("harvest", "rich"): "Expecting a rich flood",
-    ("harvest", "ordinary"): "Told to expect an ordinary harvest",
-    ("rats", "yes"): "With rats loose in the granary",
-    ("rats", "no"): "With the granary free of rats",
-    ("plague", "yes"): "With plague coming up the river",
-    ("plague", "no"): "Hearing of no sickness abroad",
-    ("market", ""): "With word of land prices from Lagash",
-}
+_NUMBER = {0: "none", 1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven"}
 
 
-def _news_phrase(news: list[dict]) -> str | None:
-    if not news:
-        return None
-    n = news[-1]
-    kind, text = n.get("kind", ""), n.get("text", "").lower()
-    sub = ""
-    if kind == "harvest":
-        sub = "poor" if "poor" in text else "rich" if "strong" in text else "ordinary"
-    elif kind in ("rats", "plague"):
-        sub = "no" if ("free" in text or "no sickness" in text) else "yes"
-    return NEWS_PHRASE.get((kind, sub))
-
-
-def _what(yr: YearResult, before: State) -> str:
-    """What the plan does, in words: 'planted every field', 'bought land', ..."""
+def _did(yr: YearResult, before: State) -> str:
+    """What the plan did, only when it is news: trading land, changing rations,
+    leaving fields fallow. Planting every field is the usual case, so it goes unsaid."""
     d = yr.plan
     bits = []
     if d.land_delta > 0:
-        bits.append("bought land")
+        bits.append("buy land")
     elif d.land_delta < 0:
-        bits.append("sold land")
+        bits.append("sell land")
     need = before.population * FOOD_PER_PERSON
     if d.feed >= 1.05 * need:
-        bits.append("gave everyone extra rations")
-    elif d.feed < 0.9 * need:
-        bits.append("cut the rations")
+        bits.append("give extra rations")
     elif d.feed < need:
-        bits.append("trimmed the rations")
+        bits.append("cut the rations")
     sowable = min(before.acres + d.land_delta, before.population * 10)
-    share = d.plant / max(sowable, 1)
-    if share >= 0.95:
-        bits.append("planted every field")
-    elif share >= 0.6:
-        bits.append("planted most of the fields")
-    else:
-        bits.append("left many fields fallow")
-    if len(bits) > 2:  # land and rations say more than "planted every field"
-        bits = bits[:2]
-    return " and ".join(bits)
+    if d.plant < 0.6 * max(sowable, 1):
+        bits.append("leave fields fallow")
+    return " and ".join(bits[:2])
 
 
-def _decision(yr: YearResult, before: State, opener: str | None, advisors=None) -> str:
-    """The decision clause. `opener` is a news phrase that already leads the sentence."""
-    what = _what(yr, before)
-    who = short(yr.adopted_author, advisors)
+def _decision(yr: YearResult, before: State, advisors=None) -> str:
+    roster = ADVISORS if advisors is None else advisors
+    total = len(roster)
+    total_words = _NUMBER.get(total, str(total))
+    who = short(yr.adopted_author, roster)
+    did = _did(yr, before)
+    to_do = f" to {did}" if did else ""
     if yr.outcome == "consensus":
-        if opener:
-            return f"{opener}, the whole council backed the {who}'s plan, so the city {what}"
-        lead = "the whole council quickly agreed" if yr.rounds <= 2 else (
-            "after a long debate, the whole council agreed")
-        return f"{lead} on the {who}'s plan, so the city {what}"
+        return f"All {total_words} agreed on the {who}'s plan{to_do}"
     if yr.outcome == "majority":
-        lead = opener or ("after a heated debate" if yr.rounds >= 3 else "after a short debate")
-        over = _over(yr.dissent, advisors)
-        return f"{lead}, the council sided with the {who}{over}, so the city {what}"
-    body = _split(yr, who, what)
-    return f"{opener}, {body}" if opener else body
-
-
-def _over(dissent: list[str], advisors=None) -> str:
-    names = [short(a, advisors) for a in dissent]
-    if not names:
-        return ""
-    if len(names) == 1:
-        return f" over the {names[0]}'s objection"
-    if len(names) == 2:
-        return f" over the objections of the {names[0]} and the {names[1]}"
-    return f" over the objections of {_NUMBER.get(len(names), len(names))} advisors"
-
-
-_NUMBER = {3: "three", 4: "four", 5: "five", 6: "six"}
-
-
-def _split(yr: YearResult, who: str, what: str) -> str:
+        n = total - len(yr.dissent)
+        return f"{_NUMBER.get(n, str(n)).capitalize()} of {total_words} sided with the {who}{to_do}"
     if yr.outcome == "runoff":
-        return (f"the council split down the middle and went to a runoff, where the {who}'s "
-                f"plan won, and the city {what}")
+        count = sorted((yr.runoff or {}).get("count", {}).values(), reverse=True)
+        score = (f", {_NUMBER.get(count[0], str(count[0]))}"
+                 f" to {_NUMBER.get(count[1], str(count[1]))}" if len(count) == 2 else "")
+        floor = voting_rules(total)["runoff_floor"]
+        why = (f"Only {_NUMBER.get(floor, str(floor))} of {total_words} backed one plan"
+               if (yr.runoff or {}).get("trigger") == "three"
+               else "The top two plans were tied")
+        return f"{why}, so it went to a runoff. The {who} won{score}"
     if yr.human_choice is None:
-        return f"the council deadlocked, so the safe fallback plan was used and the city {what}"
+        return "The council deadlocked, so the safe plan was used"
     if yr.human_choice == "safe":
-        return f"the council deadlocked, so the human ruler chose the safe plan, and the city {what}"
-    return (f"the council deadlocked, so the human ruler chose the {who}'s plan, and the city "
-            f"{what}")
+        return "The council deadlocked, so you chose the safe plan"
+    return f"The council deadlocked, so you chose the {who}'s plan"
 
 
 def _happened(before: State, after: State) -> str:
     r = after.last_report
     y = r.get("yield_per_acre", 3)
-    harvest = "poor" if y <= 2 else "rich" if y >= 4 else "ordinary"
-    clauses = [f"The harvest was {harvest}"]
-    # Keep it short: name only the worst thing that happened.
+    harvest = "A poor harvest" if y <= 2 else "A rich harvest" if y >= 4 else "An ordinary harvest"
+    if after.impeached:
+        return f"{harvest}, and the angry people overthrew the council."
     if r.get("starved"):
         n = r["starved"]
-        clauses.append(f"{n} {'person' if n == 1 else 'people'} starved")
+        harm = f"{n} {'person' if n == 1 else 'people'} starved"
     elif r.get("plague_deaths"):
-        clauses.append("plague swept the streets")
-    if after.impeached:
-        clauses.append("the angry people overthrew the council")
-        return _join(clauses) + "."
-    pop0, pop1 = before.population, after.population
-    if pop1 > pop0:
-        tail = f"the city grew to {pop1} people"
-    elif pop1 < pop0:
-        tail = f"the city shrank to {pop1} people"
+        harm = "plague swept the streets"
     else:
-        tail = f"the city held at {pop1} people"
-    clauses.append(tail)
-    return _join(clauses) + "."
-
-
-def _join(clauses: list[str]) -> str:
-    if len(clauses) == 1:
-        return clauses[0]
-    return ", ".join(clauses[:-1]) + ", and " + clauses[-1]
+        harm = ""
+    pop0, pop1 = before.population, after.population
+    change = "grew to" if pop1 > pop0 else "shrank to" if pop1 < pop0 else "held at"
+    tail = f"the city {change} {pop1} people"
+    return f"{harvest}; {harm}, and {tail}." if harm else f"{harvest}, and {tail}."
 
 
 def summarize(yr: YearResult, before: State, after: State, advisors=None) -> str:
-    """Year N. <decision sentence>. <what happened sentence>."""
-    decision = _decision(yr, before, _news_phrase(yr.news), advisors)
-    decision = decision[0].upper() + decision[1:]
-    return f"Year {yr.year}. {decision}. {_happened(before, after)}"
+    """Year N. <who won and what it does>. <what happened>. About 20 words."""
+    return f"Year {yr.year}. {_decision(yr, before, advisors)}. {_happened(before, after)}"

@@ -54,11 +54,11 @@ Other commands:
 uv run sumer bench --seeds 30          # council vs baselines, writes results/bench.{json,md}
 uv run pytest                          # unit tests
 uv run sumer node | agent <id> | web   # run the pieces separately
-uv run python scripts/find_runoff_seed.py --seeds 200   # demo seeds with a runoff
+uv run python scripts/rehearse.py 3 11 --batch 3   # rehearse candidate demo seeds
 ```
 
-Settings live in `.env` (see `.env.example`): `REIGN_YEARS` (default 5), `MAX_ROUNDS` (default 6),
-`PACE_S` (seconds between council messages, default 1.0), and the optional ElevenLabs voices.
+Settings live in `.env` (see `.env.example`): `REIGN_YEARS` (default 5), `MAX_ROUNDS` (default 5),
+`PACE_S` (seconds between council messages, default 0.8), and the optional ElevenLabs voices.
 
 No Docker is needed. The SLIM data-plane node runs inside Python via `slim-bindings`.
 
@@ -134,7 +134,7 @@ agents missing a name or mandate are rejected before creating a run.
 
 ## The deliberation protocol
 
-Each year is a real meeting, up to 6 rounds of turns. The counts below describe the default
+Each year is a real meeting, up to 5 rounds of turns. The counts below describe the default
 five-agent council; configured councils use the thresholds above:
 
 1. **Turns, not polls.** The five advisors speak one at a time in a fixed order, and the first
@@ -226,9 +226,16 @@ regenerated. Paused deadlocks and technical failures do not receive completed-re
 - Every LLM reply is cached in `.cache/llm/` by prompt hash. Use Saved runs to replay a recorded
   debate without network calls.
 - `LLM_BUDGET_USD` (default $3.00) is a hard cap tracked from the cost Bayleaf reports per call.
-  Past it, advisors record a technical failure after one retry; no deterministic fallback vote is generated.
-- At six discussion rounds, the default council uses up to 35 LLM calls per year, including
+  Past it, advisors record a technical failure; no deterministic fallback vote is generated.
+- A failed live call is retried up to 3 times with backoff before the advisor records a technical
+  failure. Such a turn is not cached, so it would not replay the same way: `scripts/rehearse.py`
+  reports these per year and marks the seed UNUSABLE until a clean rehearsal.
+- At five discussion rounds, the default council uses up to 30 LLM calls per year, including
   a five-vote runoff, before retries. Larger councils use proportionally more calls.
+
+```bash
+uv run python scripts/rehearse.py 3 11 --batch 3   # live rehearsal: per-year outcome, trigger, rounds, turns, fallbacks
+```
 
 ## Project layout
 
@@ -247,7 +254,7 @@ src/sumer/
   web.py           FastAPI + SSE chamber, human escalation
   voice.py         optional ElevenLabs voices (advisors and narrator)
 web/               the chamber UI
-scripts/           find_runoff_seed.py (demo seed search)
+scripts/           rehearse.py (live rehearsal)
 tests/             unit tests
 ```
 
