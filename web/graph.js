@@ -53,6 +53,9 @@
 .cg-relation .relation-label{fill:var(--relation);font-size:20px;font-weight:800;paint-order:stroke;stroke:#0b1020;stroke-width:5px;stroke-linejoin:round}
 @keyframes cg-relation-flash{0%{opacity:0}12%,65%{opacity:1}100%{opacity:0}}
 @media(prefers-reduced-motion:reduce){.cg-relation{animation:none}}
+.cg-conversation path{fill:none;stroke:var(--cg-speak);stroke-linecap:round}
+.cg-conversation .conversation-halo{stroke-width:8;opacity:.18}
+.cg-conversation .conversation-line{stroke-width:2.5;stroke-dasharray:7 5;animation:cg-flow 1s linear infinite}
 .cg-pk{fill:#fff}.cg-pk-halo{opacity:.35}
 .cg-node,.cg-hub{position:absolute;left:0;top:0;width:0;height:0;will-change:transform}
 .cg-node{transition:opacity .5s ease}
@@ -157,13 +160,13 @@
 .cg-bubble-text{font-size:clamp(19px,1.1vw,26px);font-weight:500;line-height:1.38;color:var(--cg-ink);display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden}
 @media (prefers-reduced-motion:reduce){.cg *{animation:none!important;transition-duration:.01ms!important}}`;
 
-  let root, svg, gSpokes, gPackets, gRelations, layer, hubEl, hubBody, hubLabel, hubSub, ripple, bubble;
+  let root, svg, gSpokes, gPackets, gRelations, gConversations, layer, hubEl, hubBody, hubLabel, hubSub, ripple, bubble;
   let W = 0, H = 0, cx = 0, cy = 0, hx = 0, hy = 0, size = BASE, hubSize = HUB_BASE, labelW = 120;
   const nodes = new Map();          // id -> node record
   let order = [];
   let tween = null, raf = 0;
   const packets = [];
-  let relations = [], relationTimer = 0;
+  let relations = [], conversations = [], relationTimer = 0;
   let timers = [], gen = 0, talkTimer = 0, lastSpeak = null;
 
   function injectCss() {
@@ -185,7 +188,8 @@
     svg = sv("svg", { class: "cg-svg" });
     gSpokes = sv("g", {}); gPackets = sv("g", {});
     gRelations = sv("g", { class: "cg-relations" });
-    svg.append(gSpokes, gPackets, gRelations);
+    gConversations = sv("g", { class: "cg-conversations" });
+    svg.append(gSpokes, gConversations, gPackets, gRelations);
     layer = el("div"); layer.style.cssText = "position:absolute;inset:0";
     hubEl = el("div", "cg-hub", `<div class="cg-hub-body">
       <svg viewBox="0 0 100 100" aria-hidden="true">
@@ -421,6 +425,7 @@
 
   function later(fn, ms) { const id = setTimeout(fn, ms); timers.push(id); return id; }
   function clearState() {
+    conversations = []; gConversations?.replaceChildren();
     timers.forEach(clearTimeout); timers = [];
     for (const pk of packets) pk.g.remove();
     packets.length = 0;
@@ -454,6 +459,7 @@
     hubEl.classList.add("active");
     const lcls = broadcast ? "lb" : "l", ncls = broadcast ? "listening-soft" : "listening";
     lastSpeak = { speaker, listeners, broadcast };
+    showConversations(speaker, listeners);
     showBubble(sp, listeners, broadcast, text, meta, fast);
     const lit = [sp, ...listeners.map(id => nodes.get(id))];
     // Once delivered, the lines stay lit but stop flowing and the hub stops spinning.
@@ -564,7 +570,7 @@
     relations = []; gRelations?.replaceChildren();
   }
   function placeRelations() {
-    for (const edge of relations) {
+    for (const edge of [...conversations, ...relations]) {
       const a = nodes.get(edge.from), b = nodes.get(edge.to);
       if (!a || !b) continue;
       const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
@@ -577,9 +583,20 @@
       const bend = Math.min(60, len * .16) * sign;
       const qx = mx - dy / len * bend, qy = my + dx / len * bend;
       for (const path of edge.paths) path.setAttribute("d", `M${x1} ${y1}Q${qx} ${qy} ${x2} ${y2}`);
-      edge.label.setAttribute("x", (mx + qx) / 2);
-      edge.label.setAttribute("y", (my + qy) / 2 - 8);
+      edge.label?.setAttribute("x", (mx + qx) / 2);
+      edge.label?.setAttribute("y", (my + qy) / 2 - 8);
     }
+  }
+  function showConversations(from, listeners) {
+    for (const to of listeners) {
+      const group = sv("g", { class: "cg-conversation" });
+      const title = sv("title", {});
+      title.textContent = `${nodes.get(from).a.short} talks to ${nodes.get(to).a.short}`;
+      const paths = [sv("path", { class: "conversation-halo" }), sv("path", { class: "conversation-line" })];
+      group.append(title, ...paths); gConversations.append(group);
+      conversations.push({ from, to, paths });
+    }
+    placeRelations();
   }
   function flashRelations(edges = []) {
     if (!root) return;

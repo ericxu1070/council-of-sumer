@@ -37,6 +37,7 @@ const S = {
   hist: [],           // hist[x] = state after x completed years (x = 0 is the start)
   roundBase: {},      // year -> 1 if rounds are 0-based, else 0
   plans: {},          // plan id -> author id
+  planRows: [],        // current proposals and their approval votes
   lastPlain: {},      // advisor -> plan text last shown in the transcript this year
   runoff: null,       // {a, b, votes: {advisor: planId}, decided}
   stance: {},         // advisor -> "agree" | "disagree" | "vote-a" | "vote-b"
@@ -115,6 +116,36 @@ function planText(p) {
   if (p.feed != null) parts.push(`feed ${fmt(p.feed)} bushels`);
   if (p.plant != null) parts.push(`plant ${fmt(p.plant)} acres`);
   return cap(parts.join(", "));
+}
+// The river keeps the live proposal table visible while councilors speak.
+function renderRiverPlans(rows = S.planRows) {
+  S.planRows = rows.map(row => ({ ...S.planRows.find(p => p.id === row.id), ...row }));
+  const board = $("#riverPlans");
+  board.classList.toggle("hidden", !S.planRows.length);
+  board.innerHTML = S.planRows.map(row => {
+    const author = planAuthor(row.id, row.author);
+    const supporters = [...new Set(row.accept || [])].filter(id => S.advisors.some(a => a.id === id));
+    const request = row.plain || planText(row.plan);
+    return `<article class="river-plan" data-plan-id="${esc(row.id)}" style="--c:${adv(author).color}">
+      <div class="river-plan-head">${avatar(author, "mini")}<b>${esc(planName(row.id, author))}</b></div>
+      <div class="river-plan-request">${esc(request || "Plan details pending")}</div>
+      <div class="river-plan-support"><b>${supporters.length} of ${N()} for</b>${supporters.length ? supporters.map(id => `<span class="river-supporter">${avatar(id, "mini")}<span>${esc(adv(id).short)}</span></span>`).join("") : '<span class="river-no-votes">No votes yet</span>'}</div>
+    </article>`;
+  }).join("");
+}
+function updateRiverTurn(d) {
+  if (d.runoff_vote && S.runoff) return; // Runoff votes update after they are recorded.
+  if (Array.isArray(d.support)) {
+    renderRiverPlans(d.support);
+  } else if (d.plan_id) {
+    const rows = S.planRows.map(row => ({ ...row, accept: (row.accept || []).filter(id => id !== d.advisor) }));
+    let row = rows.find(p => p.id === d.plan_id);
+    if (!row) { row = { id: d.plan_id, author: planAuthor(d.plan_id, d.advisor), accept: [] }; rows.push(row); }
+    if (d.plain) row.plain = d.plain;
+    if (d.proposal) row.plan = d.proposal;
+    for (const plan of rows) if ((d.accept || []).includes(plan.id)) plan.accept = [...new Set([...plan.accept, d.advisor])];
+    renderRiverPlans(rows);
+  }
 }
 const stripSafe = t => cap(String(t || "").replace(/^play it safe:\s*/i, ""));
 // The narrator opens with "Year N." for listeners; on screen the card already says which year.
@@ -345,6 +376,7 @@ function renderTurn(d, instant) {
   // Backing someone else’s plan must retain its original author.
   for (const row of d.support || []) if (row.id && row.author) S.plans[row.id] = row.author;
   if (d.plan_id && !S.plans[d.plan_id]) S.plans[d.plan_id] = planAuthor(d.plan_id, d.advisor);
+  updateRiverTurn(d);
   const meta = d.phase === "runoff" ? "Runoff" : d.round != null ? `Round ${dispRound(d.year, d.round)}` : "";
   G.speak({ speaker: d.advisor, to: addressed, text: d.speech || "" }, instant);
   G.relations(turnRelations(d), instant);
@@ -378,6 +410,7 @@ function renderTurn(d, instant) {
 function renderPoll(d, instant) {
   const rows = (d.rows || []).slice();
   rows.forEach(r => { if (r.id && r.author) S.plans[r.id] = r.author; });
+  renderRiverPlans(rows);
   rows.sort((x, y) => (y.accept?.length || 0) - (x.accept?.length || 0));
   const lead = rows[0];
   G.pulse(instant);
@@ -526,6 +559,7 @@ function showRunoff(d, instant) {
   if (a.id && a.author) S.plans[a.id] = a.author;
   if (b.id && b.author) S.plans[b.id] = b.author;
   S.runoff = { a, b, votes: {}, decided: false };
+  renderRiverPlans([a, b].map(row => ({ ...row, accept: [] })));
   S.stance = {};
   renderStances();
   const side = (p, k) => {
@@ -547,6 +581,7 @@ function addRunoffVote(advisor, pid, instant) {
   const k = pid === R.b.id ? "b" : pid === R.a.id ? "a" : null;
   if (!k) return;
   R.votes[advisor] = pid;
+  renderRiverPlans([R.a, R.b].map(row => ({ ...row, accept: Object.keys(R.votes).filter(id => R.votes[id] === row.id) })));
   const side = $(`#ro-${k}`);
   if (side) {
     $(".ro-votes", side).insertAdjacentHTML("beforeend", avatar(advisor, `ro-vote${instant ? " still" : ""}`));
@@ -856,6 +891,7 @@ function resetGame(d) {
   window.CityEffects?.clear();
   hideRunoff();
   Object.assign(S, { leadHtml: "", cmpHtml: "", year: 0, round: null, completed: 0, hist: [], roundBase: {}, plans: {}, lastPlain: {}, stance: {}, running: true, waitingHuman: false });
+  renderRiverPlans([]);
   S.years = d.years || S.meta?.years || 5;
   if (d.advisors) setAdvisors(d.advisors);
   else renderStances();
@@ -884,6 +920,8 @@ function render(kind, d, instant) {
       break;
     case "year_start":
       S.year = d.year; S.round = null; S.stance = {}; S.plans = {}; S.leadHtml = ""; S.cmpHtml = ""; S.lastPlain = {}; renderStances(); hideRunoff();
+      renderRiverPlans([]);
+      G.idle(instant);
       if (d.state) recordState(d.year - 1, d.state);
       renderYear();
       setPhase("The council debates", "");
@@ -905,6 +943,7 @@ function render(kind, d, instant) {
       if (d.phase === "runoff") {
         if (d.revote && S.runoff) {
           S.runoff.votes = {}; S.runoff.decided = false;
+          renderRiverPlans([S.runoff.a, S.runoff.b].map(row => ({ ...row, accept: [] })));
           $("#runoff").classList.remove("decided");
           for (const side of ["a", "b"]) {
             $(`#ro-${side}`).classList.remove("win");
