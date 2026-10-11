@@ -150,17 +150,15 @@ def policy_ballot(advisor_id: str, brief: Brief) -> Ballot:
 
 
 def policy_thought(m: Mind, best: Decision, evals: list[dict]) -> str:
-    own = m.sc.norm(m.id, best)
-    parts = [
-        (f"I weigh my own mandate at {round((1 - m.w) * 100)}% and the others' at "
-        f"{round(m.w * 100)}% this round, and accept plans scoring at least {m.threshold:.2f} for me.")
-    ]
+    parts = []
     if m.brief.news:
-        parts.append(f"The news changes my forecast: {m.brief.news[-1]['text']}")
-    vetoed = [e["id"] for e in evals if e["policy_vote"] == "veto"]
+        parts.append(f"News: {m.brief.news[-1]['text'].split('.')[0]}.")
+    vetoed = [e["author"].capitalize() for e in evals if e["policy_vote"] == "veto"]
     if vetoed:
-        parts.append(f"{', '.join(vetoed)} would cross my red line, so I must veto.")
-    parts.append(f"My proposal scores {own:.2f} for me and {m.group_score(best):.2f} for the others.")
+        parts.append(f"Must veto plans from {', '.join(vetoed)}: they cross my red line.")
+    parts.append(
+        f"My plan scores {m.sc.norm(m.id, best):.2f} for me, {m.group_score(best):.2f} for the others."
+    )
     return " ".join(parts)
 
 
@@ -174,20 +172,14 @@ def template_speech(
         if d.land_delta < 0
         else "hold our land"
     )
-    plan = f"{trade}, release {d.feed} bushels as food, and sow {d.plant} acres"
     lead = {
         "farmer": "Every family must eat.",
         "priest": "The gods favor a full granary.",
         "general": "Land is strength.",
-        "merchant": f"Land trades at {state.land_price} today.",
+        "merchant": f"Land trades at {state.land_price}.",
     }[advisor_id]
-    news = f" Mark the news: {brief.news[-1]['text'].split('.')[0]}." if brief.news else ""
-    stance = ""
-    if veto:
-        stance = f" I will not accept {', '.join(veto)}. It crosses my red line."
-    elif accept:
-        stance = f" I can live with {', '.join(accept)}."
-    return f"{lead}{news} I propose we {plan}.{stance}"
+    stance = " I veto what crosses my red line." if veto else ""
+    return f"{lead} We should {trade} and feed {d.feed:,}.{stance}"
 
 
 SYSTEM = """You are {title} on the council of ancient Sumer (the 1968 game Hamurabi).

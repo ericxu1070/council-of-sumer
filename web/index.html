@@ -4,372 +4,435 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Council of Sumer</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23c9a46a'/><path d='M8 22 16 8l8 14z' fill='%23241a12'/></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='9' fill='%235865f2'/><path d='M8 22 16 8l8 14z' fill='%23fff'/></svg>">
 <style>
 :root {
-  --bg: #17120d;
-  --panel: #221a13;
-  --panel-2: #2b2118;
-  --line: #3d3024;
-  --text: #f1e6d4;
-  --muted: #b4a48c;
-  --faint: #7d6f5c;
-  --clay: #c9a46a;
-  --lapis: #4b7bd1;
-  --ok: #5fae6e;
-  --warn: #d9a23a;
-  --bad: #d4553f;
-  --radius: 10px;
+  --rail: #1e1f22;
+  --side: #2b2d31;
+  --chat: #313338;
+  --hover: #2e3035;
+  --embed: #2b2d31;
+  --line: #3f4147;
+  --text: #dbdee1;
+  --bright: #f2f3f5;
+  --muted: #949ba4;
+  --faint: #6d6f78;
+  --blurple: #5865f2;
+  --ok: #23a55a;
+  --warn: #f0b232;
+  --bad: #f23f43;
+  --link: #00a8fc;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --sans: "gg sans", "Noto Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 * { box-sizing: border-box; }
-html, body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var(--sans); }
+html, body { margin: 0; height: 100%; background: var(--chat); color: var(--text); font: 15px/1.375 var(--sans); }
 button, select, input { font: inherit; color: inherit; }
-header {
-  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
-  padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel);
-}
-h1 { margin: 0; font-size: 20px; letter-spacing: .02em; }
-h1 small { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 8px; }
-.chips { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
-.chip {
-  border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px;
-  font-size: 12px; color: var(--muted); background: var(--panel-2); white-space: nowrap;
-}
+.app { display: grid; grid-template-columns: 240px minmax(0, 1fr) 240px; height: 100vh; }
+@media (max-width: 1100px) { .app { grid-template-columns: 240px minmax(0, 1fr); } .members { display: none; } }
+@media (max-width: 760px) { .app { grid-template-columns: minmax(0, 1fr); } .channels { display: none; } .mobile-only { display: inline-flex !important; } }
+.mobile-only { display: none !important; }
+
+/* ---- channel sidebar ---- */
+.channels { background: var(--side); display: flex; flex-direction: column; min-height: 0; }
+.server { height: 48px; flex: none; display: flex; align-items: center; padding: 0 16px; font-weight: 700; color: var(--bright); border-bottom: 1px solid var(--rail); box-shadow: 0 1px 0 rgba(0,0,0,.2); }
+.chlist { flex: 1; overflow: auto; padding: 8px; }
+.cat { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .02em; color: var(--muted); padding: 16px 8px 4px; }
+.chlist .cat:first-child { padding-top: 8px; }
+.ch { display: flex; align-items: center; gap: 6px; width: 100%; background: none; border: 0; border-radius: 4px; padding: 6px 8px; margin: 1px 0; color: var(--muted); cursor: pointer; text-align: left; }
+.ch:hover { background: var(--hover); color: var(--text); }
+.ch.active { background: #404249; color: var(--bright); }
+.ch .hash { color: var(--faint); font-size: 18px; line-height: 1; width: 18px; text-align: center; flex: none; }
+.ch .pill { margin-left: auto; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 8px; }
+.pill.consensus { background: var(--ok); color: #fff; }
+.pill.majority { background: var(--warn); color: #000; }
+.pill.escalated { background: var(--bad); color: #fff; }
+.controls { background: #232428; padding: 10px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; flex: none; }
+.controls .row { display: flex; gap: 6px; align-items: center; min-width: 0; }
+.controls label { font-size: 11px; color: var(--muted); text-transform: uppercase; font-weight: 700; width: 52px; flex: none; }
+.controls input, .controls select { flex: 1; min-width: 0; width: 100%; background: var(--rail); border: 0; border-radius: 4px; padding: 5px 8px; }
+.controls input[type=range] { padding: 0; accent-color: var(--blurple); background: none; }
+.btn { border: 0; border-radius: 4px; padding: 7px 14px; background: #4e5058; color: #fff; cursor: pointer; font-weight: 500; }
+.btn:hover { background: #6d6f78; }
+.btn.primary { background: var(--blurple); }
+.btn.primary:hover { background: #4752c4; }
+.btn.small { padding: 4px 10px; font-size: 13px; }
+
+/* ---- chat column ---- */
+.chat { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.chat-head { height: 48px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 16px; border-bottom: 1px solid var(--rail); box-shadow: 0 1px 0 rgba(0,0,0,.2); }
+.chat-head .title { font-weight: 700; color: var(--bright); white-space: nowrap; }
+.chat-head .title .hash { color: var(--faint); margin-right: 4px; font-weight: 400; }
+.chat-head .topic { color: var(--muted); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 10px; border-left: 1px solid var(--line); min-width: 0; }
+.head-right { margin-left: auto; display: flex; gap: 8px; align-items: center; flex: none; }
+.toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); cursor: pointer; user-select: none; background: none; border: 0; padding: 4px 6px; border-radius: 4px; }
+.toggle:hover { color: var(--text); background: var(--hover); }
+.switch { width: 32px; height: 18px; border-radius: 9px; background: #80848e; position: relative; transition: background .15s; flex: none; }
+.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.toggle[aria-pressed="true"] { color: var(--bright); }
+.toggle[aria-pressed="true"] .switch { background: var(--ok); }
+.toggle[aria-pressed="true"] .switch::after { transform: translateX(14px); }
+.chip { font-size: 12px; color: var(--muted); background: var(--side); border-radius: 4px; padding: 2px 8px; white-space: nowrap; }
 .chip b { color: var(--text); font-weight: 600; }
-.tabs { display: flex; gap: 4px; }
-.tab { background: none; border: 0; padding: 6px 12px; border-radius: 8px; color: var(--muted); cursor: pointer; }
-.tab[aria-selected="true"] { background: var(--panel-2); color: var(--text); }
+@media (max-width: 1350px) { .chip.wide { display: none; } }
 
-main { display: grid; grid-template-columns: 280px minmax(0, 1fr) 420px; gap: 16px; padding: 16px 20px; max-width: 1800px; margin: 0 auto; align-items: start; }
-@media (max-width: 1350px) { main { grid-template-columns: 280px minmax(0, 1fr); } .glass { grid-column: 1 / -1; } }
-@media (max-width: 960px) { main { grid-template-columns: 1fr; padding: 12px 16px; } }
-.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
-.panel h2 { margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; }
-aside { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.feed { flex: 1; overflow-y: auto; padding: 8px 0 16px; min-height: 0; }
+.empty { margin: 14vh auto 0; max-width: 460px; text-align: center; color: var(--muted); padding: 0 16px; }
+.empty h2 { color: var(--bright); margin: 12px 0 6px; font-size: 22px; }
+.empty .big { font-size: 48px; }
+.divider { display: flex; align-items: center; gap: 8px; margin: 22px 16px 6px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.divider span { white-space: nowrap; }
+.msg { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 0 16px; padding: 3px 48px 3px 16px; margin-top: 14px; }
+@media (max-width: 760px) { .msg { padding-right: 16px; } }
+.msg:hover { background: var(--hover); }
+.avatar { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-size: 20px; background: var(--c, var(--blurple)); flex: none; }
+.msg-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.msg-head .name { font-weight: 600; color: var(--c, var(--bright)); }
+.tag { font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: var(--blurple); color: #fff; text-transform: uppercase; position: relative; top: -1px; }
+.tag.policy { background: #4e5058; }
+.time { font-size: 12px; color: var(--faint); }
+.body { color: var(--text); overflow-wrap: anywhere; }
+.plan { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.plan span { font: 12px var(--mono); background: var(--rail); border-radius: 4px; padding: 2px 6px; color: var(--text); }
+.plan .up { color: #57f287; } .plan .down { color: #fa777c; }
 
-.stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.stat { background: var(--panel-2); border-radius: 8px; padding: 8px 10px; }
+.think { margin-top: 6px; border-radius: 4px; background: var(--rail); font-size: 13px; max-width: 640px; }
+.think > summary { list-style: none; cursor: pointer; padding: 4px 8px; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+.think > summary::-webkit-details-marker { display: none; }
+.think > summary::before { content: "▸"; font-size: 10px; transition: transform .15s; }
+.think[open] > summary::before { transform: rotate(90deg); }
+.think > summary:hover { color: var(--text); }
+.think .tmeta { margin-left: auto; font: 11px var(--mono); color: var(--faint); }
+.think .inner { padding: 4px 10px 10px 22px; display: grid; gap: 6px; overflow-x: auto; }
+.think .thought { font-style: italic; color: var(--text); }
+.think .line { font: 11px/1.5 var(--mono); color: var(--muted); }
+.think table { border-collapse: collapse; font: 11px var(--mono); }
+.think td, .think th { padding: 2px 12px 2px 0; text-align: left; white-space: nowrap; }
+.think th { color: var(--faint); font-weight: 600; }
+.v-accept { color: #57f287; } .v-veto { color: #fa777c; } .v-pass { color: var(--faint); }
+
+.embed { margin-top: 6px; background: var(--embed); border-left: 4px solid var(--ec, var(--blurple)); border-radius: 4px; padding: 10px 14px 12px; max-width: 560px; }
+.embed .etitle { font-weight: 700; color: var(--bright); font-size: 14px; display: flex; gap: 8px; align-items: center; }
+.embed .esub { color: var(--muted); font-size: 13px; margin-top: 4px; }
+.poll .opt { margin-top: 8px; position: relative; border-radius: 6px; background: var(--rail); overflow: hidden; border: 1px solid transparent; display: block; }
+.poll .opt.win { border-color: var(--ok); }
+.poll .opt.vetoed { border-color: rgba(242,63,67,.5); }
+.poll .bar { position: absolute; inset: 0 auto 0 0; background: rgba(88,101,242,.28); transition: width .5s ease; }
+.poll .opt.win .bar { background: rgba(35,165,90,.3); }
+.poll .opt.vetoed .bar { background: rgba(242,63,67,.16); }
+.poll .row { position: relative; display: flex; align-items: center; gap: 8px; padding: 7px 10px; font-size: 13px; flex-wrap: wrap; }
+.poll .who { font-weight: 600; }
+.poll .p { font: 12px var(--mono); color: var(--muted); }
+.poll .votes { margin-left: auto; display: flex; gap: 3px; align-items: center; }
+.poll .count { font-weight: 700; margin-left: 6px; font-size: 12px; min-width: 26px; text-align: right; }
+.mini { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; background: var(--c); }
+.mini.veto { box-shadow: 0 0 0 2px var(--bad); opacity: .85; }
+.poll .vetonote { position: relative; font-size: 11px; color: #fa777c; padding: 0 10px 6px; }
+.poll .foot { margin-top: 8px; font-size: 12px; color: var(--muted); }
+.poll button.opt { width: 100%; text-align: left; cursor: pointer; color: inherit; font: inherit; padding: 0; }
+.poll button.opt:hover:not(:disabled) { border-color: var(--blurple); }
+.poll button.opt:disabled { cursor: default; }
+.deadlock { --ec: var(--bad); max-width: 660px; }
+.deadlock .stand { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 10px; }
+@media (max-width: 760px) { .deadlock .stand { grid-template-columns: 1fr; } }
+.stand div { background: var(--rail); border-radius: 4px; padding: 6px 8px; font-size: 12px; border-left: 3px solid var(--c); }
+.stand b { color: var(--c); }
+.stand i { color: var(--muted); display: block; margin-top: 2px; }
+.sys { display: flex; gap: 8px; align-items: baseline; padding: 4px 48px 2px 72px; color: var(--muted); font-size: 13px; }
+@media (max-width: 760px) { .sys { padding: 4px 16px 2px 16px; } }
+.sys .ic { width: 16px; text-align: center; flex: none; }
+.sys.wire { font: 11px var(--mono); color: var(--faint); overflow-wrap: anywhere; }
+.glass-off .wire, .glass-off .glass-only { display: none !important; }
+.outcome .stats { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 6px; font-size: 13px; color: var(--muted); }
+.outcome .stats b { color: var(--text); }
+
+.composer { flex: none; padding: 0 16px 8px; }
+.composer-box { background: #383a40; border-radius: 8px; display: flex; align-items: center; gap: 6px; padding: 8px 10px; flex-wrap: wrap; }
+.composer-box .ph { color: var(--faint); font-size: 14px; flex: 1; min-width: 160px; padding-left: 4px; }
+.scout { background: var(--rail); border: 0; border-radius: 6px; padding: 5px 10px; font-size: 13px; cursor: pointer; color: var(--text); }
+.scout:hover { background: var(--blurple); color: #fff; }
+.alertbar { display: none; margin-bottom: 8px; background: var(--bad); color: #fff; border-radius: 8px; padding: 8px 12px; font-weight: 600; cursor: pointer; border: 0; width: 100%; text-align: left; }
+.alertbar.show { display: block; animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 50% { filter: brightness(1.15); } }
+.typing { height: 22px; font-size: 12px; color: var(--muted); padding: 4px 4px 0; }
+.typing b { color: var(--text); }
+.dots span { display: inline-block; width: 4px; height: 4px; border-radius: 50%; background: var(--muted); margin-right: 2px; animation: blink 1.2s infinite; }
+.dots span:nth-child(2) { animation-delay: .2s; } .dots span:nth-child(3) { animation-delay: .4s; }
+@keyframes blink { 50% { opacity: .2; } }
+
+/* ---- members sidebar ---- */
+.members { background: var(--side); overflow: auto; padding: 8px 8px 16px; }
+.members .cat:first-child { padding-top: 8px; }
+.member { display: flex; gap: 10px; align-items: center; padding: 6px 8px; border-radius: 4px; }
+.member:hover { background: var(--hover); }
+.member .avatar { width: 32px; height: 32px; font-size: 16px; position: relative; }
+.member .avatar::after { content: ""; position: absolute; right: -3px; bottom: -3px; width: 10px; height: 10px; border-radius: 50%; background: var(--ok); border: 3px solid var(--side); }
+.member .mn { font-weight: 600; color: var(--c); font-size: 14px; }
+.member .ms { font-size: 12px; color: var(--muted); line-height: 1.3; }
+.member .ms.typing-now { color: var(--text); }
+.city { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 0 8px; }
+.stat { background: var(--rail); border-radius: 6px; padding: 6px 8px; }
 .stat .k { font-size: 11px; color: var(--muted); }
-.stat .v { font: 600 20px/1.2 var(--mono); }
-.stat .d { font: 12px var(--mono); color: var(--faint); min-height: 16px; }
-.stat .d.up { color: var(--ok); } .stat .d.down { color: var(--bad); }
+.stat .v { font: 600 16px var(--mono); color: var(--bright); }
+.stat .d { font: 11px var(--mono); color: var(--faint); min-height: 14px; }
+.stat .d.up { color: #57f287; } .stat .d.down { color: #fa777c; }
+.redlines { padding: 0 8px; font-size: 12px; color: var(--muted); display: grid; gap: 6px; }
+.redlines b { color: var(--c); font-weight: 600; }
 
-.controls { display: grid; gap: 10px; }
-.row { display: flex; gap: 8px; align-items: center; }
-.row label { color: var(--muted); font-size: 12px; min-width: 64px; }
-input[type=number], select {
-  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; width: 100%;
-}
-input[type=range] { width: 100%; accent-color: var(--clay); }
-.btn {
-  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px;
-  cursor: pointer; transition: border-color .15s, background .15s;
-}
-.btn:hover { border-color: var(--clay); }
-.btn.primary { background: var(--clay); color: #1b140d; border-color: var(--clay); font-weight: 600; }
-.btn.primary:hover { filter: brightness(1.08); }
-.btn:disabled { opacity: .5; cursor: not-allowed; }
-.news-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.news-btns .btn { font-size: 12px; padding: 6px 8px; }
-.hint { color: var(--faint); font-size: 12px; margin: 0; }
-
-.stage { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
-.banner {
-  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-  padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--panel);
-}
-.banner .round { font: 600 13px var(--mono); color: var(--muted); }
-.banner .title { font-weight: 600; }
-.badge { font: 600 11px var(--mono); letter-spacing: .06em; padding: 3px 8px; border-radius: 6px; text-transform: uppercase; }
-.badge.consensus { background: color-mix(in srgb, var(--ok) 22%, transparent); color: var(--ok); }
-.badge.majority { background: color-mix(in srgb, var(--warn) 22%, transparent); color: var(--warn); }
-.badge.escalated { background: color-mix(in srgb, var(--bad) 22%, transparent); color: var(--bad); }
-.badge.news { background: color-mix(in srgb, var(--lapis) 25%, transparent); color: #8fb0ee; }
-.badge.llm { background: color-mix(in srgb, var(--lapis) 25%, transparent); color: #8fb0ee; }
-.badge.policy { background: var(--panel-2); color: var(--muted); }
-
-.council { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-@media (max-width: 700px) { .council { grid-template-columns: 1fr; } }
-.advisor {
-  background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--c);
-  border-radius: var(--radius); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; min-width: 0;
-  transition: box-shadow .3s;
-}
-.advisor.speaking { box-shadow: 0 0 0 2px color-mix(in srgb, var(--c) 60%, transparent); }
-.advisor .top { display: flex; align-items: baseline; gap: 8px; }
-.advisor .name { font-weight: 700; color: var(--c); }
-.advisor .top .badge { margin-left: auto; }
-.advisor .mandate { color: var(--muted); font-size: 12px; }
-.advisor .redline { color: var(--faint); font-size: 12px; }
-.plan { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-.plan div { background: var(--panel-2); border-radius: 6px; padding: 5px 8px; }
-.plan .k { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
-.plan .v { font: 600 15px var(--mono); }
-.speech { font-style: italic; color: var(--text); min-height: 40px; }
-.votes { display: flex; gap: 6px; flex-wrap: wrap; font-size: 12px; }
-.vote { font: 11px var(--mono); border-radius: 5px; padding: 2px 6px; border: 1px solid var(--line); color: var(--muted); }
-.vote.acc { border-color: var(--ok); color: var(--ok); }
-.vote.vet { border-color: var(--bad); color: var(--bad); }
-.sat { height: 4px; background: var(--panel-2); border-radius: 2px; overflow: hidden; }
-.sat > i { display: block; height: 100%; background: var(--c); width: 0; transition: width .4s; }
-
-.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
-@media (max-width: 1100px) { .split { grid-template-columns: 1fr; } }
-.log { max-height: 420px; overflow: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 4px; }
-.entry { font-size: 13px; padding: 6px 8px; border-radius: 6px; background: var(--panel-2); }
-.entry .who { font-weight: 600; }
-.entry.news { border-left: 3px solid var(--lapis); }
-.entry.outcome { border-left: 3px solid var(--clay); }
-.entry .meta { color: var(--faint); font: 11px var(--mono); }
-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-th, td { text-align: right; padding: 5px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; }
-th:first-child, td:first-child { text-align: left; }
-th { color: var(--muted); font-weight: 600; }
-td.mono, .mono { font-family: var(--mono); }
-.table-wrap { overflow-x: auto; }
-.diff { font: 12px var(--mono); color: var(--muted); }
-.diff b { color: #8fb0ee; font-weight: 600; }
-.difftable td, .difftable th { white-space: normal; text-align: left; font-size: 11px; }
-.difftable td b { color: #8fb0ee; }
-
-.glass { position: sticky; top: 12px; display: flex; flex-direction: column; max-height: calc(100vh - 24px); min-width: 0; }
-@media (max-width: 1350px) { .glass { position: static; max-height: 640px; } }
-.glass-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-.glass-head h2 { margin: 0; }
-.glass-head select { width: auto; margin-left: auto; padding: 4px 8px; font-size: 12px; }
-.glass-sub { color: var(--faint); font-size: 12px; margin: -4px 0 10px; }
-.trace { overflow: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 4px; flex: 1; min-height: 200px; }
-.tr { background: var(--panel-2); border-radius: 8px; padding: 8px 10px; font-size: 12px; border-left: 3px solid var(--c, var(--line)); }
-.tr-head { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.tr-head .who { font-weight: 700; color: var(--c, var(--text)); }
-.tr-head .meta { margin-left: auto; color: var(--faint); font: 11px var(--mono); }
-.tr .thought { font-style: italic; margin: 6px 0; color: var(--text); }
-.tr .line { color: var(--muted); font: 11px/1.5 var(--mono); margin-top: 3px; overflow-wrap: anywhere; }
-.tr table { margin-top: 6px; font-size: 11px; }
-.tr td, .tr th { padding: 3px 4px; }
-.tr .v-accept { color: var(--ok); } .tr .v-veto { color: var(--bad); } .tr .v-pass { color: var(--faint); }
-.tr.wire { --c: var(--lapis); }
-.tr.news { --c: #8fb0ee; }
-.tr.alert { --c: var(--bad); }
-.warn { color: var(--warn); }
-.ok { color: var(--ok); }
-.advisor { cursor: pointer; }
-.advisor.filtered { outline: 2px solid var(--c); outline-offset: 2px; }
-.positions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
-@media (max-width: 600px) { .positions { grid-template-columns: 1fr; } }
-.pos { background: var(--panel-2); border-left: 3px solid var(--c); border-radius: 8px; padding: 8px 10px; font-size: 12px; }
-.pos .who { font-weight: 700; color: var(--c); }
-.pos .thought { font-style: italic; color: var(--muted); margin-top: 4px; }
-dialog h4 { margin: 16px 0 0; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
-
-dialog {
-  background: var(--panel); color: var(--text); border: 1px solid var(--bad); border-radius: 14px;
-  max-width: 860px; width: calc(100% - 32px); padding: 20px; max-height: calc(100vh - 32px);
-}
-dialog::backdrop { background: rgba(0,0,0,.6); }
-dialog h3 { margin: 0 0 4px; }
-.options { display: grid; gap: 10px; margin-top: 14px; }
-.option { display: flex; gap: 12px; align-items: center; background: var(--panel-2); border-radius: 10px; padding: 10px 12px; flex-wrap: wrap; }
-.option .desc { flex: 1; min-width: 200px; }
-.countdown { font: 600 13px var(--mono); color: var(--bad); }
-.toast { position: fixed; bottom: 16px; right: 16px; background: var(--bad); color: #fff; padding: 10px 14px; border-radius: 8px; display: none; max-width: 420px; }
-.final { font-size: 15px; }
+/* ---- evidence ---- */
+.evidence { padding: 16px; overflow: auto; flex: 1; }
+.evidence table { border-collapse: collapse; font-size: 13px; width: 100%; margin-top: 8px; }
+.evidence th, .evidence td { padding: 6px 10px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+.evidence th:first-child, .evidence td:first-child { text-align: left; }
+.evidence th { color: var(--muted); font-weight: 600; }
+.evidence td { font-family: var(--mono); font-size: 12px; }
+.evidence td:first-child { font-family: var(--sans); font-size: 13px; }
+.evidence .embed { max-width: 940px; margin-bottom: 16px; overflow-x: auto; }
+.evidence ul { margin: 8px 0 0; padding-left: 18px; color: var(--text); font-size: 14px; display: grid; gap: 6px; }
 .hidden { display: none !important; }
-#benchView { padding: 16px 20px; max-width: 1500px; margin: 0 auto; }
-#benchView .panel + .panel { margin-top: 16px; }
-.lede { color: var(--muted); max-width: 900px; }
+.toast { position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%); background: var(--bad); color: #fff; padding: 10px 14px; border-radius: 8px; display: none; max-width: 480px; z-index: 5; }
 </style>
 </head>
 <body>
-<header>
-  <h1>Council of Sumer <small>four advisors, no king</small></h1>
-  <nav class="tabs" role="tablist">
-    <button class="tab" role="tab" aria-selected="true" data-view="chamberView">Chamber</button>
-    <button class="tab" role="tab" aria-selected="false" data-view="benchView">Evidence</button>
-  </nav>
-  <div class="chips">
-    <span class="chip">Transport <b id="chipTransport">-</b></span>
-    <span class="chip">Reasoning <b id="chipLlm">-</b></span>
-    <span class="chip">Ballots <b>HMAC signed</b></span>
-    <span class="chip hidden" id="chipSpend">LLM spend <b id="spend">$0.00</b></span>
-  </div>
-</header>
-
-<div id="chamberView">
-<main>
-  <aside>
-    <section class="panel">
-      <h2>The city</h2>
-      <div class="stats">
-        <div class="stat"><div class="k">Year</div><div class="v" id="sYear">-</div><div class="d" id="dYear"></div></div>
-        <div class="stat"><div class="k">People</div><div class="v" id="sPop">-</div><div class="d" id="dPop"></div></div>
-        <div class="stat"><div class="k">Grain (bushels)</div><div class="v" id="sGrain">-</div><div class="d" id="dGrain"></div></div>
-        <div class="stat"><div class="k">Land (acres)</div><div class="v" id="sAcres">-</div><div class="d" id="dAcres"></div></div>
-        <div class="stat"><div class="k">Land price</div><div class="v" id="sPrice">-</div><div class="d">bushels per acre</div></div>
-        <div class="stat"><div class="k">Starved so far</div><div class="v" id="sStarved">-</div><div class="d" id="dStarved"></div></div>
-      </div>
-    </section>
-
-    <section class="panel controls">
-      <h2>Run a reign</h2>
+<div class="app glass-off" id="app">
+  <nav class="channels" aria-label="Channels">
+    <div class="server">🏛️&nbsp; Council of Sumer</div>
+    <div class="chlist">
+      <div class="cat">Info</div>
+      <button class="ch" data-view="evidence"><span class="hash">📊</span>evidence</button>
+      <div class="cat">The reign</div>
+      <div id="yearChannels"><button class="ch active" data-view="chat" data-year="0"><span class="hash">#</span>council-chamber</button></div>
+    </div>
+    <div class="controls">
       <div class="row"><label for="seed">Seed</label><input id="seed" type="number" value="7" min="0"></div>
-      <div class="row"><label for="rounds">Rounds</label>
-        <select id="rounds"><option>3</option><option>4</option><option selected>5</option><option>6</option></select></div>
-      <div class="row"><label for="reveal">Scouts</label>
-        <select id="reveal"><option value="1" selected>Report mid-debate</option><option value="0">Silent</option></select></div>
+      <div class="row"><label for="rounds">Rounds</label><select id="rounds"><option>3</option><option>4</option><option selected>5</option><option>6</option></select></div>
+      <div class="row"><label for="reveal">Scouts</label><select id="reveal"><option value="1" selected>Report</option><option value="0">Silent</option></select></div>
       <div class="row"><label for="pace">Pace</label><input id="pace" type="range" min="0" max="4" step="0.2" value="1.2"></div>
-      <div class="row">
-        <button class="btn primary" id="startBtn" style="flex:1">Convene the council</button>
-        <button class="btn" id="stopBtn">Stop</button>
-      </div>
-      <div class="row hidden" id="voiceRow"><label for="voiceOn">Voices</label>
-        <select id="voiceOn"><option value="0">Off</option><option value="1">ElevenLabs</option></select></div>
-    </section>
+      <div class="row hidden" id="voiceRow"><label for="voiceOn">Voice</label><select id="voiceOn"><option value="0">Off</option><option value="1">ElevenLabs</option></select></div>
+      <div class="row"><button class="btn primary" id="startBtn" style="flex:1">Convene</button><button class="btn" id="stopBtn">Stop</button></div>
+    </div>
+  </nav>
 
-    <section class="panel controls">
-      <h2>Send a scout</h2>
-      <p class="hint">Reveal true news about this year mid-debate and watch proposals shift.</p>
-      <div class="news-btns">
-        <button class="btn" data-news="harvest">Harvest</button>
-        <button class="btn" data-news="rats">Granary rats</button>
-        <button class="btn" data-news="plague">Plague</button>
-        <button class="btn" data-news="market">Land market</button>
+  <main class="chat" id="chatView">
+    <header class="chat-head">
+      <span class="title"><span class="hash">#</span><span id="chanName">council-chamber</span></span>
+      <span class="topic" id="topic">Four advisors, no king. Pick a seed and convene.</span>
+      <div class="head-right">
+        <span class="chip wide">via <b id="chipTransport">-</b></span>
+        <span class="chip wide"><b id="chipLlm">-</b></span>
+        <span class="chip hidden" id="chipSpend"><b id="spend">$0</b></span>
+        <button class="toggle" id="glassToggle" aria-pressed="false" title="Expand every agent's private reasoning and show every SLIM message"><span>Glass box</span><span class="switch"></span></button>
+        <button class="btn small primary mobile-only" id="startBtnMobile">Convene</button>
       </div>
-    </section>
+    </header>
+    <div class="feed" id="feed">
+      <div class="empty" id="empty">
+        <div class="big">🏛️</div>
+        <h2>Welcome to the council chamber</h2>
+        <p>Four advisors with competing goals govern Sumer for ten years. They debate here, vote in polls, and call on you only when they deadlock.</p>
+      </div>
+    </div>
+    <div class="composer">
+      <button class="alertbar" id="alertbar">⚠️ The council is deadlocked. Your vote decides. Jump to the poll.</button>
+      <div class="composer-box">
+        <span class="ph">Send a scout with true news mid-debate:</span>
+        <button class="scout" data-news="harvest">🌾 Harvest</button>
+        <button class="scout" data-news="rats">🐀 Rats</button>
+        <button class="scout" data-news="plague">🦠 Plague</button>
+        <button class="scout" data-news="market">💰 Market</button>
+      </div>
+      <div class="typing" id="typing"></div>
+    </div>
+  </main>
+
+  <main class="chat hidden" id="evidenceView">
+    <header class="chat-head"><span class="title"><span class="hash">📊</span>evidence</span><span class="topic">Council vs simpler deciders on the same dice</span></header>
+    <div class="evidence">
+      <div class="embed"><div class="etitle">Scoreboard</div><div class="esub" id="benchMeta"></div><table id="benchTable"><thead></thead><tbody></tbody></table></div>
+      <div class="embed" style="--ec: var(--link)"><div class="etitle">Does new information change decisions?</div><table id="infoTable"><thead></thead><tbody></tbody></table></div>
+      <div class="embed" style="--ec: var(--ok)"><div class="etitle">What we learned</div><ul id="lessons"></ul></div>
+    </div>
+  </main>
+
+  <aside class="members" aria-label="Members">
+    <div class="cat">Advisors</div>
+    <div id="memberList"></div>
+    <div class="cat">The city</div>
+    <div class="city">
+      <div class="stat"><div class="k">Year</div><div class="v" id="sYear">-</div></div>
+      <div class="stat"><div class="k">People</div><div class="v" id="sPop">-</div><div class="d" id="dPop"></div></div>
+      <div class="stat"><div class="k">Grain</div><div class="v" id="sGrain">-</div><div class="d" id="dGrain"></div></div>
+      <div class="stat"><div class="k">Acres</div><div class="v" id="sAcres">-</div><div class="d" id="dAcres"></div></div>
+      <div class="stat"><div class="k">Land price</div><div class="v" id="sPrice">-</div></div>
+      <div class="stat"><div class="k">Starved</div><div class="v" id="sStarved">-</div><div class="d" id="dStarved"></div></div>
+    </div>
+    <div class="cat">Red lines</div>
+    <div class="redlines" id="redlines"></div>
   </aside>
-
-  <section class="stage">
-    <div class="banner" id="banner">
-      <span class="round" id="roundLabel">Idle</span>
-      <span class="title" id="bannerText">Pick a seed and convene the council.</span>
-      <span id="bannerBadge"></span>
-    </div>
-
-    <div class="council" id="council"></div>
-
-    <div class="split">
-      <section class="panel">
-        <h2>Debate</h2>
-        <div class="log" id="log"></div>
-      </section>
-      <section class="panel">
-        <h2>Reign so far</h2>
-        <div class="table-wrap">
-          <table id="years">
-            <thead><tr><th>Year</th><th>Outcome</th><th>Rounds</th><th>Land</th><th>Feed</th><th>Plant</th><th>Yield</th><th>Starved</th><th>People</th></tr></thead>
-            <tbody></tbody>
-          </table>
-        </div>
-        <p class="final" id="final"></p>
-        <div id="newsDiff"></div>
-      </section>
-    </div>
-  </section>
-
-  <section class="panel glass" aria-label="Glass box">
-    <div class="glass-head">
-      <h2>Glass box</h2>
-      <select id="traceFilter" aria-label="Filter trace">
-        <option value="all">Everything</option>
-        <option value="wire">Clerk and SLIM wire</option>
-      </select>
-    </div>
-    <p class="glass-sub">Private reasoning and every message on the wire. Humans see this; advisors only hear each other's speeches.</p>
-    <div class="trace" id="trace"></div>
-  </section>
-</main>
 </div>
-
-<div id="benchView" class="hidden">
-  <section class="panel">
-    <h2>Council vs simpler deciders</h2>
-    <p class="lede">Every policy plays the same seeds, so all of them face the same harvests, rats, and plagues. Score rewards people alive and wealth and punishes starvation. Fairness is the lowest average satisfaction among the four advisors: how well the worst-served mandate fared.</p>
-    <div class="table-wrap"><table id="benchTable"><thead></thead><tbody></tbody></table></div>
-    <p class="hint" id="benchMeta"></p>
-  </section>
-  <section class="panel">
-    <h2>Does new information change decisions?</h2>
-    <div class="table-wrap"><table id="infoTable"><thead></thead><tbody></tbody></table></div>
-  </section>
-  <section class="panel">
-    <h2>What we learned</h2>
-    <ul id="lessons" class="lede"></ul>
-  </section>
-</div>
-
-<dialog id="escalation">
-  <h3>The council cannot decide. You must.</h3>
-  <p id="escReason" class="hint"></p>
-  <h4>Where each advisor stands</h4>
-  <div class="positions" id="escPositions"></div>
-  <h4>Your options</h4>
-  <div class="options" id="escOptions"></div>
-  <p class="countdown" id="escCountdown"></p>
-</dialog>
 <div class="toast" id="toast"></div>
 
 <script>
 const $ = (s, el = document) => el.querySelector(s);
 const fmt = n => (n ?? 0).toLocaleString("en-US");
-const NAMES = {};
+const esc = t => String(t ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const SHORT = { farmer: "Farmer", priest: "Priest", general: "General", merchant: "Merchant" };
-let meta = null, prevState = null, currentYear = 1;
-const audioQueue = [];
-let playing = false;
+const EMOJI = { farmer: "🌾", priest: "🔮", general: "🛡️", merchant: "💰" };
+const RL = { farmer: "No more than 10% may starve", priest: "Half a year of food, even in a bad year", general: "Never sell over 10% of land", merchant: "None. Everything has a price." };
+const OUTCOME = { consensus: ["✅", "Consensus", "var(--ok)"], majority: ["🤝", "Majority, dissent recorded", "var(--warn)"], escalated: ["⚖️", "Decided by a human", "var(--bad)"] };
+const CLERK = { author: "clerk", name: "Clerk", avatar: "📜", c: "#5865f2", tag: `<span class="tag">bot</span>` };
+let meta = null, prevState = null, curYear = 0, glass = false, maxRounds = 5;
+const tabled = {};
+const color = id => meta.advisors.find(a => a.id === id)?.color || "var(--blurple)";
 
 async function api(path, body) {
   const r = await fetch(path, body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {});
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.style.display = "block"; clearTimeout(toast.t); toast.t = setTimeout(() => t.style.display = "none", 6000); }
+function planChips(p) {
+  if (!p) return "";
+  const land = p.land_delta > 0 ? `<span class="up">+${p.land_delta} acres</span>` : p.land_delta < 0 ? `<span class="down">${p.land_delta} acres</span>` : `<span>hold land</span>`;
+  return `<div class="plan">${land}<span>feed ${fmt(p.feed)}</span><span>plant ${fmt(p.plant)}</span></div>`;
+}
+const planShort = p => `${p.land_delta > 0 ? "+" : ""}${p.land_delta} ac · feed ${fmt(p.feed)} · plant ${fmt(p.plant)}`;
 
-function toast(msg) {
-  const t = $("#toast"); t.textContent = msg; t.style.display = "block";
-  clearTimeout(toast.t); toast.t = setTimeout(() => t.style.display = "none", 6000);
+/* ---- feed ---- */
+function append(el) {
+  const feed = $("#feed");
+  $("#empty")?.remove();
+  const atBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 160;
+  feed.appendChild(el);
+  if (atBottom) feed.scrollTop = feed.scrollHeight;
+  return el;
+}
+function node(html, cls) { const d = document.createElement("div"); d.className = cls; d.innerHTML = html; return d; }
+function message({ name, avatar, c, tag, time, html }) {
+  return append(node(`<div class="avatar" style="--c:${c}">${avatar}</div>
+    <div><div class="msg-head"><span class="name" style="--c:${c}">${esc(name)}</span>${tag || ""}<span class="time">${esc(time || "")}</span></div>${html}</div>`, "msg"));
+}
+const sys = (html, cls = "") => append(node(html, `sys ${cls}`));
+
+function thinking(b) {
+  const t = b.trace || {}, be = t.beliefs || {};
+  const m = t.llm ? (t.llm.cached ? "cached reply" : `${t.llm.latency_s}s · $${t.llm.cost_usd.toFixed(4)}`) : "policy";
+  const rows = (t.evaluations || []).map(e => {
+    const v = e.llm_vote || e.policy_vote;
+    return `<tr><td>${EMOJI[e.author]} ${SHORT[e.author]}'s plan</td><td>${e.my_score.toFixed(2)}</td><td>${Number(e.threshold).toFixed(2)}</td><td>${e.breaks_red_lines_of.map(x => SHORT[x]).join(", ") || "-"}</td><td class="v-${v}">${v}</td></tr>`;
+  }).join("");
+  return `<details class="think"${glass ? " open" : ""}><summary>💭 Thinking<span class="tmeta">${m} · signed ✓</span></summary><div class="inner">
+    ${t.thought ? `<div class="thought">${esc(t.thought)}</div>` : ""}
+    ${t.fallback ? `<div class="line" style="color:var(--warn)">${esc(t.fallback)}. Used the offline policy.</div>` : ""}
+    ${rows ? `<table><thead><tr><th>plan</th><th>my score</th><th>need</th><th>red lines hit</th><th>vote</th></tr></thead><tbody>${rows}</tbody></table>` : ""}
+    <div class="line">forecast: yield ${be.expected_yield}${be.pessimistic ? " (bad-year planning)" : ""} · rats ${Math.round(be.rat_chance * 100)}% · plague ${Math.round(be.plague_chance * 100)}% · land next yr ${be.next_price}</div>
+    <div class="line">weights: me ${Math.round((1 - t.concession_weight) * 100)}% / others ${Math.round(t.concession_weight * 100)}%${t.extra_weight_for?.length ? ` · extra weight for ${t.extra_weight_for.map(x => SHORT[x]).join(", ")} (last year's dissent)` : ""}</div>
+  </div></details>`;
 }
 
-function planText(p) {
-  if (!p) return "-";
-  const land = p.land_delta > 0 ? `buy ${p.land_delta}` : p.land_delta < 0 ? `sell ${-p.land_delta}` : "hold";
-  return `${land} acres, feed ${fmt(p.feed)}, plant ${fmt(p.plant)}`;
+function poll(d) {
+  if (!d.tally?.length) return;
+  const n = meta.advisors.length;
+  const agreed = d.tally.find(t => t.accept.length === n && !t.veto.length);
+  const best = Math.max(...d.tally.map(t => t.accept.length));
+  const opts = d.tally.map(t => {
+    const win = t === agreed;
+    const voters = [...t.accept.map(a => `<span class="mini" style="--c:${color(a)}" title="${SHORT[a]} accepts">${EMOJI[a]}</span>`),
+                    ...t.veto.map(a => `<span class="mini veto" style="--c:${color(a)}" title="${SHORT[a]} vetoes">${EMOJI[a]}</span>`)].join("");
+    const plan = tabled[t.id];
+    return `<div class="opt${win ? " win" : ""}${t.veto.length ? " vetoed" : ""}"><div class="bar" style="width:${(t.accept.length / n) * 100}%"></div>
+      <div class="row"><span>${EMOJI[t.author]}</span><span class="who" style="color:${color(t.author)}">${SHORT[t.author]}'s plan</span>${plan ? `<span class="p">${planShort(plan)}</span>` : ""}
+      <span class="votes">${voters}<span class="count">${t.accept.length}/${n}</span></span></div>
+      ${t.veto.length ? `<div class="vetonote">⛔ vetoed by ${t.veto.map(v => SHORT[v]).join(", ")} (red line)</div>` : ""}</div>`;
+  }).join("");
+  const foot = agreed ? "✅ All four agree. Plan adopted." :
+    d.round + 1 >= maxRounds ? `Final vote. Best plan has ${best}/${n}.` : `Best plan has ${best}/${n}. Revised plans below, next vote in round ${d.round + 2}.`;
+  message({ ...CLERK, time: `year ${d.year} · round ${d.round + 1}`,
+    html: `<div class="embed poll"><div class="etitle">📊 Poll: which plan for year ${d.year}?</div>${opts}<div class="foot">${foot}</div></div>` });
 }
 
-function buildCouncil() {
-  const root = $("#council"); root.innerHTML = "";
-  for (const a of meta.advisors) {
-    NAMES[a.id] = a.title;
-    const el = document.createElement("article");
-    el.className = "advisor"; el.id = `adv-${a.id}`; el.style.setProperty("--c", a.color);
-    el.innerHTML = `
-      <div class="top"><span class="name">${a.title}</span><span class="badge policy src">waiting</span></div>
-      <div class="mandate">${a.mandate}</div>
-      <div class="redline">Red line: ${a.red_line}</div>
-      <div class="plan">
-        <div><div class="k">Land</div><div class="v land">-</div></div>
-        <div><div class="k">Feed</div><div class="v feed">-</div></div>
-        <div><div class="k">Plant</div><div class="v plant">-</div></div>
-      </div>
-      <div class="speech">&nbsp;</div>
-      <div class="votes"></div>
-      <div class="sat" title="Satisfaction with last adopted plan"><i></i></div>`;
-    root.appendChild(el);
+function onBallots(d) {
+  poll(d);
+  for (const b of d.ballots) {
+    tabled[`${b.advisor}-y${b.year}-r${b.round}`] = b.proposal;
+    const a = meta.advisors.find(x => x.id === b.advisor);
+    message({ name: a.title, avatar: EMOJI[b.advisor], c: a.color,
+      tag: `<span class="tag ${b.source}">${b.source === "llm" ? "LLM" : "policy"}</span>`, time: `round ${b.round + 1}`,
+      html: `<div class="body">${esc(b.speech || "")}</div>${planChips(b.proposal)}${thinking(b)}` });
+    speak(b.advisor, b.speech);
   }
+  setTyping([]);
+  if (d.rejected || d.missing?.length) sys(`<span class="ic">⚠️</span>${d.rejected} ballots failed signature checks. Missing: ${(d.missing || []).map(x => SHORT[x]).join(", ") || "none"}`);
 }
 
+function onWire(d) {
+  sys(`<span class="ic">📡</span>clerk → ${d.recipients ? d.recipients.length : 4} agents · ${esc(d.transport)}${d.topic ? ` · ${esc(d.topic)}` : ""}${d.bytes_out ? ` · ${(d.bytes_out / 1024).toFixed(1)} kB` : ""} · ${d.replies} signed replies in ${d.elapsed_s}s`, "wire");
+}
+
+function onYear(d) {
+  const [ic, label, c] = OUTCOME[d.outcome];
+  const r = d.report || {};
+  const by = d.adopted?.split("-")[0];
+  const who = SHORT[by] ? `the ${SHORT[by]}'s plan` : d.adopted === "safe" ? "the safe fallback" : "the plan";
+  message({ ...CLERK, time: `end of year ${d.year}`,
+    html: `<div class="embed outcome" style="--ec:${c}"><div class="etitle">${ic} ${label}: ${who}</div>
+      ${planChips(d.plan)}
+      ${d.dissent?.length ? `<div class="esub">Dissent on record: ${d.dissent.map(x => EMOJI[x] + " " + SHORT[x]).join(", ")}. Extra weight next year.</div>` : ""}
+      <div class="stats"><span>🌾 harvest <b>${fmt(r.harvest)}</b> (${r.yield_per_acre}/acre)</span><span>🐀 rats ate <b>${fmt(r.rats)}</b></span><span>💀 starved <b>${r.starved}</b></span><span>🚶 arrived <b>${r.immigrants}</b></span>${r.plague_deaths ? `<span>🦠 plague <b>${r.plague_deaths}</b></span>` : ""}</div></div>` });
+  const ch = $(`.ch[data-year="${d.year}"]`);
+  if (ch) ch.insertAdjacentHTML("beforeend", `<span class="pill ${d.outcome}">${d.outcome === "consensus" ? "4/4" : d.outcome === "majority" ? "3/4" : "⚖"}</span>`);
+  showState(d.state);
+}
+
+function onEscalate(d) {
+  const stand = (d.positions || []).map(p => `<div style="--c:${color(p.advisor)}"><b>${EMOJI[p.advisor]} ${SHORT[p.advisor]}</b>${p.veto.length ? ` <span style="color:#fa777c">vetoes the ${p.veto.map(v => SHORT[v.split("-")[0]]).join(" and ")}</span>` : ""}<i>${esc(p.thought || p.speech)}</i></div>`).join("");
+  const opts = d.options.map(o => {
+    const id = o.id.split("-")[0];
+    const who = o.id === "safe" ? "🛟 Safe fallback" : `${EMOJI[id]} ${SHORT[id]}'s plan`;
+    const sub = o.id === "safe" ? "feed all, sell up to 20% of land if needed, sow the max" :
+      `${o.accept.length}/4 accept${o.veto.length ? ` · vetoed by ${o.veto.map(v => SHORT[v]).join(", ")}` : ""}`;
+    return `<button class="opt" data-choice="${esc(o.id)}"><div class="row"><span class="who">${who}</span><span class="p">${planShort(o.plan)}</span><span class="votes" style="color:var(--muted);font-size:12px">${sub}</span></div></button>`;
+  }).join("");
+  const el = message({ ...CLERK, time: `year ${d.year}`,
+    html: `<div class="embed poll deadlock" id="deadlockPoll"><div class="etitle">⚖️ Deadlock: your vote decides</div><div class="esub">${esc(d.reason)}</div>
+      <div class="stand">${stand}</div>${opts}<div class="foot" id="deadlockFoot">The reign is paused until you choose.</div></div>` });
+  el.querySelectorAll("button[data-choice]").forEach(btn => btn.onclick = async () => {
+    try { await api("/api/escalation", { choice: btn.dataset.choice }); } catch (e) { toast(e.message); return; }
+    el.querySelectorAll("button[data-choice]").forEach(b => { b.disabled = true; b.style.opacity = b === btn ? 1 : .45; });
+    btn.classList.add("win");
+    el.querySelector("#deadlockFoot").textContent = "Your ruling is recorded. The reign continues.";
+    el.querySelector("#deadlockPoll").removeAttribute("id");
+    $("#alertbar").classList.remove("show");
+  });
+  setTyping([]);
+  $("#alertbar").classList.add("show");
+  el.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+/* ---- side panels ---- */
+function buildMembers() {
+  $("#memberList").innerHTML = meta.advisors.map(a => `<div class="member" id="mem-${a.id}" title="${esc(a.mandate)}">
+    <div class="avatar" style="--c:${a.color}">${EMOJI[a.id]}</div><div><div class="mn" style="--c:${a.color}">${SHORT[a.id]}</div><div class="ms">${esc(a.mandate.split(".")[0])}</div></div></div>`).join("");
+  $("#redlines").innerHTML = meta.advisors.map(a => `<div><b style="--c:${a.color}">${EMOJI[a.id]} ${SHORT[a.id]}</b>: ${RL[a.id]}</div>`).join("");
+}
+function setTyping(ids) {
+  for (const a of meta.advisors) {
+    const ms = $(`#mem-${a.id} .ms`);
+    ms.innerHTML = ids.includes(a.id) ? `<span class="dots"><span></span><span></span><span></span></span> thinking` : esc(a.mandate.split(".")[0]);
+    ms.classList.toggle("typing-now", ids.includes(a.id));
+  }
+  $("#typing").innerHTML = ids.length ? `<span class="dots"><span></span><span></span><span></span></span> <b>${ids.map(i => SHORT[i]).join(", ")}</b> are thinking...` : "";
+}
 function setStat(id, v, prev, invert = false) {
   $(`#s${id}`).textContent = fmt(v);
   const d = $(`#d${id}`); if (!d) return;
   if (prev == null || prev === v) { d.textContent = ""; d.className = "d"; return; }
   const delta = v - prev, good = invert ? delta < 0 : delta > 0;
-  d.textContent = `${delta > 0 ? "+" : ""}${fmt(delta)} last year`;
-  d.className = `d ${good ? "up" : "down"}`;
+  d.textContent = `${delta > 0 ? "+" : ""}${fmt(delta)}`; d.className = `d ${good ? "up" : "down"}`;
 }
-
 function showState(s) {
-  $("#sYear").textContent = Math.min(s.year, 10);
-  $("#dYear").textContent = s.year > 10 ? "reign complete" : "of 10";
+  $("#sYear").textContent = s.year > 10 ? "done" : `${s.year}/10`;
   setStat("Pop", s.population, prevState?.population);
   setStat("Grain", s.grain, prevState?.grain);
   setStat("Acres", s.acres, prevState?.acres);
@@ -377,243 +440,109 @@ function showState(s) {
   setStat("Starved", s.starved_total, prevState?.starved_total, true);
   prevState = s;
 }
+function setActive(year) { document.querySelectorAll(".ch").forEach(c => c.classList.toggle("active", c.dataset.view === "chat" && c.dataset.year == year)); }
 
-function logEntry(html, cls = "") {
-  const e = document.createElement("div"); e.className = `entry ${cls}`; e.innerHTML = html;
-  const log = $("#log"); log.appendChild(e); log.scrollTop = log.scrollHeight;
-}
-
-function enqueueVoice(advisor, text) {
-  if ($("#voiceOn").value !== "1" || !text) return;
-  audioQueue.push({ advisor, text }); if (!playing) playNext();
-}
+/* ---- voice ---- */
+const audioQ = []; let playing = false;
+function speak(advisor, text) { if ($("#voiceOn").value !== "1" || !text) return; audioQ.push({ advisor, text }); if (!playing) playNext(); }
 function playNext() {
-  const item = audioQueue.shift(); if (!item) { playing = false; return; }
-  playing = true;
-  const card = $(`#adv-${item.advisor}`); card?.classList.add("speaking");
-  const a = new Audio(`/api/voice/${item.advisor}?text=${encodeURIComponent(item.text)}`);
-  const done = () => { card?.classList.remove("speaking"); playNext(); };
-  a.onended = done; a.onerror = done; a.play().catch(done);
+  const it = audioQ.shift(); if (!it) { playing = false; return; } playing = true;
+  const a = new Audio(`/api/voice/${it.advisor}?text=${encodeURIComponent(it.text)}`);
+  a.onended = playNext; a.onerror = playNext; a.play().catch(playNext);
 }
 
-const esc = t => String(t ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-let traceFilter = "all";
-
-function traceEntry(html, { who = "wire", cls = "", color = "" } = {}) {
-  const box = $("#trace");
-  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
-  const e = document.createElement("div");
-  e.className = `tr ${cls}`; e.dataset.who = who;
-  if (color) e.style.setProperty("--c", color);
-  e.innerHTML = html;
-  e.hidden = !(traceFilter === "all" || traceFilter === who || (traceFilter === "wire" && ["wire", "news", "alert"].includes(who)));
-  box.appendChild(e);
-  while (box.children.length > 400) box.firstChild.remove();
-  if (atBottom) box.scrollTop = box.scrollHeight;
-}
-
-function setFilter(v) {
-  traceFilter = v; $("#traceFilter").value = v;
-  document.querySelectorAll(".advisor").forEach(el => el.classList.toggle("filtered", el.id === `adv-${v}`));
-  document.querySelectorAll("#trace .tr").forEach(e => {
-    const w = e.dataset.who;
-    e.hidden = !(v === "all" || v === w || (v === "wire" && ["wire", "news", "alert"].includes(w)));
-  });
-  const box = $("#trace"); box.scrollTop = box.scrollHeight;
-}
-
-function onWire(d) {
-  const kb = d.bytes_out ? `${(d.bytes_out / 1024).toFixed(1)} kB out` : "";
-  traceEntry(`<div class="tr-head"><span class="who">Clerk</span><span class="badge policy">Y${d.year} R${d.round + 1}</span><span class="meta">${d.elapsed_s}s</span></div>
-    <div class="line">${esc(d.transport)}</div>
-    ${d.topic ? `<div class="line">topic ${esc(d.topic)}</div>` : ""}
-    <div class="line">brief to ${d.recipients ? d.recipients.length : 4} advisors ${kb ? "· " + kb : ""} · ${d.replies} replies</div>`, { cls: "wire" });
-}
-
-function traceBallot(b, round) {
-  const a = meta.advisors.find(x => x.id === b.advisor), t = b.trace || {};
-  const be = t.beliefs || {};
-  const llmMeta = t.llm ? (t.llm.cached ? "cached reply" : `${t.llm.latency_s}s · $${t.llm.cost_usd.toFixed(4)}`) : "";
-  const rows = (t.evaluations || []).map(e => {
-    const vote = e.llm_vote || e.policy_vote;
-    const broken = e.breaks_red_lines_of.length ? e.breaks_red_lines_of.map(x => SHORT[x]).join(", ") : "none";
-    return `<tr><td>${esc(e.id)}</td><td class="mono">${e.my_score.toFixed(2)}</td><td class="mono">${e.threshold.toFixed(2)}</td><td>${broken}</td><td class="v-${vote}">${vote}</td></tr>`;
-  }).join("");
-  const ch = t.chosen || {};
-  traceEntry(`<div class="tr-head"><span class="who">${esc(a.title)}</span>
-      <span class="badge ${b.source}">${b.source === "llm" ? "LLM" : "policy"}</span>
-      <span class="badge policy">Y${b.year} R${round + 1}</span>
-      <span class="meta">${llmMeta}</span></div>
-    ${t.thought ? `<div class="thought">"${esc(t.thought)}"</div>` : ""}
-    ${t.fallback ? `<div class="line warn">${esc(t.fallback)}. Fell back to the offline policy.</div>` : ""}
-    <div class="line">forecast: yield ${be.expected_yield}${be.pessimistic ? " (planning for a bad year)" : ""}, rats ${Math.round(be.rat_chance * 100)}%, plague ${Math.round(be.plague_chance * 100)}%, land next year ${be.next_price}</div>
-    <div class="line">self vs group weight ${Math.round((1 - t.concession_weight) * 100)}/${Math.round(t.concession_weight * 100)} · accepts at score ≥ ${Number(t.threshold).toFixed(2)}${t.extra_weight_for?.length ? ` · extra weight for last year's dissent: ${t.extra_weight_for.map(x => NAMES[x]).join(", ")}` : ""}</div>
-    ${rows ? `<table><thead><tr><th>Plan</th><th>Score</th><th>Need</th><th>Red lines hit</th><th>Vote</th></tr></thead><tbody>${rows}</tbody></table>` : ""}
-    <div class="line">proposes ${esc(planText(ch.plan))} · me ${ch.my_score} · others ${ch.group_score}${ch.breaks_red_lines_of?.length ? ` · <span class="warn">hits red line of ${ch.breaks_red_lines_of.map(x => NAMES[x]).join(", ")}</span>` : ""}</div>
-    <div class="line ok">signature verified</div>`, { who: b.advisor, color: a.color });
-}
-
-function onBallots(d) {
-  for (const b of d.ballots) traceBallot(b, d.round);
-  if (d.rejected || d.missing?.length) traceEntry(`<div class="tr-head"><span class="who">Clerk</span></div><div class="line warn">${d.rejected} ballots failed signature checks. Missing: ${(d.missing || []).map(x => NAMES[x]).join(", ") || "none"}</div>`, { cls: "alert", who: "alert" });
-  const tally = Object.fromEntries((d.tally || []).map(t => [t.id, t]));
-  for (const b of d.ballots) {
-    const el = $(`#adv-${b.advisor}`); if (!el) continue;
-    $(".land", el).textContent = b.proposal.land_delta > 0 ? `+${b.proposal.land_delta}` : b.proposal.land_delta;
-    $(".feed", el).textContent = fmt(b.proposal.feed);
-    $(".plant", el).textContent = fmt(b.proposal.plant);
-    $(".speech", el).textContent = b.speech ? `"${b.speech}"` : "";
-    const src = $(".src", el); src.textContent = b.source === "llm" ? "LLM" : "policy"; src.className = `badge ${b.source} src`;
-    const votes = $(".votes", el); votes.innerHTML = "";
-    for (const id of b.accept) votes.insertAdjacentHTML("beforeend", `<span class="vote acc">accepts ${id.split("-")[0]}</span>`);
-    for (const id of b.veto) votes.insertAdjacentHTML("beforeend", `<span class="vote vet">vetoes ${id.split("-")[0]}</span>`);
-    logEntry(`<span class="who" style="color:${meta.advisors.find(a => a.id === b.advisor).color}">${NAMES[b.advisor]}</span>
-      <span class="meta">r${d.round + 1} ${b.source}</span><br>${esc(b.speech || planText(b.proposal))}`);
-    enqueueVoice(b.advisor, b.speech);
-  }
-  if (d.tally?.length) {
-    const best = [...d.tally].sort((a, b) => b.accept.length - a.accept.length)[0];
-    $("#bannerText").textContent = `Leading: the ${SHORT[best.author]}'s plan, ${best.accept.length} of 4 accept${best.veto.length ? `, vetoed by the ${best.veto.map(v => SHORT[v]).join(" and ")}` : ""}`;
-  } else {
-    $("#bannerText").textContent = "Opening proposals tabled.";
-  }
-}
-
-function onYear(d) {
-  const r = d.report || {};
-  const tr = document.createElement("tr");
-  tr.innerHTML = `<td>${d.year}</td><td><span class="badge ${d.outcome}">${d.outcome}</span></td><td class="mono">${d.rounds}</td>
-    <td class="mono">${d.plan.land_delta}</td><td class="mono">${fmt(d.plan.feed)}</td><td class="mono">${fmt(d.plan.plant)}</td>
-    <td class="mono">${r.yield_per_acre ?? "-"}</td><td class="mono">${r.starved ?? "-"}</td><td class="mono">${fmt(d.state.population)}</td>`;
-  $("#years tbody").appendChild(tr);
-  const extra = d.dissent?.length ? ` Dissent kept on record: ${d.dissent.map(x => NAMES[x]).join(", ")}.` : "";
-  logEntry(`<span class="badge ${d.outcome}">${d.outcome}</span> <b>Year ${d.year}</b>: ${planText(d.plan)}. ${d.reason}${extra}
-    <div class="meta">Harvest ${fmt(r.harvest)} (${r.yield_per_acre}/acre), rats ate ${fmt(r.rats)}, ${r.starved} starved, ${r.immigrants} arrived${r.plague_deaths ? `, plague killed ${r.plague_deaths}` : ""}</div>`, "outcome");
-  $("#bannerBadge").innerHTML = `<span class="badge ${d.outcome}">${d.outcome}</span>`;
-  for (const [a, v] of Object.entries(d.satisfaction || {})) $(`#adv-${a} .sat > i`).style.width = `${Math.round(v * 100)}%`;
-  if (d.news?.length && Object.keys(d.after_news || {}).length) {
-    const rows = Object.keys(d.opening).map(a => {
-      const o = d.opening[a], n = d.after_news[a];
-      const changed = JSON.stringify(o) !== JSON.stringify(n);
-      return `<tr><td>${SHORT[a]}</td><td class="mono">${planText(o)}</td><td class="mono">${changed ? "<b>" + planText(n) + "</b>" : "same"}</td></tr>`;
-    }).join("");
-    $("#newsDiff").innerHTML = `<h2 style="margin-top:14px">Year ${d.year}: before and after the news</h2>
-      <p class="diff">${d.news.join(" ")}</p>
-      <div class="table-wrap"><table class="difftable"><thead><tr><th>Advisor</th><th>Opening (before news)</th><th>After news</th></tr></thead><tbody>${rows}</tbody></table></div>`;
-  }
-  showState(d.state);
-}
-
-function onEscalate(d) {
-  $("#escReason").textContent = d.reason;
-  const box = $("#escOptions"); box.innerHTML = "";
-  for (const o of d.options) {
-    const who = o.id === "safe" ? (o.note || "Safe fallback") :
-      `The ${SHORT[o.id.split("-")[0]]}'s plan. Accepted by ${o.accept.map(a => SHORT[a]).join(", ") || "nobody"}${o.veto.length ? `. Vetoed by ${o.veto.map(a => SHORT[a]).join(", ")}` : ""}.`;
-    const div = document.createElement("div"); div.className = "option";
-    div.innerHTML = `<div class="desc"><div class="mono">${planText(o.plan)}</div><div class="hint">${who}</div></div>`;
-    const btn = document.createElement("button"); btn.className = "btn primary"; btn.textContent = "Choose";
-    btn.onclick = async () => { try { await api("/api/escalation", { choice: o.id }); } catch (e) { toast(e.message); } closeEsc(); };
-    div.appendChild(btn); box.appendChild(div);
-  }
-  $("#escPositions").innerHTML = (d.positions || []).map(p => {
-    const a = meta.advisors.find(x => x.id === p.advisor);
-    return `<div class="pos" style="--c:${a.color}"><div class="who">${esc(a.title)}</div>
-      <div class="mono">${esc(planText(p.proposal))}</div>
-      ${p.veto.length ? `<div style="color:var(--bad)">Vetoes the ${p.veto.map(v => SHORT[v.split("-")[0]]).join(" and the ")}'s plan${p.veto.length > 1 ? "s" : ""}</div>` : ""}
-      <div class="thought">${esc(p.thought || p.speech)}</div></div>`;
-  }).join("");
-  clearInterval(onEscalate.t);
-  let left = meta.escalation_timeout_s || 0;
-  if (left > 0) {
-    $("#escCountdown").textContent = `Safe fallback in ${left}s`;
-    onEscalate.t = setInterval(() => { left -= 1; $("#escCountdown").textContent = `Safe fallback in ${left}s`; if (left <= 0) closeEsc(); }, 1000);
-  } else {
-    $("#escCountdown").textContent = "The reign is paused until you decide.";
-  }
-  $("#escalation").showModal();
-  logEntry(`<span class="badge escalated">escalated</span> ${esc(d.reason)} Asking a human.`, "outcome");
-  traceEntry(`<div class="tr-head"><span class="who">Clerk</span><span class="badge escalated">deadlock</span></div><div class="line">${esc(d.reason)} Paused for a human decision.</div>`, { cls: "alert", who: "alert" });
-}
-function closeEsc() { clearInterval(onEscalate.t); if ($("#escalation").open) $("#escalation").close(); }
-
-function handle(ev) {
-  const { kind, data: d } = ev;
+/* ---- events ---- */
+function handle({ kind, data: d }) {
   if (kind === "game") {
-    prevState = null; $("#log").innerHTML = ""; $("#trace").innerHTML = ""; $("#years tbody").innerHTML = ""; $("#final").textContent = ""; $("#newsDiff").innerHTML = "";
-    buildCouncil(); showState(d.state);
-    $("#roundLabel").textContent = "Year 1"; $("#bannerText").textContent = `Seed ${d.seed}. The council convenes.`; $("#bannerBadge").innerHTML = "";
+    $("#feed").innerHTML = ""; prevState = null; curYear = 0;
+    $("#yearChannels").innerHTML = `<button class="ch active" data-view="chat" data-year="0"><span class="hash">#</span>council-chamber</button>`;
+    $("#alertbar").classList.remove("show");
+    showState(d.state);
+    sys(`<span class="ic">🏛️</span>The council convenes. Seed ${d.seed}. Ten years to rule, no king to break ties.`);
   } else if (kind === "round") {
-    currentYear = d.year;
-    $("#roundLabel").textContent = `Year ${d.year}, round ${d.round + 1}`;
-    if (d.round === 0) { $("#bannerBadge").innerHTML = ""; $("#bannerText").textContent = "Advisors are drafting opening proposals."; }
+    if (d.year !== curYear) {
+      curYear = d.year;
+      $("#yearChannels").insertAdjacentHTML("beforeend", `<button class="ch" data-view="chat" data-year="${d.year}"><span class="hash">#</span>year-${d.year}</button>`);
+      setActive(d.year);
+      append(node(`<span id="year-${d.year}">Year ${d.year} · ${fmt(prevState?.population)} people · ${fmt(prevState?.grain)} grain · ${fmt(prevState?.acres)} acres · land at ${prevState?.land_price}</span>`, "divider"));
+    }
+    $("#chanName").textContent = `year-${d.year}`;
+    $("#topic").textContent = `Round ${d.round + 1} of ${maxRounds}`;
+    setTyping(meta.advisors.map(a => a.id));
   } else if (kind === "wire") onWire(d);
   else if (kind === "news") {
-    traceEntry(`<div class="tr-head"><span class="who">Scouts</span><span class="badge news">new information</span><span class="meta">Y${d.year} R${d.round + 1}</span></div><div class="line">${esc(d.text)}</div><div class="line">belief update: ${esc(JSON.stringify(d.beliefs))}</div>`, { cls: "news", who: "news" });
-    logEntry(`<span class="badge news">${d.injected ? "scout sent" : "news"}</span> ${d.text}`, "news");
-    $("#bannerText").textContent = d.text;
-    $("#bannerBadge").innerHTML = `<span class="badge news">new information</span>`;
+    message({ name: "Scouts", avatar: "📯", c: "#00a8fc", tag: `<span class="tag">news</span>`, time: `year ${d.year} · round ${d.round + 1}`,
+      html: `<div class="embed" style="--ec:var(--link)"><div class="etitle">🧭 ${d.injected ? "The scout you sent reports" : "Scout report"}</div><div class="body">${esc(d.text)}</div>
+        <div class="esub glass-only">belief update: ${esc(JSON.stringify(d.beliefs))}</div></div>` });
   } else if (kind === "ballots") onBallots(d);
   else if (kind === "year") onYear(d);
   else if (kind === "escalate") onEscalate(d);
-  else if (kind === "escalation_timeout") { closeEsc(); logEntry("No human answered in time. Using the safe fallback plan.", "outcome"); }
+  else if (kind === "escalation_timeout") { $("#alertbar").classList.remove("show"); sys(`<span class="ic">🛟</span>No ruling in time. Using the safe fallback.`); }
   else if (kind === "end") {
-    const r = d.rating;
-    $("#roundLabel").textContent = "Reign complete";
-    $("#bannerText").textContent = `Verdict: ${r.verdict}. Score ${r.score}.`;
-    $("#final").innerHTML = `<b>Verdict: ${r.verdict}</b>. ${fmt(r.population)} people, ${fmt(r.acres)} acres, ${fmt(r.grain)} bushels. Average starvation ${r.avg_starved_pct}%. Outcomes: ${Object.entries(d.outcomes).map(([k, v]) => `${v} ${k}`).join(", ")}.`;
+    const r = d.rating; setTyping([]);
+    $("#topic").textContent = `Reign complete. Verdict: ${r.verdict}`;
+    message({ ...CLERK, time: "end of reign",
+      html: `<div class="embed outcome" style="--ec:var(--blurple)"><div class="etitle">🏆 Reign complete. Verdict: ${esc(r.verdict)}</div>
+        <div class="stats"><span>people <b>${fmt(r.population)}</b></span><span>acres <b>${fmt(r.acres)}</b></span><span>grain <b>${fmt(r.grain)}</b></span><span>avg starved <b>${r.avg_starved_pct}%</b></span><span>score <b>${r.score}</b></span></div>
+        <div class="esub">${Object.entries(d.outcomes).map(([k, v]) => `${v} ${k}`).join(" · ")}</div></div>` });
   } else if (kind === "error") toast(d.message);
 }
-
 function connect() {
   const es = new EventSource("/api/events");
   es.onmessage = m => handle(JSON.parse(m.data));
   es.onerror = () => { es.close(); setTimeout(connect, 1500); };
 }
 
+$("#app").addEventListener("click", e => {
+  const ch = e.target.closest(".ch"); if (!ch) return;
+  const ev = ch.dataset.view === "evidence";
+  $("#chatView").classList.toggle("hidden", ev); $("#evidenceView").classList.toggle("hidden", !ev);
+  document.querySelectorAll(".ch").forEach(c => c.classList.toggle("active", c === ch));
+  if (ev) { loadBench().catch(err => toast(err.message)); return; }
+  const y = +ch.dataset.year;
+  if (y > 0) $(`#year-${y}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  else $("#feed").scrollTo({ top: 0, behavior: "smooth" });
+});
+$("#glassToggle").onclick = () => {
+  glass = !glass; $("#glassToggle").setAttribute("aria-pressed", glass);
+  $("#app").classList.toggle("glass-off", !glass);
+  document.querySelectorAll(".think").forEach(t => t.open = glass);
+};
+$("#alertbar").onclick = () => $("#deadlockPoll")?.scrollIntoView({ behavior: "smooth", block: "center" });
+const start = () => {
+  maxRounds = +$("#rounds").value;
+  api("/api/game", { seed: +$("#seed").value, reveal_news: $("#reveal").value === "1", max_rounds: maxRounds }).catch(e => toast(e.message));
+};
+$("#startBtn").onclick = start; $("#startBtnMobile").onclick = start;
+$("#stopBtn").onclick = () => api("/api/stop", {}).catch(e => toast(e.message));
+$("#pace").oninput = e => api("/api/pace", { pace_s: +e.target.value }).catch(() => {});
+document.querySelectorAll("[data-news]").forEach(b => b.onclick = () => api("/api/news", { kind: b.dataset.news })
+  .then(() => sys(`<span class="ic">🧭</span>Scout dispatched. The report reaches the council next round.`)).catch(e => toast(e.message)));
+
 async function loadBench() {
   const b = await api("/api/bench");
   if (b.missing) { $("#benchMeta").textContent = "No results yet. Run: uv run sumer bench"; return; }
-  const cols = ["policy", "score", "survived", "starved", "population", "fairness", "consensus", "majority", "escalated"];
-  const label = { policy: "Decider", score: "Mean score", survived: "Reigns survived", starved: "Mean starved", population: "Mean people", fairness: "Fairness (min sat.)", consensus: "Consensus yrs", majority: "Majority yrs", escalated: "Escalated yrs" };
+  const cols = ["policy", "score", "survived", "starved", "population", "fairness"];
+  const label = { policy: "Decider", score: "Mean score", survived: "Survived", starved: "Mean starved", population: "Mean people", fairness: "Fairness" };
   $("#benchTable thead").innerHTML = `<tr>${cols.map(c => `<th>${label[c]}</th>`).join("")}</tr>`;
-  $("#benchTable tbody").innerHTML = b.rows.map(r => `<tr>${cols.map(c => `<td class="${c === "policy" ? "" : "mono"}">${r[c] ?? "-"}</td>`).join("")}</tr>`).join("");
-  $("#benchMeta").textContent = `${b.seeds} seeds, transport ${b.transport}, reasoning ${b.llm}. Generated ${b.generated}.`;
-  const icols = Object.keys(b.info[0] || {});
-  $("#infoTable thead").innerHTML = `<tr>${icols.map(c => `<th>${c}</th>`).join("")}</tr>`;
-  $("#infoTable tbody").innerHTML = b.info.map(r => `<tr>${icols.map(c => `<td class="mono">${r[c]}</td>`).join("")}</tr>`).join("");
-  $("#lessons").innerHTML = (b.lessons || []).map(l => `<li>${l}</li>`).join("");
+  $("#benchTable tbody").innerHTML = b.rows.map(r => `<tr${r.key === "council" ? ' style="background:rgba(88,101,242,.15)"' : ""}>${cols.map(c => `<td>${esc(r[c])}</td>`).join("")}</tr>`).join("");
+  const c = b.rows.find(r => r.key === "council");
+  $("#benchMeta").textContent = `${b.seeds} seeds, same dice for everyone. Council: ${c.consensus} consensus, ${c.majority} majority, ${c.escalated} escalated years. Fairness is the worst-served advisor's average satisfaction.`;
+  const ic = Object.keys(b.info[0] || {});
+  $("#infoTable thead").innerHTML = `<tr>${ic.map(k => `<th>${esc(k)}</th>`).join("")}</tr>`;
+  $("#infoTable tbody").innerHTML = b.info.map(r => `<tr>${ic.map(k => `<td>${esc(r[k])}</td>`).join("")}</tr>`).join("");
+  $("#lessons").innerHTML = (b.lessons || []).map(l => `<li>${esc(l)}</li>`).join("");
 }
-
-document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
-  document.querySelectorAll(".tab").forEach(x => x.setAttribute("aria-selected", x === t));
-  $("#chamberView").classList.toggle("hidden", t.dataset.view !== "chamberView");
-  $("#benchView").classList.toggle("hidden", t.dataset.view !== "benchView");
-  if (t.dataset.view === "benchView") loadBench().catch(e => toast(e.message));
-});
-$("#traceFilter").onchange = e => setFilter(e.target.value);
-$("#council").addEventListener("click", e => {
-  const card = e.target.closest(".advisor"); if (!card) return;
-  const id = card.id.replace("adv-", "");
-  setFilter(traceFilter === id ? "all" : id);
-});
-async function pollSpend() {
-  try { const r = await api("/api/spend"); $("#spend").textContent = `$${r.spent_usd.toFixed(3)} of $${r.budget_usd.toFixed(2)}`; } catch {}
-}
-$("#startBtn").onclick = () => api("/api/game", { seed: +$("#seed").value, reveal_news: $("#reveal").value === "1", max_rounds: +$("#rounds").value }).catch(e => toast(e.message));
-$("#stopBtn").onclick = () => api("/api/stop", {}).catch(e => toast(e.message));
-$("#pace").oninput = e => api("/api/pace", { pace_s: +e.target.value }).catch(() => {});
-document.querySelectorAll("[data-news]").forEach(b => b.onclick = () => api("/api/news", { kind: b.dataset.news }).then(r => logEntry(`<span class="badge news">scout sent</span> Arrives next round: ${r.report.text}`, "news")).catch(e => toast(e.message)));
+async function pollSpend() { try { const r = await api("/api/spend"); $("#spend").textContent = `LLM $${r.spent_usd.toFixed(3)} / $${r.budget_usd.toFixed(0)}`; } catch {} }
 
 (async () => {
   meta = await api("/api/meta");
   $("#chipTransport").textContent = meta.transport === "slim" ? "AGNTCY SLIM" : "in-process";
-  $("#chipLlm").textContent = meta.llm === "bayleaf" ? meta.model : "policy (offline)";
-  $("#rounds").value = String(meta.max_rounds);
+  $("#chipLlm").textContent = meta.llm === "bayleaf" ? meta.model.split("/").pop() : "offline policy";
+  $("#rounds").value = String(meta.max_rounds); maxRounds = meta.max_rounds;
   if (meta.voice) $("#voiceRow").classList.remove("hidden");
-  for (const a of meta.advisors) $("#traceFilter").insertAdjacentHTML("beforeend", `<option value="${a.id}">${esc(a.title)}</option>`);
   if (meta.llm === "bayleaf") { $("#chipSpend").classList.remove("hidden"); pollSpend(); setInterval(pollSpend, 5000); }
-  buildCouncil();
+  buildMembers();
   connect();
 })();
 </script>
