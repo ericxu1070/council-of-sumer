@@ -491,6 +491,8 @@ def _llm_messages(m: Mind, evals: list[dict], policy: Ballot) -> list[dict]:
         "suggested_plan_backs": policy.back,
         "suggested_plan_score_for_you": policy.trace["chosen"]["my_score"],
     }
+    if b.errors:
+        user["response_correction"] = b.errors
     if b.phase == "runoff":
         ra, rb = b.runoff
         ask = (
