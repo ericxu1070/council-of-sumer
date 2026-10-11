@@ -152,6 +152,20 @@ def legalize(state: State, d: Decision) -> Decision:
     return d
 
 
+def repair_food_allocation(state: State, d: Decision) -> Decision:
+    """Reduce food to the grain left after trade and seed, then validate all rules.
+
+    Only food overspending is repaired. Trades, planting, malformed amounts,
+    and proposals that cannot fund trade and seed even with zero food still fail.
+    """
+    if (all(type(v) is int for v in (d.land_delta, d.feed, d.plant))
+            and d.feed >= 0 and d.plant >= 0):
+        available = state.grain - d.land_delta * state.land_price - d.plant // ACRES_PER_BUSHEL
+        if 0 <= available < d.feed:
+            d = Decision(d.land_delta, available, d.plant)
+    return legalize(state, d)
+
+
 def step(state: State, d: Decision, rolls: YearRolls) -> State:
     """Apply one year. Returns a new State with a report of what happened."""
     d = legalize(state, d)

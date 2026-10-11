@@ -112,7 +112,11 @@ For a council of `n`: majority is `floor(n/2) + 1`, strong majority is the large
   collects its `Ballot`. It applies the public rules and never ranks plans itself.
 - **Reasoning**: each advisor's LLM picks its proposal, votes, and speech from its mandate,
   bias, the score formula, the city state, and the debate. No coded policy or veto steers it.
-  Rejected budgets come back with the shortfall so the advisor can fix them.
+  When a proposed food allocation exceeds the grain left after land trading and seed,
+  the engine deterministically reduces food to the remaining grain, keeping trade and
+  planting unchanged. The reduction is disclosed in speech and recorded with the original
+  plan in the trace. Reduced rations can cause starvation or overthrow. Other invalid
+  budgets still come back with the shortfall for the advisor to fix.
 - **Skipped turns**: a failed turn is retried once, then that advisor skips it and the council
   continues. A skip casts no vote and does not lower the majority thresholds.
 - **Verified turns**: every ballot binds to its run, year, round, speaker, state, and request
