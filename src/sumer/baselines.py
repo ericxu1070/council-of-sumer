@@ -63,7 +63,7 @@ async def lone_llm(state: State, beliefs: Beliefs, news: list[dict]) -> Decision
         },
     ]
     try:
-        p = llm.parse_json(await llm.chat(msgs))
+        p = llm.parse_json((await llm.chat(msgs)).content)
         return legalize(state, Decision(int(p["land_delta"]), int(p["feed"]), int(p["plant"])))
     except (llm.LLMUnavailable, ValueError, KeyError, TypeError):
         return lone_ruler(state, beliefs)

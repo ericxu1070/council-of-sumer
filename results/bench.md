@@ -14,13 +14,13 @@
 
 | decider | score with scouts | score silent | plans changed by news |
 |---|---|---|---|
-| Council | 1048.3 | 998.5 | 84/287 years |
+| Council | 1048.3 | 998.5 | 85/287 years |
 | Lone ruler | 1126.7 | 1132.0 | - |
 
 ## Lessons
 
 - Negotiation beats averaging: the council scored 1048.3 vs -2317.3 for averaging each advisor's selfish plan (10/30 reigns survived vs 30/30).
 - A single equal-weight ruler scored 1126.7 vs the council's 1048.3. The council's edge is fairness: its worst-served advisor averaged 0.459 satisfaction vs 0.423 under the lone ruler.
-- News changed the adopted plan in 84 of 287 years where it arrived. Scouts moved the council's mean score from 998.5 (silent) to 1048.3.
+- News changed the adopted plan in 85 of 287 years where it arrived. Scouts moved the council's mean score from 998.5 (silent) to 1048.3.
 - Outcomes over 300 council-years: 152 consensus, 99 majority with recorded dissent, 49 escalated to a human. Mean rounds per year: 4.15.
 - Single-mandate rule fails: Priest alone, Merchant alone lost most reigns. One objective is not enough, which is why each advisor's red line matters.

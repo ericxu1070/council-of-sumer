@@ -49,8 +49,10 @@ class Ballot(BaseModel):
     proposal: Plan
     accept: list[str] = Field(default_factory=list)
     veto: list[str] = Field(default_factory=list)
-    speech: str = ""
+    speech: str = ""  # public: the other advisors hear this
     source: str = "policy"  # "llm" or "policy"
+    # Glass box: private reasoning. Humans see it; the other advisors never do.
+    trace: dict = Field(default_factory=dict)
     sig: str = ""
 
     def signing_payload(self) -> bytes:

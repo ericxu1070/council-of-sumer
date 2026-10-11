@@ -12,6 +12,8 @@ import hashlib
 import json
 import logging
 import re
+import time
+from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
@@ -23,6 +25,19 @@ log = logging.getLogger(__name__)
 
 class LLMUnavailable(Exception):
     pass
+
+
+@dataclass
+class Reply:
+    content: str
+    model: str
+    cached: bool
+    latency_s: float
+    cost_usd: float
+
+    def meta(self) -> dict:
+        return {"model": self.model, "cached": self.cached,
+                "latency_s": round(self.latency_s, 2), "cost_usd": round(self.cost_usd, 6)}
 
 
 def enabled() -> bool:
@@ -53,10 +68,10 @@ def _record_spend(usd: float) -> None:
         f.write(f"{usd:.8f}\n")
 
 
-async def chat(messages: list[dict], temperature: float = 0.4) -> str:
+async def chat(messages: list[dict], temperature: float = 0.4) -> Reply:
     path = _cache_path(messages)
     if settings.llm_cache and path.exists():
-        return json.loads(path.read_text())["content"]
+        return Reply(json.loads(path.read_text())["content"], settings.llm_model, True, 0.0, 0.0)
     if not enabled():
         raise LLMUnavailable("LLM_MODE is not bayleaf or credentials are missing")
     if spent_usd() >= settings.llm_budget_usd:
@@ -70,6 +85,7 @@ async def chat(messages: list[dict], temperature: float = 0.4) -> str:
         "max_tokens": 400,
         "reasoning": {"enabled": False},  # thinking tokens cost money and add latency
     }
+    t0 = time.monotonic()
     try:
         async with httpx.AsyncClient(timeout=settings.llm_timeout_s) as client:
             r = await client.post(
@@ -80,19 +96,21 @@ async def chat(messages: list[dict], temperature: float = 0.4) -> str:
             content = data["choices"][0]["message"]["content"]
     except (httpx.HTTPError, KeyError, IndexError, ValueError) as e:
         raise LLMUnavailable(str(e)) from e
-    _record_spend(float((data.get("usage") or {}).get("cost") or 0.0))
+    cost = float((data.get("usage") or {}).get("cost") or 0.0)
+    _record_spend(cost)
     if not content:
         raise LLMUnavailable("empty reply")
+    reply = Reply(content, settings.llm_model, False, time.monotonic() - t0, cost)
 
     if settings.llm_cache:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps({"content": content}))
-    return content
+    return reply
 
 
 def parse_json(text: str) -> dict:
     """Pull the first JSON object out of a model reply (tolerates code fences)."""
-    m = re.search(r"\{.*\}", text, re.S)
+    m = re.search(r"\{.*\}", text, re.DOTALL)
     if not m:
         raise ValueError("no JSON object in reply")
     return json.loads(m.group(0))

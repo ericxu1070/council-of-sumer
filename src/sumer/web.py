@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
@@ -70,15 +71,22 @@ async def _gather(brief: Brief):
             from sumer.transport import inproc
 
             live.council = inproc
+    t0 = time.monotonic()
     ballots = await live.council.gather(brief)
+    wire = dict(getattr(live.council, "last", {}) or {})
+    wire.setdefault("transport", "in-process (no network)")
+    wire.setdefault("elapsed_s", round(time.monotonic() - t0, 2))
+    wire.setdefault("replies", len(ballots))
+    await hub.emit("wire", {"year": brief.year, "round": brief.round, **wire})
     await asyncio.sleep(live.pace_s)
     return ballots
 
 
 async def _ask_human(options: list[dict], reason: str) -> str | None:
     live.pending = asyncio.get_running_loop().create_future()
+    timeout = settings.escalation_timeout_s if settings.escalation_timeout_s > 0 else None
     try:
-        return await asyncio.wait_for(live.pending, settings.escalation_timeout_s)
+        return await asyncio.wait_for(live.pending, timeout)
     except TimeoutError:
         await hub.emit("escalation_timeout", {"fallback": "safe"})
         return None
@@ -177,8 +185,16 @@ async def meta():
         "voice": voice.enabled(),
         "max_rounds": settings.max_rounds,
         "escalation_timeout_s": settings.escalation_timeout_s,
+        "budget_usd": settings.llm_budget_usd,
         "report_kinds": list(REPORT_KINDS),
     }
+
+
+@app.get("/api/spend")
+async def spend():
+    from sumer import llm
+
+    return {"spent_usd": llm.spent_usd(), "budget_usd": settings.llm_budget_usd}
 
 
 @app.get("/api/events")

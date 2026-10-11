@@ -42,7 +42,8 @@ h1 small { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 
 .tab { background: none; border: 0; padding: 6px 12px; border-radius: 8px; color: var(--muted); cursor: pointer; }
 .tab[aria-selected="true"] { background: var(--panel-2); color: var(--text); }
 
-main { display: grid; grid-template-columns: 300px 1fr; gap: 16px; padding: 16px 20px; max-width: 1500px; margin: 0 auto; }
+main { display: grid; grid-template-columns: 280px minmax(0, 1fr) 420px; gap: 16px; padding: 16px 20px; max-width: 1800px; margin: 0 auto; align-items: start; }
+@media (max-width: 1350px) { main { grid-template-columns: 280px minmax(0, 1fr); } .glass { grid-column: 1 / -1; } }
 @media (max-width: 960px) { main { grid-template-columns: 1fr; padding: 12px 16px; } }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
 .panel h2 { margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; }
@@ -130,10 +131,42 @@ td.mono, .mono { font-family: var(--mono); }
 .table-wrap { overflow-x: auto; }
 .diff { font: 12px var(--mono); color: var(--muted); }
 .diff b { color: #8fb0ee; font-weight: 600; }
+.difftable td, .difftable th { white-space: normal; text-align: left; font-size: 11px; }
+.difftable td b { color: #8fb0ee; }
+
+.glass { position: sticky; top: 12px; display: flex; flex-direction: column; max-height: calc(100vh - 24px); min-width: 0; }
+@media (max-width: 1350px) { .glass { position: static; max-height: 640px; } }
+.glass-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.glass-head h2 { margin: 0; }
+.glass-head select { width: auto; margin-left: auto; padding: 4px 8px; font-size: 12px; }
+.glass-sub { color: var(--faint); font-size: 12px; margin: -4px 0 10px; }
+.trace { overflow: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 4px; flex: 1; min-height: 200px; }
+.tr { background: var(--panel-2); border-radius: 8px; padding: 8px 10px; font-size: 12px; border-left: 3px solid var(--c, var(--line)); }
+.tr-head { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.tr-head .who { font-weight: 700; color: var(--c, var(--text)); }
+.tr-head .meta { margin-left: auto; color: var(--faint); font: 11px var(--mono); }
+.tr .thought { font-style: italic; margin: 6px 0; color: var(--text); }
+.tr .line { color: var(--muted); font: 11px/1.5 var(--mono); margin-top: 3px; overflow-wrap: anywhere; }
+.tr table { margin-top: 6px; font-size: 11px; }
+.tr td, .tr th { padding: 3px 4px; }
+.tr .v-accept { color: var(--ok); } .tr .v-veto { color: var(--bad); } .tr .v-pass { color: var(--faint); }
+.tr.wire { --c: var(--lapis); }
+.tr.news { --c: #8fb0ee; }
+.tr.alert { --c: var(--bad); }
+.warn { color: var(--warn); }
+.ok { color: var(--ok); }
+.advisor { cursor: pointer; }
+.advisor.filtered { outline: 2px solid var(--c); outline-offset: 2px; }
+.positions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+@media (max-width: 600px) { .positions { grid-template-columns: 1fr; } }
+.pos { background: var(--panel-2); border-left: 3px solid var(--c); border-radius: 8px; padding: 8px 10px; font-size: 12px; }
+.pos .who { font-weight: 700; color: var(--c); }
+.pos .thought { font-style: italic; color: var(--muted); margin-top: 4px; }
+dialog h4 { margin: 16px 0 0; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
 
 dialog {
   background: var(--panel); color: var(--text); border: 1px solid var(--bad); border-radius: 14px;
-  max-width: 720px; width: calc(100% - 32px); padding: 20px;
+  max-width: 860px; width: calc(100% - 32px); padding: 20px; max-height: calc(100vh - 32px);
 }
 dialog::backdrop { background: rgba(0,0,0,.6); }
 dialog h3 { margin: 0 0 4px; }
@@ -160,6 +193,7 @@ dialog h3 { margin: 0 0 4px; }
     <span class="chip">Transport <b id="chipTransport">-</b></span>
     <span class="chip">Reasoning <b id="chipLlm">-</b></span>
     <span class="chip">Ballots <b>HMAC signed</b></span>
+    <span class="chip hidden" id="chipSpend">LLM spend <b id="spend">$0.00</b></span>
   </div>
 </header>
 
@@ -233,6 +267,18 @@ dialog h3 { margin: 0 0 4px; }
       </section>
     </div>
   </section>
+
+  <section class="panel glass" aria-label="Glass box">
+    <div class="glass-head">
+      <h2>Glass box</h2>
+      <select id="traceFilter" aria-label="Filter trace">
+        <option value="all">Everything</option>
+        <option value="wire">Clerk and SLIM wire</option>
+      </select>
+    </div>
+    <p class="glass-sub">Private reasoning and every message on the wire. Humans see this; advisors only hear each other's speeches.</p>
+    <div class="trace" id="trace"></div>
+  </section>
 </main>
 </div>
 
@@ -256,6 +302,9 @@ dialog h3 { margin: 0 0 4px; }
 <dialog id="escalation">
   <h3>The council cannot decide. You must.</h3>
   <p id="escReason" class="hint"></p>
+  <h4>Where each advisor stands</h4>
+  <div class="positions" id="escPositions"></div>
+  <h4>Your options</h4>
   <div class="options" id="escOptions"></div>
   <p class="countdown" id="escCountdown"></p>
 </dialog>
@@ -265,6 +314,7 @@ dialog h3 { margin: 0 0 4px; }
 const $ = (s, el = document) => el.querySelector(s);
 const fmt = n => (n ?? 0).toLocaleString("en-US");
 const NAMES = {};
+const SHORT = { farmer: "Farmer", priest: "Priest", general: "General", merchant: "Merchant" };
 let meta = null, prevState = null, currentYear = 1;
 const audioQueue = [];
 let playing = false;
@@ -346,7 +396,66 @@ function playNext() {
   a.onended = done; a.onerror = done; a.play().catch(done);
 }
 
+const esc = t => String(t ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+let traceFilter = "all";
+
+function traceEntry(html, { who = "wire", cls = "", color = "" } = {}) {
+  const box = $("#trace");
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+  const e = document.createElement("div");
+  e.className = `tr ${cls}`; e.dataset.who = who;
+  if (color) e.style.setProperty("--c", color);
+  e.innerHTML = html;
+  e.hidden = !(traceFilter === "all" || traceFilter === who || (traceFilter === "wire" && ["wire", "news", "alert"].includes(who)));
+  box.appendChild(e);
+  while (box.children.length > 400) box.firstChild.remove();
+  if (atBottom) box.scrollTop = box.scrollHeight;
+}
+
+function setFilter(v) {
+  traceFilter = v; $("#traceFilter").value = v;
+  document.querySelectorAll(".advisor").forEach(el => el.classList.toggle("filtered", el.id === `adv-${v}`));
+  document.querySelectorAll("#trace .tr").forEach(e => {
+    const w = e.dataset.who;
+    e.hidden = !(v === "all" || v === w || (v === "wire" && ["wire", "news", "alert"].includes(w)));
+  });
+  const box = $("#trace"); box.scrollTop = box.scrollHeight;
+}
+
+function onWire(d) {
+  const kb = d.bytes_out ? `${(d.bytes_out / 1024).toFixed(1)} kB out` : "";
+  traceEntry(`<div class="tr-head"><span class="who">Clerk</span><span class="badge policy">Y${d.year} R${d.round + 1}</span><span class="meta">${d.elapsed_s}s</span></div>
+    <div class="line">${esc(d.transport)}</div>
+    ${d.topic ? `<div class="line">topic ${esc(d.topic)}</div>` : ""}
+    <div class="line">brief to ${d.recipients ? d.recipients.length : 4} advisors ${kb ? "· " + kb : ""} · ${d.replies} replies</div>`, { cls: "wire" });
+}
+
+function traceBallot(b, round) {
+  const a = meta.advisors.find(x => x.id === b.advisor), t = b.trace || {};
+  const be = t.beliefs || {};
+  const llmMeta = t.llm ? (t.llm.cached ? "cached reply" : `${t.llm.latency_s}s · $${t.llm.cost_usd.toFixed(4)}`) : "";
+  const rows = (t.evaluations || []).map(e => {
+    const vote = e.llm_vote || e.policy_vote;
+    const broken = e.breaks_red_lines_of.length ? e.breaks_red_lines_of.map(x => SHORT[x]).join(", ") : "none";
+    return `<tr><td>${esc(e.id)}</td><td class="mono">${e.my_score.toFixed(2)}</td><td class="mono">${e.threshold.toFixed(2)}</td><td>${broken}</td><td class="v-${vote}">${vote}</td></tr>`;
+  }).join("");
+  const ch = t.chosen || {};
+  traceEntry(`<div class="tr-head"><span class="who">${esc(a.title)}</span>
+      <span class="badge ${b.source}">${b.source === "llm" ? "LLM" : "policy"}</span>
+      <span class="badge policy">Y${b.year} R${round + 1}</span>
+      <span class="meta">${llmMeta}</span></div>
+    ${t.thought ? `<div class="thought">"${esc(t.thought)}"</div>` : ""}
+    ${t.fallback ? `<div class="line warn">${esc(t.fallback)}. Fell back to the offline policy.</div>` : ""}
+    <div class="line">forecast: yield ${be.expected_yield}${be.pessimistic ? " (planning for a bad year)" : ""}, rats ${Math.round(be.rat_chance * 100)}%, plague ${Math.round(be.plague_chance * 100)}%, land next year ${be.next_price}</div>
+    <div class="line">self vs group weight ${Math.round((1 - t.concession_weight) * 100)}/${Math.round(t.concession_weight * 100)} · accepts at score ≥ ${Number(t.threshold).toFixed(2)}${t.extra_weight_for?.length ? ` · extra weight for last year's dissent: ${t.extra_weight_for.map(x => NAMES[x]).join(", ")}` : ""}</div>
+    ${rows ? `<table><thead><tr><th>Plan</th><th>Score</th><th>Need</th><th>Red lines hit</th><th>Vote</th></tr></thead><tbody>${rows}</tbody></table>` : ""}
+    <div class="line">proposes ${esc(planText(ch.plan))} · me ${ch.my_score} · others ${ch.group_score}${ch.breaks_red_lines_of?.length ? ` · <span class="warn">hits red line of ${ch.breaks_red_lines_of.map(x => NAMES[x]).join(", ")}</span>` : ""}</div>
+    <div class="line ok">signature verified</div>`, { who: b.advisor, color: a.color });
+}
+
 function onBallots(d) {
+  for (const b of d.ballots) traceBallot(b, d.round);
+  if (d.rejected || d.missing?.length) traceEntry(`<div class="tr-head"><span class="who">Clerk</span></div><div class="line warn">${d.rejected} ballots failed signature checks. Missing: ${(d.missing || []).map(x => NAMES[x]).join(", ") || "none"}</div>`, { cls: "alert", who: "alert" });
   const tally = Object.fromEntries((d.tally || []).map(t => [t.id, t]));
   for (const b of d.ballots) {
     const el = $(`#adv-${b.advisor}`); if (!el) continue;
@@ -359,12 +468,12 @@ function onBallots(d) {
     for (const id of b.accept) votes.insertAdjacentHTML("beforeend", `<span class="vote acc">accepts ${id.split("-")[0]}</span>`);
     for (const id of b.veto) votes.insertAdjacentHTML("beforeend", `<span class="vote vet">vetoes ${id.split("-")[0]}</span>`);
     logEntry(`<span class="who" style="color:${meta.advisors.find(a => a.id === b.advisor).color}">${NAMES[b.advisor]}</span>
-      <span class="meta">r${d.round + 1} ${b.source}</span><br>${b.speech || planText(b.proposal)}`);
+      <span class="meta">r${d.round + 1} ${b.source}</span><br>${esc(b.speech || planText(b.proposal))}`);
     enqueueVoice(b.advisor, b.speech);
   }
   if (d.tally?.length) {
     const best = [...d.tally].sort((a, b) => b.accept.length - a.accept.length)[0];
-    $("#bannerText").textContent = `Leading: ${NAMES[best.author]}'s plan, ${best.accept.length} of 4 accept${best.veto.length ? `, vetoed by ${best.veto.map(v => NAMES[v]).join(", ")}` : ""}`;
+    $("#bannerText").textContent = `Leading: the ${SHORT[best.author]}'s plan, ${best.accept.length} of 4 accept${best.veto.length ? `, vetoed by the ${best.veto.map(v => SHORT[v]).join(" and ")}` : ""}`;
   } else {
     $("#bannerText").textContent = "Opening proposals tabled.";
   }
@@ -386,11 +495,11 @@ function onYear(d) {
     const rows = Object.keys(d.opening).map(a => {
       const o = d.opening[a], n = d.after_news[a];
       const changed = JSON.stringify(o) !== JSON.stringify(n);
-      return `<tr><td>${NAMES[a]}</td><td class="mono">${planText(o)}</td><td class="mono">${changed ? "<b>" + planText(n) + "</b>" : "same"}</td></tr>`;
+      return `<tr><td>${SHORT[a]}</td><td class="mono">${planText(o)}</td><td class="mono">${changed ? "<b>" + planText(n) + "</b>" : "same"}</td></tr>`;
     }).join("");
     $("#newsDiff").innerHTML = `<h2 style="margin-top:14px">Year ${d.year}: before and after the news</h2>
       <p class="diff">${d.news.join(" ")}</p>
-      <div class="table-wrap"><table><thead><tr><th>Advisor</th><th>Opening</th><th>After news</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+      <div class="table-wrap"><table class="difftable"><thead><tr><th>Advisor</th><th>Opening (before news)</th><th>After news</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
   showState(d.state);
 }
@@ -400,32 +509,47 @@ function onEscalate(d) {
   const box = $("#escOptions"); box.innerHTML = "";
   for (const o of d.options) {
     const who = o.id === "safe" ? (o.note || "Safe fallback") :
-      `${NAMES[o.id.split("-")[0]]}'s plan. Accepted by ${o.accept.map(a => NAMES[a]).join(", ") || "nobody"}${o.veto.length ? `. Vetoed by ${o.veto.map(a => NAMES[a]).join(", ")}` : ""}.`;
+      `The ${SHORT[o.id.split("-")[0]]}'s plan. Accepted by ${o.accept.map(a => SHORT[a]).join(", ") || "nobody"}${o.veto.length ? `. Vetoed by ${o.veto.map(a => SHORT[a]).join(", ")}` : ""}.`;
     const div = document.createElement("div"); div.className = "option";
     div.innerHTML = `<div class="desc"><div class="mono">${planText(o.plan)}</div><div class="hint">${who}</div></div>`;
     const btn = document.createElement("button"); btn.className = "btn primary"; btn.textContent = "Choose";
     btn.onclick = async () => { try { await api("/api/escalation", { choice: o.id }); } catch (e) { toast(e.message); } closeEsc(); };
     div.appendChild(btn); box.appendChild(div);
   }
-  let left = meta.escalation_timeout_s || 60;
-  $("#escCountdown").textContent = `Safe fallback in ${left}s`;
+  $("#escPositions").innerHTML = (d.positions || []).map(p => {
+    const a = meta.advisors.find(x => x.id === p.advisor);
+    return `<div class="pos" style="--c:${a.color}"><div class="who">${esc(a.title)}</div>
+      <div class="mono">${esc(planText(p.proposal))}</div>
+      ${p.veto.length ? `<div style="color:var(--bad)">Vetoes the ${p.veto.map(v => SHORT[v.split("-")[0]]).join(" and the ")}'s plan${p.veto.length > 1 ? "s" : ""}</div>` : ""}
+      <div class="thought">${esc(p.thought || p.speech)}</div></div>`;
+  }).join("");
   clearInterval(onEscalate.t);
-  onEscalate.t = setInterval(() => { left -= 1; $("#escCountdown").textContent = `Safe fallback in ${left}s`; if (left <= 0) closeEsc(); }, 1000);
+  let left = meta.escalation_timeout_s || 0;
+  if (left > 0) {
+    $("#escCountdown").textContent = `Safe fallback in ${left}s`;
+    onEscalate.t = setInterval(() => { left -= 1; $("#escCountdown").textContent = `Safe fallback in ${left}s`; if (left <= 0) closeEsc(); }, 1000);
+  } else {
+    $("#escCountdown").textContent = "The reign is paused until you decide.";
+  }
   $("#escalation").showModal();
-  logEntry(`<span class="badge escalated">escalated</span> ${d.reason} Asking a human.`, "outcome");
+  logEntry(`<span class="badge escalated">escalated</span> ${esc(d.reason)} Asking a human.`, "outcome");
+  traceEntry(`<div class="tr-head"><span class="who">Clerk</span><span class="badge escalated">deadlock</span></div><div class="line">${esc(d.reason)} Paused for a human decision.</div>`, { cls: "alert", who: "alert" });
 }
 function closeEsc() { clearInterval(onEscalate.t); if ($("#escalation").open) $("#escalation").close(); }
 
 function handle(ev) {
   const { kind, data: d } = ev;
   if (kind === "game") {
-    prevState = null; $("#log").innerHTML = ""; $("#years tbody").innerHTML = ""; $("#final").textContent = ""; $("#newsDiff").innerHTML = "";
+    prevState = null; $("#log").innerHTML = ""; $("#trace").innerHTML = ""; $("#years tbody").innerHTML = ""; $("#final").textContent = ""; $("#newsDiff").innerHTML = "";
     buildCouncil(); showState(d.state);
     $("#roundLabel").textContent = "Year 1"; $("#bannerText").textContent = `Seed ${d.seed}. The council convenes.`; $("#bannerBadge").innerHTML = "";
   } else if (kind === "round") {
     currentYear = d.year;
     $("#roundLabel").textContent = `Year ${d.year}, round ${d.round + 1}`;
-  } else if (kind === "news") {
+    if (d.round === 0) { $("#bannerBadge").innerHTML = ""; $("#bannerText").textContent = "Advisors are drafting opening proposals."; }
+  } else if (kind === "wire") onWire(d);
+  else if (kind === "news") {
+    traceEntry(`<div class="tr-head"><span class="who">Scouts</span><span class="badge news">new information</span><span class="meta">Y${d.year} R${d.round + 1}</span></div><div class="line">${esc(d.text)}</div><div class="line">belief update: ${esc(JSON.stringify(d.beliefs))}</div>`, { cls: "news", who: "news" });
     logEntry(`<span class="badge news">${d.injected ? "scout sent" : "news"}</span> ${d.text}`, "news");
     $("#bannerText").textContent = d.text;
     $("#bannerBadge").innerHTML = `<span class="badge news">new information</span>`;
@@ -467,6 +591,15 @@ document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
   $("#benchView").classList.toggle("hidden", t.dataset.view !== "benchView");
   if (t.dataset.view === "benchView") loadBench().catch(e => toast(e.message));
 });
+$("#traceFilter").onchange = e => setFilter(e.target.value);
+$("#council").addEventListener("click", e => {
+  const card = e.target.closest(".advisor"); if (!card) return;
+  const id = card.id.replace("adv-", "");
+  setFilter(traceFilter === id ? "all" : id);
+});
+async function pollSpend() {
+  try { const r = await api("/api/spend"); $("#spend").textContent = `$${r.spent_usd.toFixed(3)} of $${r.budget_usd.toFixed(2)}`; } catch {}
+}
 $("#startBtn").onclick = () => api("/api/game", { seed: +$("#seed").value, reveal_news: $("#reveal").value === "1", max_rounds: +$("#rounds").value }).catch(e => toast(e.message));
 $("#stopBtn").onclick = () => api("/api/stop", {}).catch(e => toast(e.message));
 $("#pace").oninput = e => api("/api/pace", { pace_s: +e.target.value }).catch(() => {});
@@ -478,6 +611,8 @@ document.querySelectorAll("[data-news]").forEach(b => b.onclick = () => api("/ap
   $("#chipLlm").textContent = meta.llm === "bayleaf" ? meta.model : "policy (offline)";
   $("#rounds").value = String(meta.max_rounds);
   if (meta.voice) $("#voiceRow").classList.remove("hidden");
+  for (const a of meta.advisors) $("#traceFilter").insertAdjacentHTML("beforeend", `<option value="${a.id}">${esc(a.title)}</option>`);
+  if (meta.llm === "bayleaf") { $("#chipSpend").classList.remove("hidden"); pollSpend(); setInterval(pollSpend, 5000); }
   buildCouncil();
   connect();
 })();

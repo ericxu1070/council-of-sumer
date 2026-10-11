@@ -100,6 +100,7 @@ async def deliberate_year(
     after_news: dict[str, Plan] = {}
     injected_news = injected_news if injected_news is not None else []
     rows: list[dict] = []
+    last_ballots: list[Ballot] = []
 
     for rnd in range(max_rounds):
         fresh = []
@@ -124,8 +125,10 @@ async def deliberate_year(
             history=history,
         )
         await emit("round", {"year": state.year, "round": rnd, "table": [t.id for t in table]})
-        ballots = [b for b in await gather(brief) if _valid(b, brief)]
+        received = await gather(brief)
+        ballots = [b for b in received if _valid(b, brief)]
         ballots.sort(key=lambda b: ADVISOR_IDS.index(b.advisor))
+        last_ballots = ballots
         rows = tally(table, ballots)
         await emit(
             "ballots",
@@ -134,7 +137,9 @@ async def deliberate_year(
                 "round": rnd,
                 "ballots": [b.model_dump(exclude={"sig"}) for b in ballots],
                 "tally": rows,
-                "signed": True,
+                "verified": len(ballots),
+                "rejected": len(received) - len(ballots),
+                "missing": [a for a in ADVISOR_IDS if a not in {b.advisor for b in ballots}],
             },
         )
 
@@ -192,8 +197,22 @@ async def deliberate_year(
          "accept": r["accept"], "veto": r["veto"]}
         for r in ranked[:2]
     ] + [{"id": "safe", "plan": safe.__dict__, "accept": [], "veto": [],
-          "note": "Pre-committed fallback: no trade, feed everyone, plant the maximum."}]
-    await emit("escalate", {"year": state.year, "reason": reason, "options": options})
+          "note": "Pre-committed safe fallback: feed everyone (selling up to 20% of land if needed), then sow the most we can."}]
+    positions = [
+        {
+            "advisor": b.advisor,
+            "proposal": b.proposal.model_dump(),
+            "accept": b.accept,
+            "veto": b.veto,
+            "speech": b.speech,
+            "thought": b.trace.get("thought", ""),
+        }
+        for b in last_ballots
+    ]
+    await emit(
+        "escalate",
+        {"year": state.year, "reason": reason, "options": options, "positions": positions},
+    )
     choice = await ask_human(options, reason) if ask_human else None
     chosen = next((o for o in options if o["id"] == choice), options[-1])
     t = TabledProposal(id=chosen["id"], author="human" if choice else "fallback",

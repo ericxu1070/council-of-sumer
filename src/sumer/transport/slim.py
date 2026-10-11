@@ -12,6 +12,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 import uuid
 
 from sumer.advisors import ADVISOR_IDS, ADVISORS
@@ -115,6 +116,7 @@ class SlimCouncil:
     def __init__(self, timeout_s: float = 90.0):
         self.timeout_s = timeout_s
         self._client = None
+        self.last: dict = {}
 
     async def connect(self) -> None:
         _env()
@@ -146,6 +148,7 @@ class SlimCouncil:
             ),
         )
         topic = f"council-y{brief.year}-r{brief.round}-{uuid.uuid4().hex[:8]}"
+        t0 = time.monotonic()
         responses = await self._client.broadcast_message(
             req,
             broadcast_topic=topic,
@@ -159,6 +162,14 @@ class SlimCouncil:
                 ballots.append(Ballot.model_validate(json.loads(result["parts"][0]["text"])))
             except (KeyError, IndexError, TypeError, ValueError) as e:
                 log.warning("unreadable ballot: %s", e)
+        self.last = {
+            "transport": "AGNTCY SLIM (A2A broadcast, MLS group session)",
+            "topic": f"{NAMESPACE}/{topic}",
+            "recipients": [agent_name(a) for a in ADVISOR_IDS],
+            "bytes_out": len(brief.model_dump_json()),
+            "replies": len(ballots),
+            "elapsed_s": round(time.monotonic() - t0, 2),
+        }
         if len(ballots) < len(ADVISOR_IDS):
             got = {b.advisor for b in ballots}
             log.warning("missing ballots from %s", [a for a in ADVISOR_IDS if a not in got])

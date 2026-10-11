@@ -39,7 +39,8 @@ class Settings:
 
     # Deliberation
     max_rounds: int = int(os.getenv("MAX_ROUNDS", "5"))
-    escalation_timeout_s: float = float(os.getenv("ESCALATION_TIMEOUT_S", "60"))
+    # 0 = the live game waits for a human as long as it takes
+    escalation_timeout_s: float = float(os.getenv("ESCALATION_TIMEOUT_S", "0"))
 
     # Voice (ElevenLabs, optional)
     elevenlabs_api_key: str = os.getenv("ELEVENLABS_API_KEY", "")

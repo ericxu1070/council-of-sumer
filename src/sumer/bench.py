@@ -61,8 +61,8 @@ async def _counterfactual_info(seeds: list[int], gather) -> dict:
         history: list[dict] = []
         while not state.over:
             news = scheduled_news(seed, state.year, rolls, True)
-            kw = dict(seed=seed, state=state, gather=gather, history=history,
-                      max_rounds=settings.max_rounds)
+            kw = {"seed": seed, "state": state, "gather": gather, "history": history,
+                      "max_rounds": settings.max_rounds}
             with_news = await deliberate_year(**kw, scheduled_news=news)
             if news:
                 without = await deliberate_year(**kw, scheduled_news=None)
@@ -121,17 +121,17 @@ async def run(n_seeds: int, transport: str = "inproc") -> dict:
     by = {r["key"]: r for r in rows}
     c, lone, avg = by["council"], by["lone_ruler"], by["average"]
     lessons = [
-        f"Negotiation beats averaging: the council scored {c['score']} vs {avg['score']} for "
-        f"averaging each advisor's selfish plan ({avg['survived']} reigns survived vs {c['survived']}).",
-        f"A single equal-weight ruler scored {lone['score']} vs the council's {c['score']}. "
+        (f"Negotiation beats averaging: the council scored {c['score']} vs {avg['score']} for "
+        f"averaging each advisor's selfish plan ({avg['survived']} reigns survived vs {c['survived']})."),
+        (f"A single equal-weight ruler scored {lone['score']} vs the council's {c['score']}. "
         f"The council's edge is fairness: its worst-served advisor averaged {c['fairness']} "
-        f"satisfaction vs {lone['fairness']} under the lone ruler.",
-        f"News changed the adopted plan in {cf['changed']} of {cf['news_years']} years where it "
+        f"satisfaction vs {lone['fairness']} under the lone ruler."),
+        (f"News changed the adopted plan in {cf['changed']} of {cf['news_years']} years where it "
         f"arrived. Scouts moved the council's mean score from {info[0]['score silent']} "
-        f"(silent) to {info[0]['score with scouts']}.",
-        f"Outcomes over {len(seeds) * 10} council-years: {c['consensus']} consensus, "
+        f"(silent) to {info[0]['score with scouts']}."),
+        (f"Outcomes over {len(seeds) * 10} council-years: {c['consensus']} consensus, "
         f"{c['majority']} majority with recorded dissent, {c['escalated']} escalated to a human. "
-        f"Mean rounds per year: {c['mean_rounds']}.",
+        f"Mean rounds per year: {c['mean_rounds']}."),
     ]
     collapsed = [r["policy"] for r in rows if r["key"].startswith("dictator_")
                  and int(r["survived"].split("/")[0]) < n_seeds / 2]
