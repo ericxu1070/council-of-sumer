@@ -284,6 +284,7 @@ function typingFor(id) { typing(`${avatar(id, "mini")}<span><b>${esc(adv(id).sho
 function idleTyping() {
   if (S.paused) typing(`<span>The council is paused</span>`);
   else if (S.scoutRequest || S.waitingHuman) typing("");
+  else if (narrating && speakingWho === "herald") typing(`<span>🔊 The herald is speaking</span>`);
   else if (narrating) typing(speakingWho && speakingWho !== "narrator"
     ? `${avatar(speakingWho, "mini")}<span>🔊 <b>${esc(adv(speakingWho).short)}</b> is speaking</span>`
     : `<span>🔊 The narrator is speaking</span>`);
@@ -986,6 +987,10 @@ function render(kind, d, instant) {
     case "scout_choice":
       if (S.scoutRequest?.request_id === d.request_id) { S.scoutRequest = null; hideSpot("scout"); }
       if (d.choice !== "skip") S.compareVote = d.rows;
+      if (d.announcement) {
+        append(`<span class="emoji">${d.announcement.mood === "dread" ? "🌑" : "🎉"}</span><div><b>The herald</b><i>${esc(d.announcement.text)}</i></div>`, `note herald ${d.announcement.mood}`, { instant });
+        if (!instant) narrate(d.announcement.url, "herald");
+      }
       break;
     case "news": renderNews(d, instant); break;
     case "wire":

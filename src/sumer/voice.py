@@ -34,6 +34,25 @@ CUSTOM_VOICES = {
 }
 CUSTOM_VOICE_KEYS = tuple(CUSTOM_VOICES)
 
+# The herald who announces an omen: a dread voice for disasters, an excited one for good fortune.
+HERALD_VOICES = {
+    "herald_dread": "2EiwWnXFnvU5JabPnv8n",  # Clyde: gravelly, ominous
+    "herald_joy": "IKne3meq5aSn9XLyUdCD",  # Charlie: bright, energetic
+}
+# Fixed lines only, so every announcement is cached once and the client never sends text.
+OMEN_LINES = {
+    "plague": ("herald_dread", "Hear me... a sickness creeps through the reed huts. The plague... has come to Sumer."),
+    "rats": ("herald_dread", "Listen... in the dark of the granary, something gnaws. The rats... are in the grain."),
+    "bad_harvest": ("herald_dread", "The gods have turned their faces away... the fields wither. This harvest... will fail."),
+    "good_harvest": ("herald_joy", "Rejoice! The gods smile on Sumer! The fields are bursting, a great harvest is coming!"),
+    "low_price": ("herald_joy", "Wonderful news! Land is cheap! Buy it up, every field is going for a song!"),
+    "high_price": ("herald_joy", "Ha! Land is worth a fortune now! Every acre we hold is gold!"),
+}
+HERALD_SETTINGS = {
+    "herald_dread": {"stability": 0.35, "similarity_boost": 0.8, "style": 0.6, "use_speaker_boost": True},
+    "herald_joy": {"stability": 0.3, "similarity_boost": 0.75, "style": 0.8, "use_speaker_boost": True},
+}
+
 # Keys a council seat may speak in: a built-in advisor's voice or a custom voice.
 SEAT_VOICES = frozenset([*(k for k in DEFAULT_VOICES if k != "narrator"), *CUSTOM_VOICES])
 
@@ -62,6 +81,8 @@ def voice_id(speaker: str) -> str | None:
         default = DEFAULT_VOICES[speaker]
     elif speaker in CUSTOM_VOICES:
         default = CUSTOM_VOICES[speaker][0]
+    elif speaker in HERALD_VOICES:
+        default = HERALD_VOICES[speaker]
     else:
         return None
     return os.getenv(f"ELEVENLABS_VOICE_{speaker.upper().replace('-', '_')}", default)
@@ -109,6 +130,14 @@ async def narrate(text: str) -> bytes | None:
         "narrator", text, NARRATOR_MODEL,
         {"stability": 0.6, "similarity_boost": 0.8, "style": 0.2, "use_speaker_boost": True},
     )
+
+
+async def announce(omen: str) -> bytes | None:
+    """The herald's fixed line for an omen: ominous for disasters, excited for good fortune."""
+    if omen not in OMEN_LINES:
+        return None
+    herald, text = OMEN_LINES[omen]
+    return await _tts(herald, text, NARRATOR_MODEL, HERALD_SETTINGS[herald])
 
 
 def seconds(audio: bytes | None, text: str) -> float:
