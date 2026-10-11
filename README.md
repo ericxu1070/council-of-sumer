@@ -158,21 +158,27 @@ POST /api/game
 
 ## Private rulebooks
 
-Every seat in **Setup** has an optional **Private rulebook** text block (up to 8,000
-characters), including repeated presets and custom voters. No content is preselected.
-An empty block supplies no private starting information and does not restore the old
-shared reference. Changing a seat's role keeps that seat's notes; populating fresh default
-voters creates fresh blank rulebooks.
+Every seat in **Setup** has an editable **Private rulebook** (up to 8,000
+characters). Preset books load automatically on setup, fresh seats, default resets,
+and API requests that omit the rulebook. An explicitly empty rulebook stays empty.
+Changing a role updates an untouched default book; edited or cleared books are preserved.
 
-**Load example rulebooks** fills only empty preset seats with editable, role-specific
-estimates and strategic notes; it keeps existing notes and custom advisors. Duplicate
-preset seats get independent copies. Provider knows rationing and planning without plague;
-Farmer knows seed/workforce estimates and harvest strategies; Merchant knows prices and
-land trades; Priest knows plague, rats, and storage strategies; Villager knows migration,
-unrest, and balanced planning without new information. The fictional source records use
-the current engine's numbers as fallible starting estimates, not guaranteed knowledge.
-Conditional advice may be questioned or revised, and never becomes a coded voting policy.
-No report does not establish that rats/plague are absent or prices unchanged.
+The rulebook contains each councilor's goals, specialty preferences, negotiation guidance,
+speaking style, belief guidance, and starting estimates. There are no hidden preset
+mandates or behavioral preferences in the shared prompt. The shared prompt supplies only
+identity, meeting/voting procedures, memory structure, and legal response format.
+Custom mandates remain explicitly editable user instructions; no negotiation guidance is
+appended to them.
+
+All default books instruct councilors to respond strongly to every omen: acknowledge it,
+explain its consequences, reconsider proposals and votes immediately, and make substantial
+changes when warranted. The Merchant actively seeks gains by buying and selling land,
+especially buying before an omen predicts a price rise or selling before a predicted fall.
+These instructions can all be edited or removed in the rulebook.
+
+**Load example rulebooks** fills empty preset books without overwriting edits or custom
+advisors. Repeated presets have independent editable copies. Factual estimates remain
+fallible; learned beliefs are saved separately from the starting book.
 
 Current city data, public goals/score, reign length, voting rules, and public reports
 remain shared. Numeric budget mechanics are no longer supplied in a common prompt.
@@ -182,7 +188,7 @@ engine still enforces exactly the same legal budgets. Corrections provide detail
 shortfalls to the attempted proposal's owner and therefore are a source of new evidence.
 
 The equivalent API field is `"rulebook": "..."` on each advisor in `POST /api/game`.
-Omitted fields default to the empty string. Only the addressed advisor's notes are
+Omitted preset books load their default instructions; explicit empty strings remain empty. Only the addressed advisor's notes are
 included in its model prompt, in both discussion and runoff. Notes are saved in the
 run roster and journal for human inspection and replay; they are not secrets from the
 application or human operator. Other models learn claims only when an advisor shares

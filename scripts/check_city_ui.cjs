@@ -28,7 +28,7 @@ const os = require('node:os');
     const page = await browser.newPage({viewport:{width:1440,height:1000}});
     const errors=[];
     page.on('pageerror', e=>errors.push(e.message));
-    await page.route('**/api/meta', route=>route.fulfill({json:{transport:'inproc',llm:'llm',years:5,advisors:[
+    await page.route('**/api/meta', route=>route.fulfill({json:{transport:'inproc',llm:'llm',years:5,example_rulebooks:{provider:'Provider default book',farmer:'Farmer default book',merchant:'Merchant default book',priest:'Priest default book',villager:'Villager default book'},advisors:[
       {id:'provider',short:'Provider',color:'#5f8f3a',emoji:'🍞'},
       {id:'farmer',short:'Farmer',color:'#7a4fa3',emoji:'🌾'},
       {id:'merchant',short:'Merchant',color:'#a33a32',emoji:'⚖️'},
@@ -40,6 +40,21 @@ const os = require('node:os');
     await page.route('**/api/clamor/**',route=>route.fulfill({status:404}));
     await page.goto(url);
     await page.waitForFunction(()=>document.querySelectorAll('.cg-node').length===5);
+    await page.evaluate(() => {
+      const check = (ok, message) => { if (!ok) throw new Error(message); };
+      check(setup.seats.every(seat => seat.rulebook === S.meta.example_rulebooks[seat.preset]), 'Default books must load at startup');
+      const seat = setup.seats[0], select = document.querySelector('[data-slot="0"] [data-voter="preset"]');
+      select.value = 'merchant'; select.dispatchEvent(new Event('input', {bubbles:true}));
+      check(seat.rulebook === S.meta.example_rulebooks.merchant, 'Untouched books must follow role changes');
+      seat.rulebook = 'Edited instructions';
+      const next = document.querySelector('[data-slot="0"] [data-voter="preset"]');
+      next.value = 'farmer'; next.dispatchEvent(new Event('input', {bubbles:true}));
+      check(seat.rulebook === 'Edited instructions', 'Role changes must preserve edits');
+      seat.rulebook = '';
+      check(configuredAdvisors()[0].rulebook === '', 'Cleared books must remain empty in the submitted roster');
+      document.querySelector('#defaultVoters').click();
+      check(setup.seats.every(seat => seat.rulebook === S.meta.example_rulebooks[seat.preset]), 'Reset must reload defaults');
+    });
     await page.evaluate(() => {
       const check = (ok, message) => { if (!ok) throw new Error(message); };
       const original = setup.seats;

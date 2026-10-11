@@ -80,8 +80,8 @@ async def test_model_updates_its_own_memory_in_each_phase(monkeypatch, phase, bi
     assert "OTHER_PRIVATE_CLAIM" not in json.dumps(messages_seen)
     system = messages_seen[0]["content"]
     assert f"Your bias value: {bias}" in system
-    assert "Bias also governs willingness to revise saved beliefs" in system
-    assert "instead of resetting to the starting claim" in system
+    assert "Bias also governs willingness" not in system
+    assert "belief record" in system
     with pytest.raises(ValueError, match="addressed speaker"):
         agent._llm_messages("merchant", brief)
 

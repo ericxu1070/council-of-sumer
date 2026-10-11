@@ -23,17 +23,17 @@ def brief_for(seats, speaker="farmer", phase="discuss", **kwargs):
                  runoff=table if phase == "runoff" else [], **kwargs)
 
 
-def test_no_rulebooks_are_initialized_and_roundtrip_preserves_independent_notes():
-    assert all(a.rulebook == "" for a in ADVISORS.values())
+def test_default_books_and_roundtrip_preserve_independent_notes():
+    assert {k: a.rulebook for k, a in ADVISORS.items()} == EXAMPLE_RULEBOOKS
     seats = [{"id": "farmer", "rulebook": 'First private claim.\n\n{"uncertain": true}'},
              {"id": "custom-farmer", "short": "Farmer", "mandate": "Represent farms.",
-              "rulebook": "A different private claim."}, {"id": "merchant"}]
+              "rulebook": "A different private claim."}, {"id": "merchant", "rulebook": ""}]
     roster = resolve_council(seats)
     assert [a.short for a in roster.values()] == ["Farmer1", "Farmer2", "Merchant"]
     assert [a.rulebook for a in roster.values()] == [s.get("rulebook", "") for s in seats]
     saved = [a.public() for a in roster.values()]
     assert [a.public() for a in resolve_council(saved).values()] == saved
-    assert ADVISORS["farmer"].rulebook == ""
+    assert ADVISORS["farmer"].rulebook == EXAMPLE_RULEBOOKS["farmer"]
 
 
 @pytest.mark.parametrize("invalid", [None, {}, [], 123, "x" * 8001])
@@ -61,9 +61,10 @@ def test_full_prompts_keep_notes_private_and_do_not_restore_hidden_reference(pha
         user = json.loads(messages[1]["content"].split("\n\n")[0])
         assert user["private_rulebook"] == own.strip()
         assert own not in system and other not in full
-        assert "fallible claims" in system and "revise your beliefs" in system
-        assert "not evidence that they are correct" in system
-        assert "Do not fill gaps" in system
+        assert "Follow that editable rulebook" in system
+        assert "Negotiate" not in system
+        assert "specialty" not in system
+        assert "Maximize" not in system
         for hidden in ("45%", "15%", "40%", "17 to 26", "1 to 5 bushels",
                        "expected_yield", "rat_chance", "plague_chance", "next_price"):
             assert hidden not in full
@@ -79,7 +80,7 @@ def test_blank_book_stays_unknown_and_new_evidence_remains_available():
              "beliefs": {"expected_yield": 5}}]
     turn = {"advisor": "merchant", "speech": "Farmer, my earlier claim was mistaken.",
             "plan_id": "P2", "plain": "Feed the city.", "accept": []}
-    brief = brief_for([{"id": "farmer"}, {"id": "merchant", "rulebook": "PRIVATE_SENTINEL"}],
+    brief = brief_for([{"id": "farmer", "rulebook": ""}, {"id": "merchant", "rulebook": "PRIVATE_SENTINEL"}],
                       news=news, turns_this_round=[turn])
     messages = agent._llm_messages("farmer", brief)
     user = json.loads(messages[1]["content"].split("\n\n")[0])
@@ -87,7 +88,7 @@ def test_blank_book_stays_unknown_and_new_evidence_remains_available():
     assert user["news_this_year"] == [news[0]["text"]]
     assert turn["speech"] in messages[1]["content"]
     assert "PRIVATE_SENTINEL" not in json.dumps(messages)
-    assert "empty rulebook means no private" in messages[0]["content"]
+    assert "empty rulebook supplies no goals" in messages[0]["content"]
 
 
 @pytest.mark.parametrize("phase", ["discuss", "runoff"])
@@ -135,12 +136,12 @@ def test_api_validates_and_persists_rulebooks(chamber):  # noqa: F811
     client.post("/api/stop")
 
 
-def test_examples_are_opt_in_and_available_to_the_setup(chamber):  # noqa: F811
+def test_default_books_are_loaded_and_available_to_the_setup(chamber):  # noqa: F811
     client, _, _ = chamber
     meta = client.get("/api/meta").json()
     assert meta["example_rulebooks"] == EXAMPLE_RULEBOOKS
-    assert all(a["rulebook"] == "" for a in meta["advisors"])
-    assert all(a.rulebook == "" for a in resolve_council().values())
+    assert {a["id"]: a["rulebook"] for a in meta["advisors"]} == EXAMPLE_RULEBOOKS
+    assert {k: a.rulebook for k, a in resolve_council().items()} == EXAMPLE_RULEBOOKS
 
 
 @pytest.mark.parametrize("phase", ["discuss", "runoff"])
@@ -151,15 +152,15 @@ def test_loaded_examples_share_only_the_speakers_estimates(phase):
         user = json.loads(messages[1]["content"].split("\n\n")[0])
         assert user["private_rulebook"] == own.strip()
         assert "budget_rules" not in user
-        assert "fallible heuristics" in messages[0]["content"]
+        assert "Follow that editable rulebook" in messages[0]["content"]
         for other, text in EXAMPLE_RULEBOOKS.items():
             if other != who:
                 assert text not in user.values()
-                assert text.splitlines()[0] not in messages[1]["content"]
+                assert text not in messages[1]["content"]
 
 
 def test_unobserved_budget_results_are_not_disclosed_in_plan_descriptions():
-    b = brief_for([{"id": "farmer"}, {"id": "merchant"}])
+    b = brief_for([{"id": "farmer"}, {"id": "merchant", "rulebook": ""}])
     for t in b.table:
         t.plain = "HIDDEN_FOOD_REQUIREMENT_DESCRIPTION"
     b.turns_this_round = [{"advisor": "merchant", "speech": "I suggest this budget.",
