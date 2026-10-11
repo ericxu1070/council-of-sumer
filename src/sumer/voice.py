@@ -17,8 +17,8 @@ DEFAULT_VOICES = {
     "provider": "21m00Tcm4TlvDq8ikWAM",  # Rachel
     "farmer": "TxGEqnHWrfWFTfGW9XjX",  # Josh
     "merchant": "ErXwobaYiN019PkySvjV",  # Antoni
-    "profiteer": "pNInz6obpgDQGcFmaJgB",  # Adam
-    "imposter": "N2lVS1w4EtoT3dr4eOWO",  # Callum
+    "priest": "pNInz6obpgDQGcFmaJgB",  # Adam
+    "villager": "N2lVS1w4EtoT3dr4eOWO",  # Callum
     "narrator": "nPczCjzI2devNBz1zQrb",  # Brian: deep, resonant storyteller
 }
 

@@ -185,23 +185,13 @@ ${f.headShade ? `<ellipse cx="50" cy="${f.headShade}" rx="24" ry="7" fill="${dar
       skin: "#c88d60", hair: "#1f1612", hairStyle: "none", eyes: "round", brows: "smug", mouth: "smile", beard: "goatee", beardColor: "#1f1612", earring: 1,
       headwear: "turban", hatColor: "#f1e7d0",
     }),
-    profiteer: g => ({ // gold circlet, curled royal beard, smug lidded eyes, smirk, gold chain
+    priest: g => ({ // gold circlet, curled royal beard, smug lidded eyes, smirk, gold chain
       skin: "#dba67a", hair: "#16110f", hairStyle: "slick", eyes: "lidded", brows: "smug", mouth: "smirk", beard: "full", beardColor: "#1d1512", necklace: 1, earring: 1,
       headwear: "circlet",
     }),
-    imposter: g => ({ // dark hood, domino mask, glowing eyes, sly smirk
-      skin: "#cfa58a", hair: "#000", hairStyle: "none", eyes: "glow", brows: "angled", mouth: "smirk", headShade: 30,
-      custom(f, id) {
-        const h = mix(g, "#0b0716", .72), hd = mix(g, "#05030a", .85), hl = mix(g, "#0b0716", .5);
-        return {
-          back: `<path d="M24 60 C20 30 34 13 50 13 C66 13 80 30 76 60 L84 104 L16 104 Z" fill="${hd}"/>`,
-          top: `<path d="M27 60 C25 32 37 16 50 16 C63 16 75 32 73 60 C71 44 67 33 50 31 C33 33 29 44 27 60 Z" fill="${h}"/>
-<path d="M31 38 C36 26 44 21 50 21" fill="none" stroke="${hl}" stroke-width="1.4" stroke-linecap="round" opacity=".8"/>
-<path d="M27 60 C30 70 36 76 42 78 L36 79 C30 76 27 70 27 60 Z M73 60 C70 70 64 76 58 78 L64 79 C70 76 73 70 73 60 Z" fill="${h}"/>`,
-          mask: `<path d="M35.5 46 C39 42.4 46 42.8 50 45.6 C54 42.8 61 42.4 64.5 46 C65 52 59 54.2 54.8 52.2 Q50 50 45.2 52.2 C41 54.2 35 52 35.5 46 Z" fill="#1a1328"/>
-<path d="M37 45.6 C40.5 43.4 46 43.8 49 46" fill="none" stroke="#3a2c58" stroke-width=".9" stroke-linecap="round"/>`,
-        };
-      },
+    villager: g => ({ // simple cap, open expression, practical clothing
+      skin: "#cfa58a", hair: "#3c281b", hairStyle: "slick", eyes: "round",
+      brows: "soft", mouth: "smile", headwear: "turban", hatColor: "#b7a484",
     }),
   };
 

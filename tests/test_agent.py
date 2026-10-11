@@ -35,7 +35,7 @@ async def test_merchant_accepts_proposal_keys_with_nonbreaking_spaces(llm_reply)
 
 async def test_model_alone_selects_accepts_and_backed_plan(llm_reply):
     proposal = Plan(land_delta=0, feed=0, plant=500)
-    tabled = TabledProposal(id="profiteer-plan", author="profiteer", plan=proposal)
+    tabled = TabledProposal(id="priest-plan", author="priest", plan=proposal)
     alternative = TabledProposal(id="provider-plan", author="provider",
                                 plan=Plan(land_delta=0, feed=2000, plant=500))
     brief = brief_for(table=[tabled, alternative])
@@ -50,7 +50,7 @@ async def test_model_alone_selects_accepts_and_backed_plan(llm_reply):
 
 
 async def test_agent_preserves_the_models_runoff_choice(llm_reply):
-    a = TabledProposal(id="a", author="profiteer", plan=Plan(land_delta=0, feed=0, plant=500))
+    a = TabledProposal(id="a", author="priest", plan=Plan(land_delta=0, feed=0, plant=500))
     b = TabledProposal(id="b", author="provider", plan=Plan(land_delta=0, feed=2000, plant=500))
     brief = brief_for(phase="runoff", table=[a, b], runoff=[a, b])
     llm_reply["vote"] = a.id

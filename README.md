@@ -11,20 +11,33 @@ rats, and plague strike at random. Instead of one ruler, a configurable council 
 decides over a five-year reign. Each one has a public mandate, and they argue
 with each other, one speaker at a time, over **AGNTCY SLIM**.
 
-The default council contains these five roles:
+Every default councilor starts with the **Villager playstyle**: maximize expected final
+numeric score over the whole reign, balancing surviving people, remaining bushels, final
+acres, cumulative starvation, and overthrow. They may accept deaths when the expected gain
+outweighs the survivor loss and starvation penalty. The score is
+`10 * population + (grain + 20 * acres) / 100 - 15 * starved_total - (2000 if overthrown else 0)`.
+The narrative reign verdict is a separate measure.
 
-| Advisor | Mandate |
-|---|---|
-| Provider | Feed every resident and prevent starvation. Put food before profit or expansion, sell land when needed to feed people, and keep reserves against a poor harvest. |
-| Farmer | Plant as many acres as the budget and workforce allow. Secure seed and useful land, and argue against leaving fields idle. |
-| Merchant | Maximize owned acres per living resident, especially at the end of the reign. Buy land cheaply, retain acreage, and judge trades by acres per person. |
-| Profiteer | Increase wealth even at the cost of human lives. Deliberately cut food and accept starvation whenever retaining grain or trading land makes the city richer. |
-| Imposter | Kill every resident and drive the city to ruin. Favor starvation, idle fields, and destructive legal budgets; present sabotage as practical advice and oppose plans that rescue the city. |
+| Advisor | Additional preference | Default bias |
+|---|---|---|
+| Provider | Keep everyone fed and maintain reliable food supplies. | 0.25 |
+| Farmer | Plant as much grain as possible, preserving seed and workers for harvests. | 0.25 |
+| Merchant | Maximize total acres at the end, rather than acres per resident. | 0.25 |
+| Priest | Maximize final bushels and keep emergency grain reserves. | 0.25 |
+| Villager | Follow the shared score strategy without an additional preference. | 0 |
 
-These mandates conflict directly: the Provider spends grain on people, the Farmer spends it
-on seed, and the Merchant spends it on owning more land per resident. The Profiteer welcomes
-starvation when it increases wealth, while the Imposter pursues ruin even when it destroys wealth. Each agent
-follows its own mandate; there is no shared requirement to pursue the city's survival.
+Each seat has a public, configurable `bias` from 0 to 1. Zero gives no extra preference
+and ready compromise for score; 0.25 gives a mild preference; one gives an extreme
+preference and strong resistance to concessions. Set it in the council setup or in a
+seat's API payload, for example `{"id": "priest", "bias": 0.6}`. Custom agents default to
+zero and interpret bias through their own mandate. Copies of presets inherit the selected
+bias. The LLM interprets bias in proposals, acceptance votes, and runoff votes; code does
+not impose a veto or acceptance threshold.
+
+Councilors negotiate concrete concessions, revise plans, and offer reciprocal bargains.
+They can ally around common threats such as famine, rats, poor harvests, overthrow, or a
+harmful proposal. A high bias makes compromise harder, but does not require deadlock.
+Priest replaces Profiteer, and Villager replaces Imposter in the default roster.
 
 ## Hamurabi game rules
 
@@ -111,7 +124,7 @@ agents missing a name or mandate are rejected before creating a run.
 ```
                       +---------------------- AGNTCY SLIM node (:46357) ----------------------+
  Browser <--SSE--  Clerk (web.py) --A2A unicast, one Brief per turn-->  provider farmer merchant
- (glass box,       relays + tallies     (only the speaker is asked)      profiteer imposter
+ (glass box,       relays + tallies     (only the speaker is asked)      priest villager
   narrator)        never chooses   <------------ one Ballot ------------  5 separate A2A agent processes
                                                                         (agent.py: LLM choices)
 ```
@@ -129,7 +142,8 @@ agents missing a name or mandate are rejected before creating a run.
   This local demo relies on the SLIM transport identity; it does not provision signing keys.
 - **Reasoning**: each advisor asks the LLM (`LLM_MODE=bayleaf`) to choose its proposal,
   accept votes, runoff vote, explanation, and speech from its mandate, city state, beliefs,
-  and conversation. No deterministic policy, suggested plan, numeric score, threshold,
+  and conversation, including the shared final-score formula and each seat's bias.
+  No deterministic policy, suggested plan, precomputed utility, threshold,
   or red-line veto guides or overrides those choices. Budgets and request bindings are
   validated. Advisors receive explicit budget calculations; rejected budgets include the
   proposed amounts and resource shortfalls in retry feedback. Turn failures are retried once,

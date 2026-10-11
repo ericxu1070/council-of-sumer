@@ -159,7 +159,7 @@ async def run(n_seeds: int, transport: str = "inproc") -> dict:
     if collapsed:
         lessons.append(
             f"Single-mandate outcomes: {', '.join(collapsed)} lost most reigns. "
-            "Some mandates intentionally pursue starvation or city ruin."
+            "Score-seeking mandates can still accept starvation and risky tradeoffs."
         )
     out = {
         "generated": datetime.now().isoformat(timespec="seconds"),

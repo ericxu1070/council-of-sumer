@@ -87,3 +87,62 @@ async def test_custom_mandate_reaches_model_and_model_selects_budget(monkeypatch
     assert validate_reply(ballot, brief) is ballot
     assert not ballot.error and ballot.proposal.feed == feed
     assert ballot.addressed == ["farmer"]
+
+
+@pytest.mark.parametrize("bias", [-0.01, 1.01, float("nan"), float("inf"), "0.5", True])
+def test_invalid_bias_rejected(bias):
+    with pytest.raises(ValueError):
+        resolve_council([{"id": "provider", "bias": bias}])
+
+
+def test_bias_defaults_overrides_and_roster_roundtrip():
+    assert list(ADVISORS) == ["provider", "farmer", "merchant", "priest", "villager"]
+    assert ADVISORS["villager"].bias == 0
+    assert all(a.bias == 0.25 for k, a in ADVISORS.items() if k != "villager")
+    roster = resolve_council([
+        {"id": "provider", "bias": 0}, {"id": "priest", "bias": 1},
+        {**CUSTOM, "bias": 0.6},
+        {"id": "custom-priest", **{k: v for k, v in ADVISORS["priest"].public().items()
+                                   if k != "id"}},
+    ])
+    assert [a.bias for a in roster.values()] == [0, 1, 0.6, 0.25]
+    public = [a.public() for a in roster.values()]
+    assert [a.public() for a in resolve_council(public).values()] == public
+    assert ADVISORS["provider"].bias == 0.25
+
+
+@pytest.mark.parametrize("phase", ["turn", "runoff"])
+def test_shared_score_mandate_and_bias_reach_every_voting_phase(phase):
+    from sumer.advisors import VILLAGER_MANDATE
+    from sumer.protocol import Plan, TabledProposal
+
+    roster = resolve_council([{"id": "priest", "bias": 0.8}, {"id": "villager"}])
+    a = TabledProposal(id="a", author="priest", plan=Plan(land_delta=0, feed=2000, plant=500))
+    b = TabledProposal(id="b", author="villager", plan=Plan(land_delta=0, feed=1900, plant=500))
+    brief = brief_for(roster, speaker="priest", phase=phase,
+                      table=[a, b], runoff=[a, b] if phase == "runoff" else [])
+    system = agent._llm_messages("priest", brief)[0]["content"]
+    assert VILLAGER_MANDATE in system
+    assert "Your bias value: 0.8" in system
+    assert '"Villager", bias 0.0' in system
+    assert "emergencies" in system
+    assert "common enemy" in system
+    assert all(VILLAGER_MANDATE in a.mandate for a in ADVISORS.values())
+    assert ADVISORS["villager"].mandate == f"{VILLAGER_MANDATE} {COMPROMISE_GUIDANCE}"
+
+
+def test_unbiased_diagnostic_matches_game_score_and_overthrow_penalty():
+    from dataclasses import replace
+
+    from sumer.advisors import forecast
+    from sumer.game import Decision, State, rating
+
+    state = State(starved_total=7)
+    beliefs = Beliefs(expected_yield=3, rat_chance=0, plague_chance=0)
+    for feed in (2000, 1100, 1080):  # exactly 45% is allowed; 46% is an overthrow
+        f = forecast(state, Decision(0, feed, 500), beliefs)
+        final = State(population=f.population, grain=f.grain, acres=f.acres,
+                      starved_total=state.starved_total + f.starved,
+                      impeached=f.starved_frac > 0.45)
+        for advisor in ADVISORS.values():
+            assert round(replace(advisor, bias=0).utility(f, state), 1) == rating(final)["score"]
