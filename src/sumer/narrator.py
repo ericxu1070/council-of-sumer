@@ -145,6 +145,7 @@ def year_speech(yr: YearResult, before: State, after: State, advisors=None) -> d
         text = f"The council could not agree, so the safe plan holds. The city will {words}."
     else:
         speaker, voice = winner.id, winner.tts_voice or winner.id
-        lead = _WON.get(yr.outcome, "My plan carried the council.")
+        lead = ("I rule alone, and so I decree it." if len(roster) == 1
+                else _WON.get(yr.outcome, "My plan carried the council."))
         text = f"{lead} We will {words}."
     return {"speaker": speaker, "voice": voice, "text": text, "headline": headline(before, after)}
