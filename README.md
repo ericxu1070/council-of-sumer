@@ -218,8 +218,9 @@ Over 45% starvation in a year overthrows the council.
 - The default council uses up to 30 LLM calls per year before retries.
 - `.env.example` lists every setting: `REIGN_YEARS`, `MAX_ROUNDS`, `PACE_S`, voices.
 
-Checked-in `results/bench.*` predate the current rules and are historical; regenerate with
-`uv run sumer bench`. The chamber shows its Evidence panel only for current results.
+Checked-in `results/bench.*` come from a live 16-seed run under the current rules
+(`uv run sumer bench --seeds 16`, about 12 minutes and under $1 of LLM calls with `BENCH_CONCURRENCY=8`). Regenerate the
+Devpost image from them with `uv run python scripts/devpost_stats.py` (writes `docs/devpost-stats*.png`).
 
 ## Project layout
 
