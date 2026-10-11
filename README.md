@@ -253,3 +253,14 @@ web/               the chamber UI
 scripts/           find_runoff_seed.py (demo seed search)
 tests/             unit tests
 ```
+
+## Saved runs, replay, and exports
+
+The journal survives restart. Interrupted running or deadlocked negotiations are retained as
+technical failures. Select a saved run in Setup to inspect the seven-advisor turns, scouts,
+runoff, and year summaries without model or voice calls. Recorded replay is read-only;
+**Show live run** returns to an active negotiation. Live choices and scouts identify that run.
+
+**Export run** downloads `events.jsonl`, `decisions.csv`, `summary.json`, and `report.md`.
+The files include recorded turn evidence, dissent, human choices, yearly resources, recorded
+random inputs, and reported model usage. Past random inputs are recorded after commitment.

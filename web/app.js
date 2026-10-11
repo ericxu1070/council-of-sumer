@@ -22,6 +22,7 @@ const reduced = matchMedia("(prefers-reduced-motion: reduce)");
 const S = {
   meta: null,
   runId: "",
+  saved: false,
   advisors: [],
   years: 5,
   year: 0,            // year being decided
@@ -433,6 +434,7 @@ function showEscalation(d) {
   idleTyping();
 }
 async function choose(btn) {
+  if (S.saved) { toast("Recorded replay is read-only."); return; }
   const all = $$("#escOptions .esc-opt");
   all.forEach(b => b.disabled = true);
   btn.classList.add("chosen");
@@ -623,7 +625,7 @@ function onEvent(ev) {
   if (ev.run_id && ev.run_id !== S.runId) return;
   if (ev.sequence != null && seen.has(ev.sequence)) return;
   if (ev.sequence != null) seen.add(ev.sequence);
-  ev.instant = replay;
+  ev.instant = S.saved || replay;
   if (ev.kind === "game") { Q.length = 0; gen++; wake?.(); }
   Q.push(ev);
   pump();
@@ -713,6 +715,9 @@ function render(kind, d, instant) {
       closeEscalation();
       append(`<span class="emoji">🛟</span><div><b>Selection timed out</b>The council remains paused until a valid choice is made.</div>`, "note you", { instant });
       break;
+    case "human_resolution":
+      if (instant) append(`<span class="emoji">👑</span><div><b>Recorded human choice</b>${esc(planName(d.candidate_id))}.</div>`, "note", { instant });
+      break;
     case "year":
       closeEscalation();
       S.year = d.year; S.completed = Math.max(S.completed, d.year);
@@ -725,6 +730,7 @@ function render(kind, d, instant) {
       hideRunoff();
       break;
     case "end":
+      if (!S.saved) loadRuns().catch(e => toast(e.message));
       S.running = false; S.completed = d.years?.length || 0; renderYear();
       closeEscalation(); spotlight(null);
       if (d.status && !["completed", "overthrown", "depopulated"].includes(d.status)) {
@@ -756,6 +762,8 @@ function connect(id) {
   es?.close();
   if (S.runId !== id) seen.clear();
   S.runId = id;
+  S.saved = false;
+  setExport(id);
   es = new EventSource(`/api/events?run_id=${encodeURIComponent(id)}`);
   replay = true;
   armReplay();
@@ -766,6 +774,23 @@ function connect(id) {
     try { const ev = JSON.parse(m.data); onEvent(ev); if (ev.kind === "end") es.close(); } catch (e) { console.error("bad event", e); }
   };
   es.onerror = () => { es.close(); setTimeout(() => connect(id), 1500); };
+}
+
+async function loadRuns() {
+  const runs = await api("/api/runs");
+  $("#savedRuns").innerHTML = '<option value="">Select a recorded run</option>' + runs.map(r => `<option value="${esc(r.id)}">seed ${r.manifest.seed} · ${esc(r.status)} · ${esc(r.id.slice(0, 8))}</option>`).join("");
+  $("#savedRuns").value = S.runId;
+  return runs;
+}
+function setExport(id) {
+  $("#exportBtn").href = `/api/runs/${encodeURIComponent(id)}/export`;
+  $("#exportBtn").classList.toggle("hidden", !id);
+}
+async function replayRun(id) {
+  const events = await api(`/api/runs/${encodeURIComponent(id)}/events`);
+  es?.close(); stopNarration(); Q.length = 0; gen++; wake?.(); seen.clear();
+  S.runId = id; S.saved = true; setExport(id);
+  for (const event of events) onEvent(event);
 }
 
 /* ---------------- controls ---------------- */
@@ -782,7 +807,7 @@ async function start() {
   const body = { seed: +$("#seed").value || 0, reveal_news: $("#reveal").value === "1" };
   const rounds = +$("#rounds").value;
   if (rounds) body.max_rounds = rounds;
-  try { const result = await api("/api/game", body); connect(result.run_id); } catch (e) { toast(`Could not start: ${e.message}`); }
+  try { const result = await api("/api/game", body); connect(result.run_id); await loadRuns(); } catch (e) { toast(`Could not start: ${e.message}`); }
 }
 function setHood(on) {
   S.hood = on;
@@ -843,6 +868,7 @@ function wire() {
   };
   $$("[data-news]").forEach(b => b.onclick = async () => {
     b.disabled = true;
+    if (S.saved) { toast("Recorded replay is read-only."); return; }
     try { await api("/api/news", { run_id: S.runId, kind: b.dataset.news }); toast("Scout sent. The report reaches the council next round.", true); }
     catch (e) { toast(`Scout could not leave: ${e.message}`); }
     finally { setTimeout(() => { b.disabled = false; }, 1500); }
@@ -879,5 +905,13 @@ function wire() {
     if (![...sel.options].some(o => +o.value === +m.max_rounds)) sel.insertAdjacentHTML("beforeend", `<option>${m.max_rounds}</option>`);
     sel.value = String(m.max_rounds);
   }
+  $("#savedRuns").onchange = e => { if (e.target.value) replayRun(e.target.value).catch(e => toast(e.message)); };
+  $("#liveBtn").onclick = async () => {
+    const current = await api("/api/meta");
+    if (current.active_run) { stopNarration(); seen.clear(); connect(current.active_run); }
+    else toast("There is no active run.");
+  };
+  const saved = await loadRuns();
   if (S.meta?.active_run) connect(S.meta.active_run);
+  else if (saved.length) await replayRun(saved[0].id);
 })();
