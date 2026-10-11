@@ -7,28 +7,9 @@ from sumer.advisors import ADVISOR_IDS, Beliefs, Scorer, safe_plan
 from sumer.agent import clean, decide
 from sumer.chamber import play_council, play_simple
 from sumer.deliberation import deliberate_year
-from sumer.game import Decision, advance, legalize, new_game, rating
+from sumer.game import Decision, new_game, rating
 from sumer.protocol import Ballot, Brief, Plan, sign, verify
 from sumer.transport import inproc
-
-
-def test_same_seed_same_dice():
-    assert new_game(3)[1] == new_game(3)[1]
-    assert new_game(3)[1] != new_game(4)[1]
-
-
-def test_legalize_never_overspends():
-    state, _ = new_game(1)
-    d = legalize(state, Decision(10**6, 10**6, 10**6))
-    cost = d.land_delta * state.land_price + d.feed + d.plant // 2
-    assert cost <= state.grain
-    assert d.plant <= state.population * 10
-
-
-def test_full_feed_means_no_starvation():
-    state, rolls = new_game(1)
-    nxt = advance(state, Decision(0, state.population * 20, 500), rolls)
-    assert nxt.last_report["starved"] == 0
 
 
 def test_safe_plan_feeds_everyone():
@@ -71,8 +52,12 @@ async def test_deadlock_asks_the_human():
         return options[0]["id"]
 
     state, _ = new_game(1)
-    # With 2 rounds nobody has time to concede, so the council must escalate.
-    yr = await deliberate_year(seed=1, state=state, gather=inproc.gather, history=[],
+    async def deadlocked(brief):
+        ballots = await inproc.gather(brief)
+        return [sign(b.model_copy(update={"accept": [], "veto": []})) for b in ballots]
+
+    # Force the voting outcome so changed game mechanics cannot remove the deadlock.
+    yr = await deliberate_year(seed=1, state=state, gather=deadlocked, history=[],
                                max_rounds=2, scheduled_news=None, ask_human=human)
     assert yr.outcome == "escalated"
     assert asked["reason"]

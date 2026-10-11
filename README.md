@@ -21,6 +21,19 @@ decides. Each one has a public mandate and a red line, and they talk to each oth
 These mandates really conflict: buying land drains the granary, feeding everyone leaves less
 seed, and the Priest's caution costs the General land.
 
+## Hamurabi game rules
+
+Actions are whole numbers. The engine rejects an invalid budget without changing its amounts.
+Trading happens first, followed by feeding (20 bushels/person) and planting (floor(acres/2)
+bushels of seed, at most ten acres/person). Rats consume remaining stores before the new
+harvest is added. Immigration uses the starting population, including years with some
+starvation. More than 45% starvation ends the reign before arrivals or plague; plague leaves
+floor(population/2) survivors. The tenth year's arrivals and plague apply before the final
+rating. A depopulated city also ends the reign. Average annual starvation includes zero years.
+
+These mechanics follow [Ahl's classic BASIC Hamurabi](https://github.com/coding-horror/basic-computer-games/blob/main/43_Hammurabi/hammurabi.bas).
+Seed costs retain its floor rounding, including one planted acre requiring zero bushels.
+
 ## Quick start
 
 ```bash
@@ -118,6 +131,9 @@ Advisors only hear each other's public **speeches**. The private thoughts are fo
 an advisor card to filter the trace to that agent.
 
 ## Results
+
+The figures below were generated with the previous game rules. Regenerate the benchmark
+before using them to evaluate the revised mechanics.
 
 30 seeds, same dice for every decider. Full table: [`results/bench.md`](results/bench.md)
 (regenerate with `uv run sumer bench`). The Evidence tab in the UI shows the same data.

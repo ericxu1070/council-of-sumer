@@ -47,13 +47,13 @@ class Forecast:
 def forecast(state: State, d: Decision, b: Beliefs) -> Forecast:
     d = legalize(state, d)
     grain = state.grain - d.land_delta * state.land_price - d.feed - d.plant // ACRES_PER_BUSHEL
-    grain += d.plant * b.expected_yield
     grain -= grain * b.rat_chance * b.rat_fraction
+    grain += d.plant * b.expected_yield
     acres = state.acres + d.land_delta
     starved = max(0, state.population - d.feed // FOOD_PER_PERSON)
     pop = state.population - starved
-    if starved == 0:
-        pop += 3 * (20 * acres + grain) / max(pop, 1) / 100 + 1
+    if starved / max(state.population, 1) <= 0.45:
+        pop += 3 * (20 * acres + grain) / max(state.population, 1) / 100 + 1
     pop *= 1 - b.plague_chance * 0.5
     return Forecast(
         grain=grain,
@@ -158,10 +158,12 @@ def candidate_plans(state: State) -> list[Decision]:
     for lf in (-0.2, -0.1, -0.05, 0.0, 0.05, 0.1, 0.2):
         for ff in (0.6, 0.8, 0.9, 1.0, 1.15):
             for pf in (0.4, 0.7, 1.0):
-                land = round(state.acres * lf)
-                feed = round(need * ff)
-                rough = legalize(state, Decision(land, feed, 10**9))
-                plant = round(rough.plant * pf)
+                land = min(round(state.acres * lf), state.grain // state.land_price)
+                available = state.grain - land * state.land_price
+                feed = min(round(need * ff), available)
+                capacity = min(state.acres + land, state.population * ACRES_PER_WORKER,
+                               (available - feed) * ACRES_PER_BUSHEL + 1)
+                plant = round(capacity * pf)
                 d = legalize(state, Decision(land, feed, plant))
                 seen[(d.land_delta, d.feed, d.plant)] = d
     return list(seen.values())
@@ -178,7 +180,11 @@ def safe_plan(state: State) -> Decision:
     sell = 0
     if shortfall > 0:
         sell = min(round(0.2 * state.acres), -(-shortfall // state.land_price))
-    return legalize(state, Decision(-sell, need, max_plant))
+    available = state.grain + sell * state.land_price
+    feed = min(need, available)
+    plant = min(state.acres - sell, state.population * ACRES_PER_WORKER,
+                (available - feed) * ACRES_PER_BUSHEL + 1)
+    return legalize(state, Decision(-sell, feed, plant))
 
 
 class Scorer:
