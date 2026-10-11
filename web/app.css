@@ -424,3 +424,33 @@ button.panel-head:hover { background: rgba(255, 255, 255, .025); }
 .vote-comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; font-size: .84rem; }
 .vote-comparison > div > b { display: block; margin-bottom: 4px; font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
 .card:not(.scout-card) > p { margin: 6px 0; font-size: .86rem; color: var(--ink-2); }
+
+/* Bird’s-eye city: the central meeting square belongs to the council. */
+.council { isolation: isolate; background: #202b28; }
+.city-map { position: absolute; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+.city-map > svg { width: 100%; height: 100%; display: block; }
+.graph { margin: 12px clamp(8px, 10vw, 150px); }
+.cg .cg-bg { background: radial-gradient(ellipse, rgba(11,16,32,.52), transparent 72%); }
+.cg .cg-spoke .base { stroke: rgba(230,236,255,.22); }
+.stage { background: rgba(15,24,29,.91); }
+.lg-agree { --k: var(--ok); } .lg-disagree { --k: var(--bad); }
+.lg-disagree i { border-radius: 0; height: 3px; width: 14px; background: repeating-linear-gradient(90deg,var(--bad) 0 4px,transparent 4px 6px); box-shadow: none; }
+.bottom { flex-direction: column; align-items: stretch; gap: 8px; }
+.city-resources { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; }
+.resource { border: 1px solid rgba(255,255,255,.15); border-radius: 12px; padding: 12px 14px; background: rgba(15,24,29,.94); box-shadow: 0 6px 18px #0002; }
+.resource-head { display: flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: .85rem; }
+.resource-head svg { width: 21px; height: 21px; color: var(--resource-color); flex: none; }
+.resource-value { display: block; margin: 4px 0 2px; font-size: clamp(1.15rem,2vw,1.85rem); font-weight: 750; font-variant-numeric: tabular-nums; line-height: 1.25; }
+.resource-value small { font-size: .72rem; color: var(--muted); font-weight: 500; }
+.resource-scale { font-size: .72rem; color: var(--muted); display: block; }
+.resource-overflow { color: var(--ink-2); }
+@media (max-width: 900px) {
+  .graph { margin: 8px; height: clamp(380px,95vw,580px); }
+  .city-map > svg { opacity: .65; }
+  .resource { padding: 10px 8px; }
+  .resource-head { font-size: .75rem; gap: 4px; }
+  .resource-scale { font-size: .65rem; }
+  .legend { margin-left: 0; white-space: normal; }
+}
+
+body:not(.hood) .cg-hub-label { font-size: 14px; letter-spacing: .03em; }

@@ -317,3 +317,25 @@ result and journal. Set `SUMER_OBSERVE=false` to disable the pipeline.
 The collector writes OTLP JSONL under `.cache`; complete records are imported incrementally
 into the immutable journal. The diagnostic export API includes `traces.jsonl`. The five local OASF records describe
 the existing advisor roles and sequential coordination; they are not directory publications.
+
+
+### City overview and council connections
+
+The chamber places the council in a city square over a simple bird’s-eye map. Green
+connections show approval of another advisor’s plan; dashed red connections show an
+addressed advisor’s plan being left out of an approval ballot, or the unchosen
+runoff finalist. Polls show everyone’s position on the leading plan. Connections
+last 1.2 seconds, use check/cross symbols, respect reduced motion, and do not replay
+when loading recorded events.
+
+Fields, grain sacks, and homes update with the recorded city state: one plot means
+100 acres, one sack means 200 bushels, and one home means 10 people. Faded symbols
+represent partial units. Exact totals are always shown; a note explains when a
+large total exceeds the number of symbols the map can show.
+
+For the optional browser smoke check, install Playwright in a temporary directory
+and run `scripts/check_city_ui.cjs` with that directory’s `node_modules` on
+`NODE_PATH`. Set `SUMER_BROWSER` to an installed Chrome executable, or install
+Playwright’s Chromium. The check serves its own local fixtures, needs no model
+credentials, and saves desktop/mobile screenshots to the temporary directory
+`sumer-city-ui` (override with `SUMER_UI_SCREENSHOTS`).
