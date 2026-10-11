@@ -345,7 +345,6 @@ button.panel-head:hover { background: rgba(255, 255, 255, .025); }
 @keyframes modal-in { from { opacity: 0; transform: translateY(10px) scale(.98); } to { opacity: 1; transform: none; } }
 .modal.wide { width: min(1100px, 100%); box-shadow: var(--shadow-lg); }
 .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.modal-kicker { font-weight: 700; font-size: .9rem; letter-spacing: .1em; text-transform: uppercase; color: var(--listen); }
 .modal h2 { font-weight: 800; font-size: 2.1rem; line-height: 1.2; letter-spacing: -.02em; margin: 6px 0 8px; }
 .modal h3 { font-weight: 700; font-size: 1rem; margin: 22px 0 8px; }
 .modal-reason { font-size: 1.15rem; color: var(--ink-2); margin: 0 0 16px; }
@@ -360,8 +359,6 @@ button.panel-head:hover { background: rgba(255, 255, 255, .025); }
 .esc-opt.safe { border-style: dashed; }
 .modal.esc { width: min(920px, 100%); padding: 30px 34px; }
 .modal.esc h2 { font-size: clamp(2.2rem, 3.4vw, 3rem); }
-.modal.esc .modal-kicker { font-size: 1.05rem; }
-.modal.esc .modal-reason { font-size: 1.3rem; }
 .modal.esc .esc-options { gap: 12px; }
 .modal.esc .esc-opt { padding: 16px 20px; gap: 6px 18px; position: relative; }
 .modal.esc .esc-opt .av { width: 64px; height: 64px; font-size: 32px; }
@@ -370,16 +367,9 @@ button.panel-head:hover { background: rgba(255, 255, 255, .025); }
 .modal.esc .esc-opt .why { font-size: 1.05rem; }
 .modal.esc .esc-opt .dots { font-size: 1.2rem; }
 .esc-opt kbd { position: absolute; top: 12px; right: 14px; font: 700 .85rem/1 var(--mono); color: var(--faint); padding: 3px 7px; border-radius: 0; border: 1px solid var(--line); }
-.modal.esc .esc-positions { font-size: 1.05rem; }
 .esc-opt.chosen { border-color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, var(--bg-2)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--ok) 40%, transparent); }
 .esc-opt:disabled { cursor: default; }
 .esc-opt:disabled:not(.chosen) { opacity: .5; }
-.esc-positions { margin-top: 14px; color: var(--ink-2); font-size: .9rem; }
-.esc-positions summary { cursor: pointer; font-weight: 600; color: var(--muted); }
-.esc-positions summary:hover { color: var(--ink); }
-.pos { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); align-items: start; }
-.pos .av { width: 28px; height: 28px; }
-.pos i { color: var(--muted); }
 .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 0; }
 .modal table { border-collapse: collapse; width: 100%; font-size: .88rem; }
 .modal th, .modal td { padding: 8px 12px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
@@ -602,7 +592,7 @@ body:not(.hood) .cg-hub-label { font-size: 14px; letter-spacing: .03em; }
 }
 .brand-name { font-size: 1.45rem; }
 .panel-head { background: var(--bg-2); border-bottom: 2px solid var(--line-2); }
-.panel-title, .welcome-kicker, .modal-kicker, .spot-kicker, .council-setup legend {
+.panel-title, .welcome-kicker, .spot-kicker, .council-setup legend {
   color: var(--speak); letter-spacing: .14em;
 }
 .panel-title::before, .welcome-kicker::before {

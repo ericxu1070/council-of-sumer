@@ -569,27 +569,21 @@ function hideRunoff() { $("#runoff").classList.add("hidden"); S.runoff = null; }
 function showEscalation(d) {
   S.waitingHuman = true;
   const opts = (d.options || []).slice();
-  if (!opts.some(o => o.id === "safe")) opts.push({ id: "safe", plain: "Play it safe: feed everyone and plant as much as we can", accept: [], note: "Agreed in advance as the fallback" });
-  $("#escReason").textContent = d.reason || "No plan has enough support.";
+  if (!opts.some(o => o.id === "safe")) opts.push({ id: "safe", accept: [] });
   $("#escOptions").innerHTML = opts.map((o, i) => {
     const safe = o.id === "safe";
     const au = safe ? null : planAuthor(o.id, o.author);
     const why = [];
     if (!safe) why.push(`${voteDots(o.accept)} <span>${(o.accept || []).length} of ${N()} agree</span>`);
-    if (o.note) why.push(`<span>${esc(o.note)}</span>`);
+    if (!safe && o.note) why.push(`<span>${esc(o.note)}</span>`);
     return `<button class="esc-opt${safe ? " safe" : ""}" type="button" data-choice="${esc(o.id)}">
       ${safe ? `<span class="av safe-av">🛟</span>` : avatar(au)}
-      <span><span class="who">${esc(safe ? "Play it safe" : planName(o.id, au))}</span><br><span class="what">${esc(stripSafe(o.plain || planText(o.plan)))}</span></span>
+      <span><span class="who">${esc(safe ? "Play it safe" : planName(o.id, au))}</span>${safe ? "" : `<br><span class="what">${esc(stripSafe(o.plain || planText(o.plan)))}</span>`}</span>
       ${why.length ? `<span class="why">${why.join("")}</span>` : ""}<kbd>${i + 1}</kbd></button>`;
   }).join("");
-  $("#escPositions").innerHTML = (d.positions || []).map(p => {
-    const id = p.advisor || p.id;
-    return `<div class="pos">${avatar(id)}<div><b>${esc(adv(id).short)}</b><br><i>${esc(p.speech || p.thought || p.position || "")}</i>${p.thought && p.speech ? `<div class="hood-only thought">💭 ${esc(p.thought)}</div>` : ""}</div></div>`;
-  }).join("") || "<i>No positions reported.</i>";
-  $(".esc-positions").classList.toggle("hidden", !(d.positions || []).length);
   $$("#escOptions .esc-opt").forEach(btn => btn.onclick = () => choose(btn));
   $("#escalation").classList.remove("hidden");
-  setPhase("Your call", `<span>The council is stuck. <b>You decide.</b></span>`);
+  setPhase("Deadlock", `<span>The council is stuck. <b>You decide.</b></span>`);
   G.idle(); setHubSub("waiting for you");
   idleTyping();
 }
@@ -610,7 +604,7 @@ async function choose(btn) {
     return;
   }
   setTimeout(() => closeEscalation(), reduced.matches ? 0 : 600);
-  if ($("#phase").textContent === "Your call") setPhase("Decision", `<span>You chose <b>${esc(label)}</b></span>`);
+  if ($("#phase").textContent === "Deadlock") setPhase("Decision", `<span>You chose <b>${esc(label)}</b></span>`);
   S.waitingHuman = false;
   idleTyping();
 }
