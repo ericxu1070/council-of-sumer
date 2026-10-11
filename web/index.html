@@ -4,548 +4,105 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Council of Sumer</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='9' fill='%235865f2'/><path d='M8 22 16 8l8 14z' fill='%23fff'/></svg>">
-<style>
-:root {
-  --rail: #1e1f22;
-  --side: #2b2d31;
-  --chat: #313338;
-  --hover: #2e3035;
-  --embed: #2b2d31;
-  --line: #3f4147;
-  --text: #dbdee1;
-  --bright: #f2f3f5;
-  --muted: #949ba4;
-  --faint: #6d6f78;
-  --blurple: #5865f2;
-  --ok: #23a55a;
-  --warn: #f0b232;
-  --bad: #f23f43;
-  --link: #00a8fc;
-  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  --sans: "gg sans", "Noto Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-}
-* { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; background: var(--chat); color: var(--text); font: 15px/1.375 var(--sans); }
-button, select, input { font: inherit; color: inherit; }
-.app { display: grid; grid-template-columns: 240px minmax(0, 1fr) 240px; height: 100vh; }
-@media (max-width: 1100px) { .app { grid-template-columns: 240px minmax(0, 1fr); } .members { display: none; } }
-@media (max-width: 760px) { .app { grid-template-columns: minmax(0, 1fr); } .channels { display: none; } .mobile-only { display: inline-flex !important; } }
-.mobile-only { display: none !important; }
-
-/* ---- channel sidebar ---- */
-.channels { background: var(--side); display: flex; flex-direction: column; min-height: 0; }
-.server { height: 48px; flex: none; display: flex; align-items: center; padding: 0 16px; font-weight: 700; color: var(--bright); border-bottom: 1px solid var(--rail); box-shadow: 0 1px 0 rgba(0,0,0,.2); }
-.chlist { flex: 1; overflow: auto; padding: 8px; }
-.cat { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .02em; color: var(--muted); padding: 16px 8px 4px; }
-.chlist .cat:first-child { padding-top: 8px; }
-.ch { display: flex; align-items: center; gap: 6px; width: 100%; background: none; border: 0; border-radius: 4px; padding: 6px 8px; margin: 1px 0; color: var(--muted); cursor: pointer; text-align: left; }
-.ch:hover { background: var(--hover); color: var(--text); }
-.ch.active { background: #404249; color: var(--bright); }
-.ch .hash { color: var(--faint); font-size: 18px; line-height: 1; width: 18px; text-align: center; flex: none; }
-.ch .pill { margin-left: auto; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 8px; }
-.pill.consensus { background: var(--ok); color: #fff; }
-.pill.majority { background: var(--warn); color: #000; }
-.pill.escalated { background: var(--bad); color: #fff; }
-.controls { background: #232428; padding: 10px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; flex: none; }
-.controls .row { display: flex; gap: 6px; align-items: center; min-width: 0; }
-.controls label { font-size: 11px; color: var(--muted); text-transform: uppercase; font-weight: 700; width: 52px; flex: none; }
-.controls input, .controls select { flex: 1; min-width: 0; width: 100%; background: var(--rail); border: 0; border-radius: 4px; padding: 5px 8px; }
-.controls input[type=range] { padding: 0; accent-color: var(--blurple); background: none; }
-.btn { border: 0; border-radius: 4px; padding: 7px 14px; background: #4e5058; color: #fff; cursor: pointer; font-weight: 500; }
-.btn:hover { background: #6d6f78; }
-.btn.primary { background: var(--blurple); }
-.btn.primary:hover { background: #4752c4; }
-.btn.small { padding: 4px 10px; font-size: 13px; }
-
-/* ---- chat column ---- */
-.chat { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-.chat-head { height: 48px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 16px; border-bottom: 1px solid var(--rail); box-shadow: 0 1px 0 rgba(0,0,0,.2); }
-.chat-head .title { font-weight: 700; color: var(--bright); white-space: nowrap; }
-.chat-head .title .hash { color: var(--faint); margin-right: 4px; font-weight: 400; }
-.chat-head .topic { color: var(--muted); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 10px; border-left: 1px solid var(--line); min-width: 0; }
-.head-right { margin-left: auto; display: flex; gap: 8px; align-items: center; flex: none; }
-.toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); cursor: pointer; user-select: none; background: none; border: 0; padding: 4px 6px; border-radius: 4px; }
-.toggle:hover { color: var(--text); background: var(--hover); }
-.switch { width: 32px; height: 18px; border-radius: 9px; background: #80848e; position: relative; transition: background .15s; flex: none; }
-.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: transform .15s; }
-.toggle[aria-pressed="true"] { color: var(--bright); }
-.toggle[aria-pressed="true"] .switch { background: var(--ok); }
-.toggle[aria-pressed="true"] .switch::after { transform: translateX(14px); }
-.chip { font-size: 12px; color: var(--muted); background: var(--side); border-radius: 4px; padding: 2px 8px; white-space: nowrap; }
-.chip b { color: var(--text); font-weight: 600; }
-@media (max-width: 1350px) { .chip.wide { display: none; } }
-
-.feed { flex: 1; overflow-y: auto; padding: 8px 0 16px; min-height: 0; }
-.empty { margin: 14vh auto 0; max-width: 460px; text-align: center; color: var(--muted); padding: 0 16px; }
-.empty h2 { color: var(--bright); margin: 12px 0 6px; font-size: 22px; }
-.empty .big { font-size: 48px; }
-.divider { display: flex; align-items: center; gap: 8px; margin: 22px 16px 6px; color: var(--muted); font-size: 12px; font-weight: 600; }
-.divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--line); }
-.divider span { white-space: nowrap; }
-.msg { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 0 16px; padding: 3px 48px 3px 16px; margin-top: 14px; }
-@media (max-width: 760px) { .msg { padding-right: 16px; } }
-.msg:hover { background: var(--hover); }
-.avatar { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-size: 20px; background: var(--c, var(--blurple)); flex: none; }
-.msg-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-.msg-head .name { font-weight: 600; color: var(--c, var(--bright)); }
-.tag { font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: var(--blurple); color: #fff; text-transform: uppercase; position: relative; top: -1px; }
-.tag.policy { background: #4e5058; }
-.time { font-size: 12px; color: var(--faint); }
-.body { color: var(--text); overflow-wrap: anywhere; }
-.plan { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
-.plan span { font: 12px var(--mono); background: var(--rail); border-radius: 4px; padding: 2px 6px; color: var(--text); }
-.plan .up { color: #57f287; } .plan .down { color: #fa777c; }
-
-.think { margin-top: 6px; border-radius: 4px; background: var(--rail); font-size: 13px; max-width: 640px; }
-.think > summary { list-style: none; cursor: pointer; padding: 4px 8px; color: var(--muted); display: flex; gap: 8px; align-items: center; }
-.think > summary::-webkit-details-marker { display: none; }
-.think > summary::before { content: "▸"; font-size: 10px; transition: transform .15s; }
-.think[open] > summary::before { transform: rotate(90deg); }
-.think > summary:hover { color: var(--text); }
-.think .tmeta { margin-left: auto; font: 11px var(--mono); color: var(--faint); }
-.think .inner { padding: 4px 10px 10px 22px; display: grid; gap: 6px; overflow-x: auto; }
-.think .thought { font-style: italic; color: var(--text); }
-.think .line { font: 11px/1.5 var(--mono); color: var(--muted); }
-.think table { border-collapse: collapse; font: 11px var(--mono); }
-.think td, .think th { padding: 2px 12px 2px 0; text-align: left; white-space: nowrap; }
-.think th { color: var(--faint); font-weight: 600; }
-.v-accept { color: #57f287; } .v-veto { color: #fa777c; } .v-pass { color: var(--faint); }
-
-.embed { margin-top: 6px; background: var(--embed); border-left: 4px solid var(--ec, var(--blurple)); border-radius: 4px; padding: 10px 14px 12px; max-width: 560px; }
-.embed .etitle { font-weight: 700; color: var(--bright); font-size: 14px; display: flex; gap: 8px; align-items: center; }
-.embed .esub { color: var(--muted); font-size: 13px; margin-top: 4px; }
-.poll .opt { margin-top: 8px; position: relative; border-radius: 6px; background: var(--rail); overflow: hidden; border: 1px solid transparent; display: block; }
-.poll .opt.win { border-color: var(--ok); }
-.poll .opt.vetoed { border-color: rgba(242,63,67,.5); }
-.poll .bar { position: absolute; inset: 0 auto 0 0; background: rgba(88,101,242,.28); transition: width .5s ease; }
-.poll .opt.win .bar { background: rgba(35,165,90,.3); }
-.poll .opt.vetoed .bar { background: rgba(242,63,67,.16); }
-.poll .row { position: relative; display: flex; align-items: center; gap: 8px; padding: 7px 10px; font-size: 13px; flex-wrap: wrap; }
-.poll .who { font-weight: 600; }
-.poll .p { font: 12px var(--mono); color: var(--muted); }
-.poll .votes { margin-left: auto; display: flex; gap: 3px; align-items: center; }
-.poll .count { font-weight: 700; margin-left: 6px; font-size: 12px; min-width: 26px; text-align: right; }
-.mini { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; background: var(--c); }
-.mini.veto { box-shadow: 0 0 0 2px var(--bad); opacity: .85; }
-.poll .vetonote { position: relative; font-size: 11px; color: #fa777c; padding: 0 10px 6px; }
-.poll .foot { margin-top: 8px; font-size: 12px; color: var(--muted); }
-.poll button.opt { width: 100%; text-align: left; cursor: pointer; color: inherit; font: inherit; padding: 0; }
-.poll button.opt:hover:not(:disabled) { border-color: var(--blurple); }
-.poll button.opt:disabled { cursor: default; }
-.deadlock { --ec: var(--bad); max-width: 660px; }
-.deadlock .stand { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 10px; }
-@media (max-width: 760px) { .deadlock .stand { grid-template-columns: 1fr; } }
-.stand div { background: var(--rail); border-radius: 4px; padding: 6px 8px; font-size: 12px; border-left: 3px solid var(--c); }
-.stand b { color: var(--c); }
-.stand i { color: var(--muted); display: block; margin-top: 2px; }
-.sys { display: flex; gap: 8px; align-items: baseline; padding: 4px 48px 2px 72px; color: var(--muted); font-size: 13px; }
-@media (max-width: 760px) { .sys { padding: 4px 16px 2px 16px; } }
-.sys .ic { width: 16px; text-align: center; flex: none; }
-.sys.wire { font: 11px var(--mono); color: var(--faint); overflow-wrap: anywhere; }
-.glass-off .wire, .glass-off .glass-only { display: none !important; }
-.outcome .stats { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 6px; font-size: 13px; color: var(--muted); }
-.outcome .stats b { color: var(--text); }
-
-.composer { flex: none; padding: 0 16px 8px; }
-.composer-box { background: #383a40; border-radius: 8px; display: flex; align-items: center; gap: 6px; padding: 8px 10px; flex-wrap: wrap; }
-.composer-box .ph { color: var(--faint); font-size: 14px; flex: 1; min-width: 160px; padding-left: 4px; }
-.scout { background: var(--rail); border: 0; border-radius: 6px; padding: 5px 10px; font-size: 13px; cursor: pointer; color: var(--text); }
-.scout:hover { background: var(--blurple); color: #fff; }
-.alertbar { display: none; margin-bottom: 8px; background: var(--bad); color: #fff; border-radius: 8px; padding: 8px 12px; font-weight: 600; cursor: pointer; border: 0; width: 100%; text-align: left; }
-.alertbar.show { display: block; animation: pulse 1.4s ease-in-out infinite; }
-@keyframes pulse { 50% { filter: brightness(1.15); } }
-.typing { height: 22px; font-size: 12px; color: var(--muted); padding: 4px 4px 0; }
-.typing b { color: var(--text); }
-.dots span { display: inline-block; width: 4px; height: 4px; border-radius: 50%; background: var(--muted); margin-right: 2px; animation: blink 1.2s infinite; }
-.dots span:nth-child(2) { animation-delay: .2s; } .dots span:nth-child(3) { animation-delay: .4s; }
-@keyframes blink { 50% { opacity: .2; } }
-
-/* ---- members sidebar ---- */
-.members { background: var(--side); overflow: auto; padding: 8px 8px 16px; }
-.members .cat:first-child { padding-top: 8px; }
-.member { display: flex; gap: 10px; align-items: center; padding: 6px 8px; border-radius: 4px; }
-.member:hover { background: var(--hover); }
-.member .avatar { width: 32px; height: 32px; font-size: 16px; position: relative; }
-.member .avatar::after { content: ""; position: absolute; right: -3px; bottom: -3px; width: 10px; height: 10px; border-radius: 50%; background: var(--ok); border: 3px solid var(--side); }
-.member .mn { font-weight: 600; color: var(--c); font-size: 14px; }
-.member .ms { font-size: 12px; color: var(--muted); line-height: 1.3; }
-.member .ms.typing-now { color: var(--text); }
-.city { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 0 8px; }
-.stat { background: var(--rail); border-radius: 6px; padding: 6px 8px; }
-.stat .k { font-size: 11px; color: var(--muted); }
-.stat .v { font: 600 16px var(--mono); color: var(--bright); }
-.stat .d { font: 11px var(--mono); color: var(--faint); min-height: 14px; }
-.stat .d.up { color: #57f287; } .stat .d.down { color: #fa777c; }
-.redlines { padding: 0 8px; font-size: 12px; color: var(--muted); display: grid; gap: 6px; }
-.redlines b { color: var(--c); font-weight: 600; }
-
-/* ---- evidence ---- */
-.evidence { padding: 16px; overflow: auto; flex: 1; }
-.evidence table { border-collapse: collapse; font-size: 13px; width: 100%; margin-top: 8px; }
-.evidence th, .evidence td { padding: 6px 10px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
-.evidence th:first-child, .evidence td:first-child { text-align: left; }
-.evidence th { color: var(--muted); font-weight: 600; }
-.evidence td { font-family: var(--mono); font-size: 12px; }
-.evidence td:first-child { font-family: var(--sans); font-size: 13px; }
-.evidence .embed { max-width: 940px; margin-bottom: 16px; overflow-x: auto; }
-.evidence ul { margin: 8px 0 0; padding-left: 18px; color: var(--text); font-size: 14px; display: grid; gap: 6px; }
-.hidden { display: none !important; }
-.toast { position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%); background: var(--bad); color: #fff; padding: 10px 14px; border-radius: 8px; display: none; max-width: 480px; z-index: 5; }
-</style>
+<meta name="description" content="Seven AI advisors govern an ancient city with no king to break ties.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%231f4e8c'/><path d='M6 24h20M9 24V14h14v10M8 14l8-6 8 6' stroke='%23e3b04b' stroke-width='2.4' fill='none' stroke-linejoin='round'/></svg>">
+<link rel="stylesheet" href="app.css">
 </head>
 <body>
-<div class="app glass-off" id="app">
-  <nav class="channels" aria-label="Channels">
-    <div class="server">🏛️&nbsp; Council of Sumer</div>
-    <div class="chlist">
-      <div class="cat">Info</div>
-      <button class="ch" data-view="evidence"><span class="hash">📊</span>evidence</button>
-      <div class="cat">The reign</div>
-      <div id="yearChannels"><button class="ch active" data-view="chat" data-year="0"><span class="hash">#</span>council-chamber</button></div>
+<div class="app" id="app">
+  <header class="top">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#1f4e8c"/><path d="M6 24h20M9 24V14h14v10M8 14l8-6 8 6" stroke="#e3b04b" stroke-width="2.4" fill="none" stroke-linejoin="round"/></svg>
+      <div class="brand-text"><div class="brand-name">Council of Sumer</div><div class="brand-sub">Seven AI advisors. No king.</div></div>
     </div>
-    <div class="controls">
-      <div class="row"><label for="seed">Seed</label><input id="seed" type="number" value="7" min="0"></div>
-      <div class="row"><label for="rounds">Rounds</label><select id="rounds"><option>3</option><option>4</option><option selected>5</option><option>6</option></select></div>
-      <div class="row"><label for="reveal">Scouts</label><select id="reveal"><option value="1" selected>Report</option><option value="0">Silent</option></select></div>
-      <div class="row"><label for="pace">Pace</label><input id="pace" type="range" min="0" max="4" step="0.2" value="1.2"></div>
-      <div class="row hidden" id="voiceRow"><label for="voiceOn">Voice</label><select id="voiceOn"><option value="0">Off</option><option value="1">ElevenLabs</option></select></div>
-      <div class="row"><button class="btn primary" id="startBtn" style="flex:1">Convene</button><button class="btn" id="stopBtn">Stop</button></div>
+    <div class="yearbox" aria-live="polite">
+      <div class="year-label" id="yearLabel">Ready</div>
+      <div class="year-steps" id="yearSteps" aria-hidden="true"></div>
     </div>
-  </nav>
+    <div class="top-actions">
+      <span class="chip hood-only" id="chipTransport" title="How the advisors talk to each other">-</span>
+      <span class="chip hood-only" id="chipLlm" title="Language model">-</span>
+      <button class="btn ghost" id="evidenceBtn" type="button">Evidence</button>
+      <button class="toggle" id="hoodToggle" type="button" aria-pressed="false" title="Show private thoughts, traces and network messages">
+        <span>Under the hood</span><span class="switch" aria-hidden="true"></span>
+      </button>
+      <button class="icon-btn" id="muteBtn" type="button" aria-pressed="false" title="Mute the narrator" aria-label="Mute the narrator">🔊</button>
+      <button class="icon-btn" id="setupBtn" type="button" title="Setup" aria-label="Open setup" aria-expanded="false">☰</button>
+    </div>
+  </header>
 
-  <main class="chat" id="chatView">
-    <header class="chat-head">
-      <span class="title"><span class="hash">#</span><span id="chanName">council-chamber</span></span>
-      <span class="topic" id="topic">Four advisors, no king. Pick a seed and convene.</span>
-      <div class="head-right">
-        <span class="chip wide">via <b id="chipTransport">-</b></span>
-        <span class="chip wide"><b id="chipLlm">-</b></span>
-        <span class="chip hidden" id="chipSpend"><b id="spend">$0</b></span>
-        <button class="toggle" id="glassToggle" aria-pressed="false" title="Expand every agent's private reasoning and show every SLIM message"><span>Glass box</span><span class="switch"></span></button>
-        <button class="btn small primary mobile-only" id="startBtnMobile">Convene</button>
+  <main class="hall">
+    <section class="council" aria-label="The council">
+      <div class="seats" id="seats"></div>
+      <div class="stage" id="stage">
+        <div class="phase-row">
+          <div class="phase" id="phase">Ready to convene</div>
+          <div class="phase-sub" id="phaseSub">Seven advisors with different goals must agree on how to run the city.</div>
+        </div>
+        <div class="runoff hidden" id="runoff" aria-live="polite"></div>
       </div>
-    </header>
-    <div class="feed" id="feed">
-      <div class="empty" id="empty">
-        <div class="big">🏛️</div>
-        <h2>Welcome to the council chamber</h2>
-        <p>Four advisors with competing goals govern Sumer for ten years. They debate here, vote in polls, and call on you only when they deadlock.</p>
+      <div class="feed-wrap">
+        <div class="feed" id="feed" aria-live="polite"></div>
+        <button class="jump hidden" id="jumpBtn" type="button">New messages ↓</button>
       </div>
-    </div>
-    <div class="composer">
-      <button class="alertbar" id="alertbar">⚠️ The council is deadlocked. Your vote decides. Jump to the poll.</button>
-      <div class="composer-box">
-        <span class="ph">Send a scout with true news mid-debate:</span>
-        <button class="scout" data-news="harvest">🌾 Harvest</button>
-        <button class="scout" data-news="rats">🐀 Rats</button>
-        <button class="scout" data-news="plague">🦠 Plague</button>
-        <button class="scout" data-news="market">💰 Market</button>
+      <div class="bottom">
+        <div class="typing" id="typing" aria-live="polite"></div>
+        <div class="scouts">
+          <span class="scouts-label">Send a scout:</span>
+          <button class="scout" type="button" data-news="harvest">🌾 Harvest</button>
+          <button class="scout" type="button" data-news="rats">🐀 Rats</button>
+          <button class="scout" type="button" data-news="plague">🦠 Plague</button>
+          <button class="scout" type="button" data-news="market">💰 Market</button>
+        </div>
       </div>
-      <div class="typing" id="typing"></div>
-    </div>
+    </section>
+
+    <aside class="city" aria-label="The city">
+      <div class="city-head"><span class="city-title">The city</span><span class="city-when" id="cityWhen">at the start</span></div>
+      <div class="stats" id="stats"></div>
+      <div class="city-hint">Tap a number to see its history</div>
+    </aside>
   </main>
-
-  <main class="chat hidden" id="evidenceView">
-    <header class="chat-head"><span class="title"><span class="hash">📊</span>evidence</span><span class="topic">Council vs simpler deciders on the same dice</span></header>
-    <div class="evidence">
-      <div class="embed"><div class="etitle">Scoreboard</div><div class="esub" id="benchMeta"></div><table id="benchTable"><thead></thead><tbody></tbody></table></div>
-      <div class="embed" style="--ec: var(--link)"><div class="etitle">Does new information change decisions?</div><table id="infoTable"><thead></thead><tbody></tbody></table></div>
-      <div class="embed" style="--ec: var(--ok)"><div class="etitle">What we learned</div><ul id="lessons"></ul></div>
-    </div>
-  </main>
-
-  <aside class="members" aria-label="Members">
-    <div class="cat">Advisors</div>
-    <div id="memberList"></div>
-    <div class="cat">The city</div>
-    <div class="city">
-      <div class="stat"><div class="k">Year</div><div class="v" id="sYear">-</div></div>
-      <div class="stat"><div class="k">People</div><div class="v" id="sPop">-</div><div class="d" id="dPop"></div></div>
-      <div class="stat"><div class="k">Grain</div><div class="v" id="sGrain">-</div><div class="d" id="dGrain"></div></div>
-      <div class="stat"><div class="k">Acres</div><div class="v" id="sAcres">-</div><div class="d" id="dAcres"></div></div>
-      <div class="stat"><div class="k">Land price</div><div class="v" id="sPrice">-</div></div>
-      <div class="stat"><div class="k">Starved</div><div class="v" id="sStarved">-</div><div class="d" id="dStarved"></div></div>
-    </div>
-    <div class="cat">Red lines</div>
-    <div class="redlines" id="redlines"></div>
-  </aside>
 </div>
-<div class="toast" id="toast"></div>
 
-<script>
-const $ = (s, el = document) => el.querySelector(s);
-const fmt = n => (n ?? 0).toLocaleString("en-US");
-const esc = t => String(t ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const SHORT = { farmer: "Farmer", priest: "Priest", general: "General", merchant: "Merchant" };
-const EMOJI = { farmer: "🌾", priest: "🔮", general: "🛡️", merchant: "💰" };
-const RL = { farmer: "No more than 10% may starve", priest: "Half a year of food, even in a bad year", general: "Never sell over 10% of land", merchant: "None. Everything has a price." };
-const OUTCOME = { consensus: ["✅", "Consensus", "var(--ok)"], majority: ["🤝", "Majority, dissent recorded", "var(--warn)"], escalated: ["⚖️", "Decided by a human", "var(--bad)"] };
-const CLERK = { author: "clerk", name: "Clerk", avatar: "📜", c: "#5865f2", tag: `<span class="tag">bot</span>` };
-let meta = null, prevState = null, curYear = 0, glass = false, maxRounds = 5;
-const tabled = {};
-const color = id => meta.advisors.find(a => a.id === id)?.color || "var(--blurple)";
+<div class="drawer-back hidden" id="drawerBack"></div>
+<aside class="drawer" id="drawer" aria-label="Setup" aria-hidden="true">
+  <div class="drawer-head"><h2>Setup</h2><button class="icon-btn" id="drawerClose" type="button" aria-label="Close setup">✕</button></div>
+  <label class="field"><span>Seed</span><input id="seed" type="number" value="7" min="0"></label>
+  <label class="field"><span>Rounds per year</span><select id="rounds"><option>3</option><option selected>4</option><option>5</option><option>6</option></select></label>
+  <label class="field"><span>Scout reports</span><select id="reveal"><option value="1" selected>On</option><option value="0">Off</option></select></label>
+  <label class="field"><span>Pace <b id="paceVal">1.0 s</b></span><input id="pace" type="range" min="0" max="4" step="0.2" value="1"></label>
+  <div class="drawer-actions">
+    <button class="btn primary big" id="startBtn" type="button">Convene</button>
+    <button class="btn" id="stopBtn" type="button">Stop</button>
+  </div>
+  <p class="drawer-note">Seed and rounds must match the rehearsal to replay cached answers. Pace is the pause the server takes between steps.</p>
+</aside>
 
-async function api(path, body) {
-  const r = await fetch(path, body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {});
-  if (!r.ok) throw new Error(await r.text());
-  return r.json();
-}
-function toast(msg) { const t = $("#toast"); t.textContent = msg; t.style.display = "block"; clearTimeout(toast.t); toast.t = setTimeout(() => t.style.display = "none", 6000); }
-function planChips(p) {
-  if (!p) return "";
-  const land = p.land_delta > 0 ? `<span class="up">+${p.land_delta} acres</span>` : p.land_delta < 0 ? `<span class="down">${p.land_delta} acres</span>` : `<span>hold land</span>`;
-  return `<div class="plan">${land}<span>feed ${fmt(p.feed)}</span><span>plant ${fmt(p.plant)}</span></div>`;
-}
-const planShort = p => `${p.land_delta > 0 ? "+" : ""}${p.land_delta} ac · feed ${fmt(p.feed)} · plant ${fmt(p.plant)}`;
+<div class="modal-back hidden" id="escalation" role="dialog" aria-modal="true" aria-labelledby="escTitle">
+  <div class="modal">
+    <div class="modal-kicker">Your call</div>
+    <h2 id="escTitle">The council is stuck - you decide</h2>
+    <p class="modal-reason" id="escReason"></p>
+    <div class="esc-options" id="escOptions"></div>
+    <details class="esc-positions"><summary>Where each advisor stands</summary><div id="escPositions"></div></details>
+  </div>
+</div>
 
-/* ---- feed ---- */
-function append(el) {
-  const feed = $("#feed");
-  $("#empty")?.remove();
-  const atBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 160;
-  feed.appendChild(el);
-  if (atBottom) feed.scrollTop = feed.scrollHeight;
-  return el;
-}
-function node(html, cls) { const d = document.createElement("div"); d.className = cls; d.innerHTML = html; return d; }
-function message({ name, avatar, c, tag, time, html }) {
-  return append(node(`<div class="avatar" style="--c:${c}">${avatar}</div>
-    <div><div class="msg-head"><span class="name" style="--c:${c}">${esc(name)}</span>${tag || ""}<span class="time">${esc(time || "")}</span></div>${html}</div>`, "msg"));
-}
-const sys = (html, cls = "") => append(node(html, `sys ${cls}`));
+<div class="modal-back hidden" id="evidence" role="dialog" aria-modal="true" aria-labelledby="evTitle">
+  <div class="modal wide">
+    <div class="modal-head"><h2 id="evTitle">Does a council beat one ruler?</h2><button class="icon-btn" id="evidenceClose" type="button" aria-label="Close evidence">✕</button></div>
+    <p class="modal-reason" id="benchMeta">Loading...</p>
+    <div class="table-wrap"><table id="benchTable"><thead></thead><tbody></tbody></table></div>
+    <h3>Does news change decisions?</h3>
+    <div class="table-wrap"><table id="infoTable"><thead></thead><tbody></tbody></table></div>
+    <h3>What we learned</h3>
+    <ul class="lessons" id="lessons"></ul>
+  </div>
+</div>
 
-function thinking(b) {
-  const t = b.trace || {}, be = t.beliefs || {};
-  const m = t.llm ? (t.llm.cached ? "cached reply" : `${t.llm.latency_s}s · $${t.llm.cost_usd.toFixed(4)}`) : "policy";
-  const rows = (t.evaluations || []).map(e => {
-    const v = e.llm_vote || e.policy_vote;
-    return `<tr><td>${EMOJI[e.author]} ${SHORT[e.author]}'s plan</td><td>${e.my_score.toFixed(2)}</td><td>${Number(e.threshold).toFixed(2)}</td><td>${e.breaks_red_lines_of.map(x => SHORT[x]).join(", ") || "-"}</td><td class="v-${v}">${v}</td></tr>`;
-  }).join("");
-  return `<details class="think"${glass ? " open" : ""}><summary>💭 Thinking<span class="tmeta">${m} · signed ✓</span></summary><div class="inner">
-    ${t.thought ? `<div class="thought">${esc(t.thought)}</div>` : ""}
-    ${t.fallback ? `<div class="line" style="color:var(--warn)">${esc(t.fallback)}. Used the offline policy.</div>` : ""}
-    ${rows ? `<table><thead><tr><th>plan</th><th>my score</th><th>need</th><th>red lines hit</th><th>vote</th></tr></thead><tbody>${rows}</tbody></table>` : ""}
-    <div class="line">forecast: yield ${be.expected_yield}${be.pessimistic ? " (bad-year planning)" : ""} · rats ${Math.round(be.rat_chance * 100)}% · plague ${Math.round(be.plague_chance * 100)}% · land next yr ${be.next_price}</div>
-    <div class="line">weights: me ${Math.round((1 - t.concession_weight) * 100)}% / others ${Math.round(t.concession_weight * 100)}%${t.extra_weight_for?.length ? ` · extra weight for ${t.extra_weight_for.map(x => SHORT[x]).join(", ")} (last year's dissent)` : ""}</div>
-  </div></details>`;
-}
-
-function poll(d) {
-  if (!d.tally?.length) return;
-  const n = meta.advisors.length;
-  const agreed = d.tally.find(t => t.accept.length === n && !t.veto.length);
-  const best = Math.max(...d.tally.map(t => t.accept.length));
-  const opts = d.tally.map(t => {
-    const win = t === agreed;
-    const voters = [...t.accept.map(a => `<span class="mini" style="--c:${color(a)}" title="${SHORT[a]} accepts">${EMOJI[a]}</span>`),
-                    ...t.veto.map(a => `<span class="mini veto" style="--c:${color(a)}" title="${SHORT[a]} vetoes">${EMOJI[a]}</span>`)].join("");
-    const plan = tabled[t.id];
-    return `<div class="opt${win ? " win" : ""}${t.veto.length ? " vetoed" : ""}"><div class="bar" style="width:${(t.accept.length / n) * 100}%"></div>
-      <div class="row"><span>${EMOJI[t.author]}</span><span class="who" style="color:${color(t.author)}">${SHORT[t.author]}'s plan</span>${plan ? `<span class="p">${planShort(plan)}</span>` : ""}
-      <span class="votes">${voters}<span class="count">${t.accept.length}/${n}</span></span></div>
-      ${t.veto.length ? `<div class="vetonote">⛔ vetoed by ${t.veto.map(v => SHORT[v]).join(", ")} (red line)</div>` : ""}</div>`;
-  }).join("");
-  const foot = agreed ? "✅ All four agree. Plan adopted." :
-    d.round + 1 >= maxRounds ? `Final vote. Best plan has ${best}/${n}.` : `Best plan has ${best}/${n}. Revised plans below, next vote in round ${d.round + 2}.`;
-  message({ ...CLERK, time: `year ${d.year} · round ${d.round + 1}`,
-    html: `<div class="embed poll"><div class="etitle">📊 Poll: which plan for year ${d.year}?</div>${opts}<div class="foot">${foot}</div></div>` });
-}
-
-function onBallots(d) {
-  poll(d);
-  for (const b of d.ballots) {
-    tabled[`${b.advisor}-y${b.year}-r${b.round}`] = b.proposal;
-    const a = meta.advisors.find(x => x.id === b.advisor);
-    message({ name: a.title, avatar: EMOJI[b.advisor], c: a.color,
-      tag: `<span class="tag ${b.source}">${b.source === "llm" ? "LLM" : "policy"}</span>`, time: `round ${b.round + 1}`,
-      html: `<div class="body">${esc(b.speech || "")}</div>${planChips(b.proposal)}${thinking(b)}` });
-    speak(b.advisor, b.speech);
-  }
-  setTyping([]);
-  if (d.rejected || d.missing?.length) sys(`<span class="ic">⚠️</span>${d.rejected} ballots failed signature checks. Missing: ${(d.missing || []).map(x => SHORT[x]).join(", ") || "none"}`);
-}
-
-function onWire(d) {
-  sys(`<span class="ic">📡</span>clerk → ${d.recipients ? d.recipients.length : 4} agents · ${esc(d.transport)}${d.topic ? ` · ${esc(d.topic)}` : ""}${d.bytes_out ? ` · ${(d.bytes_out / 1024).toFixed(1)} kB` : ""} · ${d.replies} signed replies in ${d.elapsed_s}s`, "wire");
-}
-
-function onYear(d) {
-  const [ic, label, c] = OUTCOME[d.outcome];
-  const r = d.report || {};
-  const by = d.adopted?.split("-")[0];
-  const who = SHORT[by] ? `the ${SHORT[by]}'s plan` : d.adopted === "safe" ? "the safe fallback" : "the plan";
-  message({ ...CLERK, time: `end of year ${d.year}`,
-    html: `<div class="embed outcome" style="--ec:${c}"><div class="etitle">${ic} ${label}: ${who}</div>
-      ${planChips(d.plan)}
-      ${d.dissent?.length ? `<div class="esub">Dissent on record: ${d.dissent.map(x => EMOJI[x] + " " + SHORT[x]).join(", ")}. Extra weight next year.</div>` : ""}
-      <div class="stats"><span>🌾 harvest <b>${fmt(r.harvest)}</b> (${r.yield_per_acre}/acre)</span><span>🐀 rats ate <b>${fmt(r.rats)}</b></span><span>💀 starved <b>${r.starved}</b></span><span>🚶 arrived <b>${r.immigrants}</b></span>${r.plague_deaths ? `<span>🦠 plague <b>${r.plague_deaths}</b></span>` : ""}</div></div>` });
-  const ch = $(`.ch[data-year="${d.year}"]`);
-  if (ch) ch.insertAdjacentHTML("beforeend", `<span class="pill ${d.outcome}">${d.outcome === "consensus" ? "4/4" : d.outcome === "majority" ? "3/4" : "⚖"}</span>`);
-  showState(d.state);
-}
-
-function onEscalate(d) {
-  const stand = (d.positions || []).map(p => `<div style="--c:${color(p.advisor)}"><b>${EMOJI[p.advisor]} ${SHORT[p.advisor]}</b>${p.veto.length ? ` <span style="color:#fa777c">vetoes the ${p.veto.map(v => SHORT[v.split("-")[0]]).join(" and ")}</span>` : ""}<i>${esc(p.thought || p.speech)}</i></div>`).join("");
-  const opts = d.options.map(o => {
-    const id = o.id.split("-")[0];
-    const who = o.id === "safe" ? "🛟 Safe fallback" : `${EMOJI[id]} ${SHORT[id]}'s plan`;
-    const sub = o.id === "safe" ? "feed all, sell up to 20% of land if needed, sow the max" :
-      `${o.accept.length}/4 accept${o.veto.length ? ` · vetoed by ${o.veto.map(v => SHORT[v]).join(", ")}` : ""}`;
-    return `<button class="opt" data-choice="${esc(o.id)}"><div class="row"><span class="who">${who}</span><span class="p">${planShort(o.plan)}</span><span class="votes" style="color:var(--muted);font-size:12px">${sub}</span></div></button>`;
-  }).join("");
-  const el = message({ ...CLERK, time: `year ${d.year}`,
-    html: `<div class="embed poll deadlock" id="deadlockPoll"><div class="etitle">⚖️ Deadlock: your vote decides</div><div class="esub">${esc(d.reason)}</div>
-      <div class="stand">${stand}</div>${opts}<div class="foot" id="deadlockFoot">The reign is paused until you choose.</div></div>` });
-  el.querySelectorAll("button[data-choice]").forEach(btn => btn.onclick = async () => {
-    try { await api("/api/escalation", { choice: btn.dataset.choice }); } catch (e) { toast(e.message); return; }
-    el.querySelectorAll("button[data-choice]").forEach(b => { b.disabled = true; b.style.opacity = b === btn ? 1 : .45; });
-    btn.classList.add("win");
-    el.querySelector("#deadlockFoot").textContent = "Your ruling is recorded. The reign continues.";
-    el.querySelector("#deadlockPoll").removeAttribute("id");
-    $("#alertbar").classList.remove("show");
-  });
-  setTyping([]);
-  $("#alertbar").classList.add("show");
-  el.scrollIntoView({ behavior: "smooth", block: "center" });
-}
-
-/* ---- side panels ---- */
-function buildMembers() {
-  $("#memberList").innerHTML = meta.advisors.map(a => `<div class="member" id="mem-${a.id}" title="${esc(a.mandate)}">
-    <div class="avatar" style="--c:${a.color}">${EMOJI[a.id]}</div><div><div class="mn" style="--c:${a.color}">${SHORT[a.id]}</div><div class="ms">${esc(a.mandate.split(".")[0])}</div></div></div>`).join("");
-  $("#redlines").innerHTML = meta.advisors.map(a => `<div><b style="--c:${a.color}">${EMOJI[a.id]} ${SHORT[a.id]}</b>: ${RL[a.id]}</div>`).join("");
-}
-function setTyping(ids) {
-  for (const a of meta.advisors) {
-    const ms = $(`#mem-${a.id} .ms`);
-    ms.innerHTML = ids.includes(a.id) ? `<span class="dots"><span></span><span></span><span></span></span> thinking` : esc(a.mandate.split(".")[0]);
-    ms.classList.toggle("typing-now", ids.includes(a.id));
-  }
-  $("#typing").innerHTML = ids.length ? `<span class="dots"><span></span><span></span><span></span></span> <b>${ids.map(i => SHORT[i]).join(", ")}</b> are thinking...` : "";
-}
-function setStat(id, v, prev, invert = false) {
-  $(`#s${id}`).textContent = fmt(v);
-  const d = $(`#d${id}`); if (!d) return;
-  if (prev == null || prev === v) { d.textContent = ""; d.className = "d"; return; }
-  const delta = v - prev, good = invert ? delta < 0 : delta > 0;
-  d.textContent = `${delta > 0 ? "+" : ""}${fmt(delta)}`; d.className = `d ${good ? "up" : "down"}`;
-}
-function showState(s) {
-  $("#sYear").textContent = s.year > 10 ? "done" : `${s.year}/10`;
-  setStat("Pop", s.population, prevState?.population);
-  setStat("Grain", s.grain, prevState?.grain);
-  setStat("Acres", s.acres, prevState?.acres);
-  $("#sPrice").textContent = s.land_price;
-  setStat("Starved", s.starved_total, prevState?.starved_total, true);
-  prevState = s;
-}
-function setActive(year) { document.querySelectorAll(".ch").forEach(c => c.classList.toggle("active", c.dataset.view === "chat" && c.dataset.year == year)); }
-
-/* ---- voice ---- */
-const audioQ = []; let playing = false;
-function speak(advisor, text) { if ($("#voiceOn").value !== "1" || !text) return; audioQ.push({ advisor, text }); if (!playing) playNext(); }
-function playNext() {
-  const it = audioQ.shift(); if (!it) { playing = false; return; } playing = true;
-  const a = new Audio(`/api/voice/${it.advisor}?text=${encodeURIComponent(it.text)}`);
-  a.onended = playNext; a.onerror = playNext; a.play().catch(playNext);
-}
-
-/* ---- events ---- */
-function handle({ kind, data: d }) {
-  if (kind === "game") {
-    $("#feed").innerHTML = ""; prevState = null; curYear = 0;
-    $("#yearChannels").innerHTML = `<button class="ch active" data-view="chat" data-year="0"><span class="hash">#</span>council-chamber</button>`;
-    $("#alertbar").classList.remove("show");
-    showState(d.state);
-    sys(`<span class="ic">🏛️</span>The council convenes. Seed ${d.seed}. Ten years to rule, no king to break ties.`);
-  } else if (kind === "round") {
-    if (d.year !== curYear) {
-      curYear = d.year;
-      $("#yearChannels").insertAdjacentHTML("beforeend", `<button class="ch" data-view="chat" data-year="${d.year}"><span class="hash">#</span>year-${d.year}</button>`);
-      setActive(d.year);
-      append(node(`<span id="year-${d.year}">Year ${d.year} · ${fmt(prevState?.population)} people · ${fmt(prevState?.grain)} grain · ${fmt(prevState?.acres)} acres · land at ${prevState?.land_price}</span>`, "divider"));
-    }
-    $("#chanName").textContent = `year-${d.year}`;
-    $("#topic").textContent = `Round ${d.round + 1} of ${maxRounds}`;
-    setTyping(meta.advisors.map(a => a.id));
-  } else if (kind === "wire") onWire(d);
-  else if (kind === "news") {
-    message({ name: "Scouts", avatar: "📯", c: "#00a8fc", tag: `<span class="tag">news</span>`, time: `year ${d.year} · round ${d.round + 1}`,
-      html: `<div class="embed" style="--ec:var(--link)"><div class="etitle">🧭 ${d.injected ? "The scout you sent reports" : "Scout report"}</div><div class="body">${esc(d.text)}</div>
-        <div class="esub glass-only">belief update: ${esc(JSON.stringify(d.beliefs))}</div></div>` });
-  } else if (kind === "ballots") onBallots(d);
-  else if (kind === "year") onYear(d);
-  else if (kind === "escalate") onEscalate(d);
-  else if (kind === "escalation_timeout") { $("#alertbar").classList.remove("show"); sys(`<span class="ic">🛟</span>No ruling in time. Using the safe fallback.`); }
-  else if (kind === "end") {
-    const r = d.rating; setTyping([]);
-    $("#topic").textContent = `Reign complete. Verdict: ${r.verdict}`;
-    message({ ...CLERK, time: "end of reign",
-      html: `<div class="embed outcome" style="--ec:var(--blurple)"><div class="etitle">🏆 Reign complete. Verdict: ${esc(r.verdict)}</div>
-        <div class="esub">1968 rating rule: ${esc(r.verdict_reason)}.</div>
-        <div class="stats"><span>people <b>${fmt(r.population)}</b></span><span>acres <b>${fmt(r.acres)}</b></span><span>grain <b>${fmt(r.grain)}</b></span><span>avg starved <b>${r.avg_starved_pct}%</b></span><span>score <b>${r.score}</b></span></div>
-        <div class="esub">${Object.entries(d.outcomes).map(([k, v]) => `${v} ${k}`).join(" · ")}</div></div>` });
-  } else if (kind === "error") toast(d.message);
-}
-function connect() {
-  const es = new EventSource("/api/events");
-  es.onmessage = m => handle(JSON.parse(m.data));
-  es.onerror = () => { es.close(); setTimeout(connect, 1500); };
-}
-
-$("#app").addEventListener("click", e => {
-  const ch = e.target.closest(".ch"); if (!ch) return;
-  const ev = ch.dataset.view === "evidence";
-  $("#chatView").classList.toggle("hidden", ev); $("#evidenceView").classList.toggle("hidden", !ev);
-  document.querySelectorAll(".ch").forEach(c => c.classList.toggle("active", c === ch));
-  if (ev) { loadBench().catch(err => toast(err.message)); return; }
-  const y = +ch.dataset.year;
-  if (y > 0) $(`#year-${y}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
-  else $("#feed").scrollTo({ top: 0, behavior: "smooth" });
-});
-$("#glassToggle").onclick = () => {
-  glass = !glass; $("#glassToggle").setAttribute("aria-pressed", glass);
-  $("#app").classList.toggle("glass-off", !glass);
-  document.querySelectorAll(".think").forEach(t => t.open = glass);
-};
-$("#alertbar").onclick = () => $("#deadlockPoll")?.scrollIntoView({ behavior: "smooth", block: "center" });
-const start = () => {
-  maxRounds = +$("#rounds").value;
-  api("/api/game", { seed: +$("#seed").value, reveal_news: $("#reveal").value === "1", max_rounds: maxRounds }).catch(e => toast(e.message));
-};
-$("#startBtn").onclick = start; $("#startBtnMobile").onclick = start;
-$("#stopBtn").onclick = () => api("/api/stop", {}).catch(e => toast(e.message));
-$("#pace").oninput = e => api("/api/pace", { pace_s: +e.target.value }).catch(() => {});
-document.querySelectorAll("[data-news]").forEach(b => b.onclick = () => api("/api/news", { kind: b.dataset.news })
-  .then(() => sys(`<span class="ic">🧭</span>Scout dispatched. The report reaches the council next round.`)).catch(e => toast(e.message)));
-
-async function loadBench() {
-  const b = await api("/api/bench");
-  if (b.missing) { $("#benchMeta").textContent = "No results yet. Run: uv run sumer bench"; return; }
-  const cols = ["policy", "score", "survived", "starved", "population", "fairness"];
-  const label = { policy: "Decider", score: "Mean score", survived: "Survived", starved: "Mean starved", population: "Mean people", fairness: "Fairness" };
-  $("#benchTable thead").innerHTML = `<tr>${cols.map(c => `<th>${label[c]}</th>`).join("")}</tr>`;
-  $("#benchTable tbody").innerHTML = b.rows.map(r => `<tr${r.key === "council" ? ' style="background:rgba(88,101,242,.15)"' : ""}>${cols.map(c => `<td>${esc(r[c])}</td>`).join("")}</tr>`).join("");
-  const c = b.rows.find(r => r.key === "council");
-  $("#benchMeta").textContent = `${b.seeds} seeds, same dice for everyone. Council: ${c.consensus} consensus, ${c.majority} majority, ${c.escalated} escalated years. Fairness is the worst-served advisor's average satisfaction.`;
-  const ic = Object.keys(b.info[0] || {});
-  $("#infoTable thead").innerHTML = `<tr>${ic.map(k => `<th>${esc(k)}</th>`).join("")}</tr>`;
-  $("#infoTable tbody").innerHTML = b.info.map(r => `<tr>${ic.map(k => `<td>${esc(r[k])}</td>`).join("")}</tr>`).join("");
-  $("#lessons").innerHTML = (b.lessons || []).map(l => `<li>${esc(l)}</li>`).join("");
-}
-async function pollSpend() { try { const r = await api("/api/spend"); $("#spend").textContent = `LLM $${r.spent_usd.toFixed(3)} / $${r.budget_usd.toFixed(0)}`; } catch {} }
-
-(async () => {
-  meta = await api("/api/meta");
-  $("#chipTransport").textContent = meta.transport === "slim" ? "AGNTCY SLIM" : "in-process";
-  $("#chipLlm").textContent = meta.llm === "bayleaf" ? meta.model.split("/").pop() : "offline policy";
-  $("#rounds").value = String(meta.max_rounds); maxRounds = meta.max_rounds;
-  if (meta.voice) $("#voiceRow").classList.remove("hidden");
-  if (meta.llm === "bayleaf") { $("#chipSpend").classList.remove("hidden"); pollSpend(); setInterval(pollSpend, 5000); }
-  buildMembers();
-  connect();
-})();
-</script>
+<div class="toast hidden" id="toast" role="alert"></div>
+<audio id="narrator" preload="auto"></audio>
+<script src="app.js"></script>
 </body>
 </html>

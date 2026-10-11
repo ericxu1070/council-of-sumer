@@ -1,8 +1,14 @@
 """Wire format for the council, carried as JSON inside A2A text messages.
 
-Each round the clerk broadcasts a Brief to every advisor; each advisor answers
-with a signed Ballot. The clerk only relays and tallies with a public rule;
-it never chooses a plan (see deliberation.py).
+The council talks in turns. For each turn the clerk sends a Brief to exactly
+one advisor (the `speaker`). The Brief carries the table with every plan's
+current support, what the earlier speakers said this round, and earlier
+rounds. The speaker answers with a signed Ballot: a proposal (or the plan it
+backs), accept and veto votes on the tabled plans, a short public speech, and
+a private thought. In a runoff the Ballot carries `runoff_vote` instead.
+
+The clerk only relays and tallies with a public rule; it never chooses a plan
+(see deliberation.py).
 """
 
 from __future__ import annotations
@@ -27,6 +33,10 @@ class TabledProposal(BaseModel):
     author: str
     plan: Plan
     speech: str = ""
+    plain: str = ""
+    accept: list[str] = Field(default_factory=list)  # advisors accepting it right now
+    veto: list[str] = Field(default_factory=list)
+    backers: list[str] = Field(default_factory=list)  # advisors whose proposal this is
 
 
 class Brief(BaseModel):
@@ -37,8 +47,15 @@ class Brief(BaseModel):
     max_rounds: int
     state: dict
     beliefs: dict
+    speaker: str = ""  # the one advisor who must answer this brief
+    phase: str = "discuss"  # "discuss" or "runoff"
+    turn: int = 0  # position of the speaker in this round's order
+    order: list[str] = Field(default_factory=list)  # this round's speaking order
     news: list[dict] = Field(default_factory=list)
     table: list[TabledProposal] = Field(default_factory=list)
+    turns_this_round: list[dict] = Field(default_factory=list)
+    earlier_turns: list[dict] = Field(default_factory=list)  # earlier rounds this year
+    runoff: list[TabledProposal] = Field(default_factory=list)  # [A, B] in a runoff
     history: list[dict] = Field(default_factory=list)
 
 
@@ -46,10 +63,14 @@ class Ballot(BaseModel):
     advisor: str
     year: int
     round: int
+    phase: str = "discuss"
     proposal: Plan
+    back: str | None = None  # id of a tabled plan this advisor backs as its proposal
     accept: list[str] = Field(default_factory=list)
     veto: list[str] = Field(default_factory=list)
+    runoff_vote: str | None = None
     speech: str = ""  # public: the other advisors hear this
+    addressed: list[str] = Field(default_factory=list)  # advisors the speech names
     source: str = "policy"  # "llm" or "policy"
     # Glass box: private reasoning. Humans see it; the other advisors never do.
     trace: dict = Field(default_factory=dict)

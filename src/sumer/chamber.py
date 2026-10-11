@@ -2,13 +2,26 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
-from sumer.advisors import ADVISOR_IDS, Beliefs, Scorer, apply_report, report_for_year, scout_report
+from sumer.advisors import (
+    ADVISOR_IDS,
+    ADVISORS,
+    Beliefs,
+    Scorer,
+    apply_report,
+    report_for_year,
+    scout_report,
+)
 from sumer.baselines import SIMPLE, lone_llm
 from sumer.config import settings
-from sumer.deliberation import AskHuman, Emit, Gather, YearResult, _noop_emit, deliberate_year
-from sumer.game import advance, new_game, rating
+from sumer.deliberation import Ask, AskHuman, Emit, YearResult, _noop_emit, deliberate_year
+from sumer.game import YEARS, advance, new_game, rating
+from sumer.narrator import summarize
+
+# Turns the narrator's line for a year into audio; returns its URL or None.
+Narrate = Callable[[int, str], Awaitable[str | None]]
 
 
 @dataclass
@@ -19,6 +32,7 @@ class GameResult:
     years: list[dict] = field(default_factory=list)
     outcomes: dict[str, int] = field(default_factory=dict)
     mean_rounds: float = 0.0
+    mean_turns: float = 0.0
     satisfaction: dict[str, float] = field(default_factory=dict)
     info_shifted: int = 0  # years where news changed at least one advisor's proposal
 
@@ -37,23 +51,28 @@ def scheduled_news(seed: int, year: int, rolls, reveal: bool) -> dict | None:
 
 async def play_council(
     seed: int,
-    gather: Gather,
+    ask: Ask,
     *,
     reveal_news: bool = True,
     max_rounds: int | None = None,
     ask_human: AskHuman | None = None,
     emit: Emit = _noop_emit,
     injected_news: list[dict] | None = None,
+    narrate: Narrate | None = None,
 ) -> GameResult:
     state, rolls = new_game(seed)
     history: list[dict] = []
     results: list[YearResult] = []
-    await emit("game", {"seed": seed, "state": state.public()})
+    await emit("game", {"seed": seed, "years": YEARS, "state": state.public(),
+                        "max_rounds": max_rounds or settings.max_rounds,
+                        "advisors": [a.public() for a in ADVISORS.values()]})
     while not state.over:
+        await emit("year_start", {"year": state.year, "state": state.public()})
+        before = state
         yr = await deliberate_year(
             seed=seed,
             state=state,
-            gather=gather,
+            ask=ask,
             history=history,
             max_rounds=max_rounds or settings.max_rounds,
             scheduled_news=scheduled_news(seed, state.year, rolls, reveal_news),
@@ -62,11 +81,16 @@ async def play_council(
             emit=emit,
         )
         state = advance(state, yr.plan, rolls)
+        yr.summary = summarize(yr, before, state)
         results.append(yr)
-        history.append({**yr.summary(), "result": state.last_report})
-        await emit("year", {**yr.summary(), "satisfaction": yr.satisfaction,
+        history.append({**yr.record(), "result": state.last_report})
+        url = await narrate(yr.year, yr.summary) if narrate else None
+        await emit("year", {**yr.record(), "summary": yr.summary, "narration_url": url,
+                            "satisfaction": yr.satisfaction, "runoff": yr.runoff,
+                            "human_choice": yr.human_choice,
                             "opening": {k: v.model_dump() for k, v in yr.opening.items()},
                             "after_news": {k: v.model_dump() for k, v in yr.after_news.items()},
+                            "news_items": yr.news,
                             "report": state.last_report, "state": state.public()})
     g = _summarize(seed, "council", state, results)
     await emit("end", g.as_dict())
@@ -93,10 +117,11 @@ async def play_simple(seed: int, policy: str, *, reveal_news: bool = True) -> Ga
 
 def _summarize(seed, policy, state, results: list[YearResult]) -> GameResult:
     g = GameResult(seed=seed, policy=policy, rating=rating(state))
-    g.years = [r.summary() for r in results]
+    g.years = [{**r.record(), "summary": r.summary} for r in results]
     for r in results:
         g.outcomes[r.outcome] = g.outcomes.get(r.outcome, 0) + 1
     g.mean_rounds = round(sum(r.rounds for r in results) / max(len(results), 1), 2)
+    g.mean_turns = round(sum(r.turns for r in results) / max(len(results), 1), 1)
     g.satisfaction = {
         a: round(sum(r.satisfaction[a] for r in results) / max(len(results), 1), 3)
         for a in ADVISOR_IDS

@@ -20,7 +20,7 @@ from sumer.game import advance, new_game
 from sumer.transport import inproc
 
 LABELS = {
-    "council": "Council (4 agents, negotiated)",
+    "council": "Council (7 agents, negotiated)",
     "lone_ruler": "Lone ruler (equal weights, no debate)",
     "lone_llm": "Lone LLM (one prompt, all goals)",
     "average": "Average of selfish openings",
@@ -28,6 +28,9 @@ LABELS = {
     "dictator_priest": "Priest alone",
     "dictator_general": "General alone",
     "dictator_merchant": "Merchant alone",
+    "dictator_builder": "Builder alone",
+    "dictator_healer": "Physician alone",
+    "dictator_diplomat": "Envoy alone",
 }
 
 
@@ -45,13 +48,15 @@ def _row(policy: str, games: list) -> dict:
         "satisfaction": {a: round(v, 3) for a, v in sat.items()},
     }
     if policy == "council":
-        for k in ("consensus", "majority", "escalated"):
+        for k in ("consensus", "majority", "runoff", "escalated"):
             row[k] = sum(g.outcomes.get(k, 0) for g in games)
+        row["years"] = sum(len(g.years) for g in games)
         row["mean_rounds"] = round(st.mean(g.mean_rounds for g in games), 2)
+        row["mean_turns"] = round(st.mean(g.mean_turns for g in games), 1)
     return row
 
 
-async def _counterfactual_info(seeds: list[int], gather) -> dict:
+async def _counterfactual_info(seeds: list[int], ask) -> dict:
     """For every year where news arrived, rerun the same year from the same
     state without the news, and check whether the adopted plan changes."""
     news_years = changed = 0
@@ -61,8 +66,8 @@ async def _counterfactual_info(seeds: list[int], gather) -> dict:
         history: list[dict] = []
         while not state.over:
             news = scheduled_news(seed, state.year, rolls, True)
-            kw = {"seed": seed, "state": state, "gather": gather, "history": history,
-                      "max_rounds": settings.max_rounds}
+            kw = {"seed": seed, "state": state, "ask": ask, "history": history,
+                  "max_rounds": settings.max_rounds}
             with_news = await deliberate_year(**kw, scheduled_news=news)
             if news:
                 without = await deliberate_year(**kw, scheduled_news=None)
@@ -77,7 +82,7 @@ async def _counterfactual_info(seeds: list[int], gather) -> dict:
                         "with": with_news.plan.__dict__,
                     })
             state = advance(state, with_news.plan, rolls)
-            history.append(with_news.summary())
+            history.append(with_news.record())
     return {"news_years": news_years, "changed": changed, "examples": shifts[:6]}
 
 
@@ -88,15 +93,15 @@ async def run(n_seeds: int, transport: str = "inproc") -> dict:
 
         council = SlimCouncil()
         await council.connect()
-        gather = council.gather
+        ask = council.ask
     else:
-        gather = inproc.gather
+        ask = inproc.ask
 
     t0 = time.time()
     games: dict[str, list] = {"council": [], "council_silent": []}
     for s in seeds:
-        games["council"].append(await play_council(s, gather))
-        games["council_silent"].append(await play_council(s, gather, reveal_news=False))
+        games["council"].append(await play_council(s, ask))
+        games["council_silent"].append(await play_council(s, ask, reveal_news=False))
         print(f"seed {s}: council {games['council'][-1].rating['score']}", flush=True)
 
     policies = list(SIMPLE) + (["lone_llm"] if settings.llm_mode == "bayleaf" else [])
@@ -106,7 +111,7 @@ async def run(n_seeds: int, transport: str = "inproc") -> dict:
 
     rows = [_row(p, games[p]) for p in ["council", *policies]]
     rows.sort(key=lambda r: -r["score"])
-    cf = await _counterfactual_info(seeds, gather)
+    cf = await _counterfactual_info(seeds, ask)
 
     def mean_score(k):
         return round(st.mean(g.rating["score"] for g in games[k]), 1)
@@ -123,15 +128,17 @@ async def run(n_seeds: int, transport: str = "inproc") -> dict:
     lessons = [
         (f"Negotiation beats averaging: the council scored {c['score']} vs {avg['score']} for "
         f"averaging each advisor's selfish plan ({avg['survived']} reigns survived vs {c['survived']})."),
-        (f"A single equal-weight ruler scored {lone['score']} vs the council's {c['score']}. "
-        f"The council's edge is fairness: its worst-served advisor averaged {c['fairness']} "
-        f"satisfaction vs {lone['fairness']} under the lone ruler."),
+        (f"A single equal-weight ruler scored {lone['score']} vs the council's {c['score']}"
+         + (" (the council is ahead). " if c["score"] > lone["score"] else ". ")
+         + f"The council's worst-served advisor averaged {c['fairness']} satisfaction vs "
+         f"{lone['fairness']} under the lone ruler."),
         (f"News changed the adopted plan in {cf['changed']} of {cf['news_years']} years where it "
         f"arrived. Scouts moved the council's mean score from {info[0]['score silent']} "
         f"(silent) to {info[0]['score with scouts']}."),
-        (f"Outcomes over {len(seeds) * 10} council-years: {c['consensus']} consensus, "
-        f"{c['majority']} majority with recorded dissent, {c['escalated']} escalated to a human. "
-        f"Mean rounds per year: {c['mean_rounds']}."),
+        (f"Outcomes over {c['years']} council-years: {c['consensus']} consensus, "
+        f"{c['majority']} majority with recorded dissent, {c['runoff']} decided by runoff, "
+        f"{c['escalated']} escalated to a human. Mean rounds per year: {c['mean_rounds']}, "
+        f"mean turns per year: {c['mean_turns']}."),
     ]
     collapsed = [r["policy"] for r in rows if r["key"].startswith("dictator_")
                  and int(r["survived"].split("/")[0]) < n_seeds / 2]

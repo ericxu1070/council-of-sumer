@@ -3,6 +3,7 @@ from dataclasses import replace
 import pytest
 
 from sumer.game import (
+    YEARS,
     Decision,
     InvalidBudget,
     State,
@@ -67,8 +68,8 @@ def test_overthrow_precedes_arrivals_and_plague():
 
 def test_depopulation_terminates_and_final_year_applies_plague():
     assert step(State(), Decision(0, 0, 0), rolls()).status == "depopulated"
-    end = step(State(year=10), Decision(0, 2000, 500), rolls(plague=True))
-    assert end.year == 11 and end.status == "completed"
+    end = step(State(year=YEARS), Decision(0, 2000, 500), rolls(plague=True))
+    assert end.year == YEARS + 1 and end.status == "completed"
     assert end.last_report["immigrants"] > 0 and end.last_report["plague_deaths"] > 0
     assert rating(State(year=3, starved_pct_sum=10))["avg_starved_pct"] == 5
 

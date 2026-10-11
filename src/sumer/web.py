@@ -1,4 +1,11 @@
-"""The chamber: runs one live game and streams every message to the browser (SSE)."""
+"""The chamber: runs one live game and streams every message to the browser (SSE).
+
+Pacing: council messages (each turn, news, runoff steps, escalation) go out
+one at a time, and after each one the server sleeps `live.pace_s` seconds
+(default 1 s, POST /api/pace; 0 fast-forwards). After each year's result the
+server waits for the narrator to finish reading the year's summary, plus a
+second, before the next year starts.
+"""
 
 from __future__ import annotations
 
@@ -15,8 +22,8 @@ from sumer import voice
 from sumer.advisors import ADVISORS, REPORT_KINDS, scout_report
 from sumer.chamber import play_council
 from sumer.config import RESULTS_DIR, ROOT, settings
-from sumer.game import roll_game
-from sumer.protocol import Brief
+from sumer.game import YEARS, roll_game
+from sumer.protocol import Ballot, Brief
 
 log = logging.getLogger(__name__)
 app = FastAPI(title="Council of Sumer")
@@ -50,16 +57,45 @@ class Live:
         self.task: asyncio.Task | None = None
         self.seed = 0
         self.year = 1
-        self.pace_s = 1.2
+        self.pace_s = settings.pace_s
         self.injected: list[dict] = []
         self.pending: asyncio.Future | None = None
         self.council = None
+        self.game_no = 0
+        self.narration: dict[int, bytes] = {}
 
 
 live = Live()
 
 
-async def _gather(brief: Brief):
+# Council messages a person reads or hears: each is sent alone, then the
+# server pauses, so the browser receives them one by one, never in a burst.
+PACED = {"turn", "news", "runoff", "runoff_result", "escalate"}
+
+
+async def paced_emit(kind: str, data: dict) -> None:
+    await hub.emit(kind, data)
+    if live.pace_s <= 0:
+        return  # fast-forward
+    if kind in PACED:
+        await asyncio.sleep(live.pace_s)
+    elif kind == "year":
+        # Let the narrator finish reading the year before the next debate starts.
+        text = data.get("summary") or ""
+        await asyncio.sleep(voice.seconds(live.narration.get(data["year"]), text) + 1.0)
+
+
+async def _narrate(year: int, text: str) -> str | None:
+    audio = await voice.narrate(text)
+    if audio is None:
+        live.narration.pop(year, None)
+        return None
+    live.narration[year] = audio
+    return f"/api/narration/{year}?game={live.game_no}"
+
+
+async def _ask(brief: Brief) -> Ballot | None:
+    """Send one turn's brief to its speaker, over SLIM or in process."""
     live.year = brief.year
     if live.council is None:
         if settings.transport == "slim":
@@ -72,14 +108,15 @@ async def _gather(brief: Brief):
 
             live.council = inproc
     t0 = time.monotonic()
-    ballots = await live.council.gather(brief)
+    ballot = await live.council.ask(brief)
     wire = dict(getattr(live.council, "last", {}) or {})
     wire.setdefault("transport", "in-process (no network)")
+    wire.setdefault("recipients", [brief.speaker])
     wire.setdefault("elapsed_s", round(time.monotonic() - t0, 2))
-    wire.setdefault("replies", len(ballots))
-    await hub.emit("wire", {"year": brief.year, "round": brief.round, **wire})
-    await asyncio.sleep(live.pace_s)
-    return ballots
+    wire.setdefault("replies", int(ballot is not None))
+    await hub.emit("wire", {"year": brief.year, "round": brief.round, "phase": brief.phase,
+                            "advisor": brief.speaker, "turn": brief.turn, **wire})
+    return ballot
 
 
 async def _ask_human(options: list[dict], reason: str) -> str | None:
@@ -98,12 +135,13 @@ async def _run(seed: int, reveal: bool, max_rounds: int) -> None:
     try:
         await play_council(
             seed,
-            _gather,
+            _ask,
             reveal_news=reveal,
             max_rounds=max_rounds,
             ask_human=_ask_human,
-            emit=hub.emit,
+            emit=paced_emit,
             injected_news=live.injected,
+            narrate=_narrate,
         )
     except asyncio.CancelledError:
         raise
@@ -125,6 +163,8 @@ async def start(req: StartReq):
     hub.reset()
     live.injected.clear()
     live.seed, live.year = req.seed, 1
+    live.game_no += 1
+    live.narration.clear()
     live.task = asyncio.create_task(
         _run(req.seed, req.reveal_news, req.max_rounds or settings.max_rounds)
     )
@@ -172,13 +212,15 @@ class PaceReq(BaseModel):
 @app.post("/api/pace")
 async def pace(req: PaceReq):
     live.pace_s = max(0.0, min(10.0, req.pace_s))
-    return {"ok": True}
+    return {"ok": True, "pace_s": live.pace_s}
 
 
 @app.get("/api/meta")
 async def meta():
     return {
-        "advisors": [a.__dict__ for a in ADVISORS.values()],
+        "advisors": [a.public() for a in ADVISORS.values()],
+        "years": YEARS,
+        "pace_s": live.pace_s,
         "transport": settings.transport,
         "llm": settings.llm_mode,
         "model": settings.llm_model if settings.llm_mode == "bayleaf" else "policy",
@@ -235,6 +277,14 @@ async def speak(advisor: str, text: str):
     if audio is None:
         raise HTTPException(404, "voice unavailable")
     return Response(audio, media_type="audio/mpeg")
+
+
+@app.get("/api/narration/{year}")
+async def narration(year: int):
+    audio = live.narration.get(year)
+    if audio is None:
+        raise HTTPException(404, "no narration for that year")
+    return Response(audio, media_type="audio/mpeg", headers={"Cache-Control": "no-store"})
 
 
 @app.get("/")
