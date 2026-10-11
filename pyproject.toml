@@ -33,6 +33,3 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
-
-[tool.vercel]
-entrypoint = "src.sumer.web:app"
