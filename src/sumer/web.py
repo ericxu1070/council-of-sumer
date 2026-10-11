@@ -318,7 +318,7 @@ async def choose(req: ChoiceReq):
 
 
 class PaceReq(BaseModel):
-    pace_s: float
+    pace_s: float = Field(allow_inf_nan=False)
 
 
 @app.post("/api/pace")
