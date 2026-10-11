@@ -364,7 +364,10 @@ def require_run(run_id: str):
 
 
 def import_traces():
-    store.import_traces(os.getenv("SUMER_TRACE_PATH", str(CACHE_DIR / "otel-traces.jsonl")))
+    try:
+        store.import_traces(os.getenv("SUMER_TRACE_PATH", str(CACHE_DIR / "otel-traces.jsonl")))
+    except Exception:
+        log.warning("Trace import failed; serving persisted evidence", exc_info=True)
 
 
 @app.get("/api/runs/{run_id}/traces")
