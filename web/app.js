@@ -936,7 +936,7 @@ function render(kind, d, instant) {
       setPhase("The council gathers", `<span>${N()} advisors · ${S.years} years · no king</span>`);
       break;
     case "year_start":
-      S.year = d.year; S.round = null; S.stance = {}; S.plans = {}; S.leadHtml = ""; S.cmpHtml = ""; S.lastPlain = {}; renderStances(); hideRunoff();
+      S.year = d.year; S.round = null; S.stance = {}; S.plans = {}; S.leadHtml = ""; S.cmpHtml = ""; S.lastPlain = {}; renderStances(); hideRunoff(); hideOmenTally();
       renderRiverPlans([]);
       G.idle(instant);
       if (d.state) recordState(d.year - 1, d.state);
@@ -974,7 +974,7 @@ function render(kind, d, instant) {
       append(d.revote ? `Re-vote after scout · round ${r}` : `Round ${r}${max ? ` of ${max}` : ""}`, "divider", { instant });
       break;
     }
-    case "turn": renderTurn(d, instant); break;
+    case "turn": renderTurn(d, instant); if (d.phase !== "runoff") updateOmenTally(d.support); break;
     case "agent_skipped":
       typing("");
       hideSpot();
@@ -982,11 +982,12 @@ function render(kind, d, instant) {
       renderStances();
       append(`<span class="emoji">⏭</span><div><b>${esc(adv(d.advisor).short)} skipped this turn</b>Two attempts failed. The remaining advisors continue.</div>`, "note", { instant });
       break;
-    case "tally": renderPoll(d, instant); compareVotes(d.rows, instant); break;
+    case "tally": renderPoll(d, instant); compareVotes(d.rows, instant); updateOmenTally(d.rows); break;
     case "scout_request": showScout(d); break;
     case "scout_choice":
       if (S.scoutRequest?.request_id === d.request_id) { S.scoutRequest = null; hideSpot("scout"); }
       if (d.choice !== "skip") S.compareVote = d.rows;
+      if (d.choice !== "skip" && d.phase !== "runoff") showOmenTally(d.choice, d.rows);
       if (d.announcement) {
         append(`<span class="emoji">${d.announcement.mood === "dread" ? "🌑" : "🎉"}</span><div><b>The herald</b><i>${esc(d.announcement.text)}</i></div>`, `note herald ${d.announcement.mood}`, { instant });
         if (!instant) narrate(d.announcement.url, "herald");
@@ -997,12 +998,12 @@ function render(kind, d, instant) {
       G.pulse(instant);
       append(`📡 ${esc(d.transport || "wire")}${d.topic ? ` · ${esc(d.topic)}` : ""}${d.recipients ? ` · to ${d.recipients.length} agents` : ""}${d.bytes_out ? ` · ${(d.bytes_out / 1024).toFixed(1)} kB` : ""}${d.replies != null ? ` · ${d.replies} replies` : ""}${d.elapsed_s != null ? ` in ${d.elapsed_s}s` : ""}`, "wire hood-only", { instant: true });
       break;
-    case "runoff": showRunoff(d, instant); break;
+    case "runoff": hideOmenTally(); showRunoff(d, instant); break;
     case "runoff_result":
       runoffResult(d, instant);
       compareVotes(Object.entries(d.count).map(([id]) => ({ id, accept: Object.entries(d.votes).filter(([, vote]) => vote === id).map(([who]) => who) })), instant);
       break;
-    case "escalate": showEscalation(d); break;
+    case "escalate": hideOmenTally(); showEscalation(d); break;
     case "escalation_timeout":
       closeEscalation();
       append(`<span class="emoji">🛟</span><div><b>Selection timed out</b>The council remains paused until a valid choice is made.</div>`, "note you", { instant });
@@ -1011,7 +1012,7 @@ function render(kind, d, instant) {
       if (instant) append(`<span class="emoji">👑</span><div><b>Recorded human choice</b>${esc(planName(d.candidate_id))}.</div>`, "note", { instant });
       break;
     case "year":
-      closeEscalation();
+      closeEscalation(); hideOmenTally();
       S.year = d.year; S.completed = Math.max(S.completed, d.year);
       if (d.state) recordState(d.year, d.state);
       renderYear();
@@ -1031,7 +1032,7 @@ function render(kind, d, instant) {
       break;
     case "end":
       setup.liveRunId = "";
-      S.scoutRequest = null; hideSpot(); setPaused(false);
+      S.scoutRequest = null; hideSpot(); hideOmenTally(); setPaused(false);
       S.running = false; S.round = null; S.completed = d.years?.length || 0; renderYear(); syncSetupLock();
       closeEscalation(); G.idle(instant);
       setHubSub(HALTED[d.status] ? "stopped" : d.status && d.status !== "completed" ? d.status.replaceAll("_", " ") : "reign complete");
@@ -1068,7 +1069,7 @@ function haltRun(status) {
   setPaused(false);
   closeEscalation();
   hideSpot();
-  hideRunoff();
+  hideRunoff(); hideOmenTally();
   G.idle();
   S.stance = {}; renderStances();
   S.year = 0; S.round = null; renderYear();
@@ -1149,33 +1150,82 @@ const SCOUT_ICON = {
 function scoutIcon(id) {
   return `<svg class="scout-mark" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="miter">${SCOUT_ICON[id] || '<path d="M5 19V5h14v14zM8 9h8M8 13h6"/>'}</svg>`;
 }
+const SCOUT_LABEL = { plague: "Plague", rats: "Rats", good_harvest: "Good harvest", bad_harvest: "Bad harvest", low_price: "Cheap land", high_price: "Costly land" };
+// Where the vote stands: the leading plan(s), a majority status line and the runners-up.
+function voteStanding(rows) {
+  const ranked = [...(rows || [])].filter(r => r.id).sort((x, y) => (y.accept?.length || 0) - (x.accept?.length || 0));
+  const most = ranked[0]?.accept?.length || 0, total = N(), { majority } = votingThresholds(total);
+  const leaders = ranked.filter(r => (r.accept?.length || 0) === most);
+  const status = leaders.length > 1 ? ["tie", `Tied with ${nameList(leaders.slice(1).map(r => planAuthor(r.id, r.author)))}`]
+    : most === total ? ["all", "Every advisor agrees"]
+    : most >= majority ? ["major", "Holds a majority"]
+    : ["short", `${majority - most} short of a majority`];
+  const rest = ranked.filter(r => r.accept?.length && !leaders.includes(r)).slice(0, 3);
+  return { ranked, most, total, leaders, status, rest };
+}
+function standingFoot({ status, rest }) {
+  return `<div class="standing-foot"><span class="standing-status ${status[0]}">${esc(status[1])}</span>${rest.length
+    ? `<span class="standing-rest">Also backed: ${rest.map(r => `${esc(planName(r.id, r.author))} <b>${r.accept.length}</b>`).join(" · ")}</span>` : ""}</div>`;
+}
 function scoutPlans(rows) {
   if (!rows.length) return "";
-  const most = rows[0].accept?.length || 0;
-  const leaders = rows.filter(row => (row.accept?.length || 0) === most);
-  return `<div class="scout-plans" aria-label="Plans the council voted on">
+  const st = voteStanding(rows), { most, leaders } = st;
+  if (!most) return `<div class="scout-plans" id="omenStanding" aria-live="polite"><div class="scout-plan-heading">No plan has a vote yet</div></div>`;
+  return `<div class="scout-plans" id="omenStanding" aria-live="polite" aria-label="Plans the council voted on">
     <div class="scout-plan-heading">${leaders.length > 1 ? "Plans tied for most support" : "Plan with most support"}</div>
     ${leaders.map(row => {
       const author = planAuthor(row.id, row.author);
       return `<div class="spot-plan">${author ? avatar(author) : ""}<span>
         <b>${esc(planName(row.id, author))}</b>
         <span>${esc(stripSafe(row.plain || (row.plan ? planText(row.plan) : "")))}</span>
-        <small class="scout-plan-support">${most} of ${N()} councilors support this plan</small>
+        <small class="scout-plan-support"><span class="standing-num"><b>${most}</b> of ${N()} councilors support this plan</span>${voteDots(row.accept)}</small>
       </span></div>`;
     }).join("")}
+    ${standingFoot(st)}
   </div>`;
 }
+// After an omen is sent, a small tablet on the map keeps the count live through the re-vote.
+function omenTallyEl() {
+  let el = $("#omenTally");
+  if (!el) {
+    el = document.createElement("section");
+    el.id = "omenTally";
+    el.className = "omen-tally hidden";
+    el.setAttribute("aria-live", "polite");
+    el.setAttribute("aria-label", "Re-vote after the omen");
+    $("#graph").before(el); // under the graph, so speech bubbles stay readable over it
+  }
+  return el;
+}
+function omenTallyBody(rows) {
+  const st = voteStanding(rows), lead = st.leaders[0];
+  if (!lead || !st.most) return `<p class="standing-empty">No plan has a vote yet.</p>`;
+  const au = planAuthor(lead.id, lead.author);
+  return `<div class="omen-tally-lead">${avatar(au)}<b class="omen-tally-name">${esc(planName(lead.id, au))}</b>
+    <span class="standing-num"><b>${st.most}</b> of ${st.total}</span>${voteDots(lead.accept)}</div>${standingFoot(st)}`;
+}
+function showOmenTally(choice, rows) {
+  const el = omenTallyEl();
+  el.innerHTML = `<div class="omen-tally-head">${scoutIcon(choice)}<span>${esc(SCOUT_LABEL[choice] || cap(choice))} sent · re-vote</span></div><div class="omen-tally-body">${omenTallyBody(rows)}</div>`;
+  el.classList.remove("hidden");
+}
+function updateOmenTally(rows) {
+  const el = $("#omenTally");
+  if (!el || el.classList.contains("hidden") || !rows?.length) return;
+  $(".omen-tally-body", el).innerHTML = omenTallyBody(rows);
+}
+function hideOmenTally() { $("#omenTally")?.classList.add("hidden"); }
 function showScout(d) {
   S.scoutRequest = d;
+  hideOmenTally();
   const rows = [...(d.rows || [])].sort((x, y) => (y.accept?.length || 0) - (x.accept?.length || 0));
   rows.forEach(r => { if (r.id && r.author) S.plans[r.id] = r.author; });
   const events = (d.options || []).filter(o => o.id !== "skip");
   S.cmpHtml = "";
-  const labels = { plague: "Plague", rats: "Rats", good_harvest: "Good harvest", bad_harvest: "Bad harvest", low_price: "Cheap land", high_price: "Costly land" };
   spotlight("scout", `<div class="spot-kicker">Omens</div>
     ${scoutPlans(rows)}
-    <div class="scout-grid">${events.map((o, i) => `<button class="scout-ev" type="button" data-scout="${esc(o.id)}">${scoutIcon(o.id)}<b>${esc(labels[o.id] || o.label)}</b><kbd>${i + 1}</kbd></button>`).join("")}</div>
-    <div class="spot-actions"><button class="btn primary" type="button" data-scout="skip">Leave be</button></div>`, { cls: "scout" });
+    <div class="scout-grid">${events.map((o, i) => `<button class="scout-ev" type="button" data-scout="${esc(o.id)}">${scoutIcon(o.id)}<b>${esc(SCOUT_LABEL[o.id] || o.label)}</b><kbd>${i + 1}</kbd></button>`).join("")}</div>
+    <div class="spot-actions"><button class="btn primary" type="button" data-scout="skip" title="Let the vote stand (Enter)">Press the seal</button></div>`, { cls: "scout" });
   const btns = $$("#spot [data-scout]");
   btns.forEach(b => {
     b.disabled = S.paused;
