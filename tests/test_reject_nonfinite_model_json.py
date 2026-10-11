@@ -2,7 +2,7 @@ import pytest
 from sumer.llm import parse_json
 
 
-@pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
+@pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity", "1e999", "-1e999"])
 def test_strict_json_rejects_nonfinite_constants(constant):
     with pytest.raises(ValueError, match="Non-finite"):
         parse_json('{"proposal": {"feed": ' + constant + '}}', strict=True)

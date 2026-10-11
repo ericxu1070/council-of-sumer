@@ -11,6 +11,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import math
 import re
 import time
 from dataclasses import dataclass
@@ -166,6 +167,13 @@ def _trim_object_keys(pairs: list[tuple[str, object]]) -> dict:
     return result
 
 
+def _finite_float(value: str) -> float:
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"Non-finite JSON number: {value}")
+    return number
+
+
 def _reject_nonfinite(value: str):
     raise ValueError(f"Non-finite JSON number: {value}")
 
@@ -183,7 +191,7 @@ def parse_json(text: str, *, strict: bool = False) -> dict:
         if body.startswith("```") and body.endswith("```"):
             body = re.sub(r"^```(?:json)?\s*", "", body)[:-3].strip()
         value = json.loads(body, object_pairs_hook=_trim_object_keys,
-                           parse_constant=_reject_nonfinite)
+                           parse_constant=_reject_nonfinite, parse_float=_finite_float)
         if not isinstance(value, dict):
             raise ValueError("Model response must be a JSON object.")
         return value
