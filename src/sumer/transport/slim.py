@@ -2,8 +2,8 @@
 
 - `run_node()` starts a SLIM data-plane node inside Python (no Docker needed).
 - `serve_advisor()` serves one advisor as an A2A agent over SLIM patterns.
-- `SlimCouncil.gather()` broadcasts a Brief to all four advisors in one SLIM
-  group session (MLS-encrypted with the shared secret) and collects ballots.
+- `SlimCouncil.gather()` sends concurrent A2A requests over addressed SLIM
+  sessions, retaining the destination identity separately from the signed payload.
 """
 
 from __future__ import annotations
@@ -18,7 +18,8 @@ import uuid
 from sumer.advisors import ADVISOR_IDS, ADVISORS
 from sumer.agent import decide
 from sumer.config import settings
-from sumer.protocol import Ballot, Brief
+from sumer.observability import initialize, span
+from sumer.protocol import Brief, Delivery, Reply, endpoint
 
 log = logging.getLogger(__name__)
 NAMESPACE = "sumer/council"
@@ -42,7 +43,7 @@ def agent_card(advisor_id: str):
         name=advisor_id,
         url="",
         version="1.0.0",
-        description=f"{a.title}. Mandate: {a.mandate} Red line: {a.red_line}",
+        description=f"{a.title}. Mandate: {a.mandate} Concerns: {a.red_line}",
         defaultInputModes=["application/json"],
         defaultOutputModes=["application/json"],
         capabilities=AgentCapabilities(streaming=False),
@@ -50,7 +51,7 @@ def agent_card(advisor_id: str):
             AgentSkill(
                 id="deliberate",
                 name="Deliberate on a council brief",
-                description="Reads a council Brief and returns a signed Ballot.",
+                description="Proposes, objects, revises, or returns a signed explicit YES/NO ballot.",
                 tags=["council", "negotiation", "hamurabi"],
             )
         ],
@@ -95,6 +96,7 @@ def _executor(advisor_id: str):
 
 async def serve_advisor(advisor_id: str) -> None:
     _env()
+    initialize(f"sumer-{advisor_id}")
     from a2a.server.request_handlers import DefaultRequestHandler
     from a2a.server.tasks import InMemoryTaskStore
     from agntcy_app_sdk.factory import AgntcyFactory
@@ -111,7 +113,7 @@ async def serve_advisor(advisor_id: str) -> None:
 
 
 class SlimCouncil:
-    """The clerk's side: broadcast a Brief, collect one Ballot per advisor."""
+    """The clerk retains the addressed peer for each independently signed response."""
 
     def __init__(self, timeout_s: float = 90.0):
         self.timeout_s = timeout_s
@@ -132,45 +134,42 @@ class SlimCouncil:
         )
         self._client = await AgntcyFactory().a2a(cfg).create(agent_card(ADVISOR_IDS[0]))
 
-    async def gather(self, brief: Brief) -> list[Ballot]:
+    async def gather(self, brief: Brief) -> list[Delivery]:
         from a2a.types import Message, MessageSendParams, Part, Role, SendMessageRequest, TextPart
+        from agntcy_app_sdk.semantic.a2a.client.utils import message_translator
 
         if self._client is None:
             await self.connect()
-        req = SendMessageRequest(
-            id=str(uuid.uuid4()),
-            params=MessageSendParams(
-                message=Message(
-                    role=Role.user,
-                    messageId=str(uuid.uuid4()),
-                    parts=[Part(root=TextPart(text=brief.model_dump_json()))],
-                )
-            ),
-        )
-        topic = f"council-y{brief.year}-r{brief.round}-{uuid.uuid4().hex[:8]}"
         t0 = time.monotonic()
-        responses = await self._client.broadcast_message(
-            req,
-            broadcast_topic=topic,
-            recipients=[agent_name(a) for a in ADVISOR_IDS],
-            timeout=self.timeout_s,
-        )
-        ballots = []
-        for r in responses:
+        async def one(peer: str) -> Delivery:
             try:
-                result = r.model_dump(mode="json")["result"]
-                ballots.append(Ballot.model_validate(json.loads(result["parts"][0]["text"])))
-            except (KeyError, IndexError, TypeError, ValueError) as e:
-                log.warning("unreadable ballot: %s", e)
+                req = SendMessageRequest(id=str(uuid.uuid4()), params=MessageSendParams(
+                    message=Message(role=Role.user, messageId=brief.message_id,
+                                    parts=[Part(root=TextPart(text=brief.model_dump_json()))])))
+                message = message_translator(request=req.model_dump(mode="json", exclude_none=True))
+                message.headers.update({"traceparent": brief.traceparent,
+                                        "sumer-run-id": brief.run_id,
+                                        "sumer-phase": brief.phase})
+                with span("transport.request", run_id=brief.run_id, year=brief.year,
+                          phase=brief.phase, peer=peer):
+                    response = await self._client.transport.request(
+                        endpoint(peer), message, timeout=self.timeout_s)
+                if response is None:
+                    raise ValueError("Peer did not respond before the transport deadline.")
+                payload = json.loads(response.payload)
+                if payload.get("id") != req.id:
+                    raise ValueError("Wrong A2A request identifier.")
+                result = payload["result"]
+                reply = Reply.model_validate_json(result["parts"][0]["text"])
+                return Delivery(peer, endpoint(peer), reply=reply)
+            except Exception as exc:  # noqa: BLE001 - peer failures are retried by the phase collector
+                return Delivery(peer, endpoint(peer), error=f"{type(exc).__name__}: {exc}")
+        deliveries = list(await asyncio.gather(*(one(p) for p in brief.targets)))
         self.last = {
-            "transport": "AGNTCY SLIM (A2A broadcast, MLS group session)",
-            "topic": f"{NAMESPACE}/{topic}",
-            "recipients": [agent_name(a) for a in ADVISOR_IDS],
+            "transport": "AGNTCY SLIM (addressed A2A sessions)",
+            "recipients": [endpoint(p) for p in brief.targets],
             "bytes_out": len(brief.model_dump_json()),
-            "replies": len(ballots),
+            "replies": sum(d.reply is not None for d in deliveries),
             "elapsed_s": round(time.monotonic() - t0, 2),
         }
-        if len(ballots) < len(ADVISOR_IDS):
-            got = {b.advisor for b in ballots}
-            log.warning("missing ballots from %s", [a for a in ADVISOR_IDS if a not in got])
-        return ballots
+        return deliveries

@@ -1,9 +1,8 @@
 """Chat completions against any OpenAI-compatible API (Bayleaf by default).
 
-Responses are cached on disk by prompt hash. A rehearsal run the night before
-fills the cache, so the venue demo replays real model output even if the
-Wi-Fi drops. In "mock" mode no network call is made and callers fall back to
-their deterministic policies.
+Responses are cached on disk by prompt hash. Recorded run replay is separate
+and reads SQLite. Explicit mock mode makes no network calls; live model
+failures propagate to the clerk for its single retry and technical-failure status.
 """
 
 from __future__ import annotations

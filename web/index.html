@@ -207,7 +207,7 @@ button, select, input { font: inherit; color: inherit; }
     <div class="controls">
       <div class="row"><label for="seed">Seed</label><input id="seed" type="number" value="7" min="0"></div>
       <div class="row"><label for="rounds">Rounds</label><select id="rounds"><option>3</option><option>4</option><option selected>5</option><option>6</option></select></div>
-      <div class="row"><label for="reveal">Scouts</label><select id="reveal"><option value="1" selected>Report</option><option value="0">Silent</option></select></div>
+      <div class="row"><label for="savedRuns">Replay</label><select id="savedRuns"><option value="">Select a saved run</option></select></div><div class="row"><button class="btn small" id="liveBtn">Show live run</button><a class="btn small hidden" id="exportBtn">Export run</a></div>
       <div class="row"><label for="pace">Pace</label><input id="pace" type="range" min="0" max="4" step="0.2" value="1.2"></div>
       <div class="row hidden" id="voiceRow"><label for="voiceOn">Voice</label><select id="voiceOn"><option value="0">Off</option><option value="1">ElevenLabs</option></select></div>
       <div class="row"><button class="btn primary" id="startBtn" style="flex:1">Convene</button><button class="btn" id="stopBtn">Stop</button></div>
@@ -222,7 +222,7 @@ button, select, input { font: inherit; color: inherit; }
         <span class="chip wide">via <b id="chipTransport">-</b></span>
         <span class="chip wide"><b id="chipLlm">-</b></span>
         <span class="chip hidden" id="chipSpend"><b id="spend">$0</b></span>
-        <button class="toggle" id="glassToggle" aria-pressed="false" title="Expand every agent's private reasoning and show every SLIM message"><span>Glass box</span><span class="switch"></span></button>
+        <button class="toggle" id="glassToggle" aria-pressed="false" title="Expand agent explanations and show transport details"><span>Glass box</span><span class="switch"></span></button>
         <button class="btn small primary mobile-only" id="startBtnMobile">Convene</button>
       </div>
     </header>
@@ -236,11 +236,7 @@ button, select, input { font: inherit; color: inherit; }
     <div class="composer">
       <button class="alertbar" id="alertbar">⚠️ The council is deadlocked. Your vote decides. Jump to the poll.</button>
       <div class="composer-box">
-        <span class="ph">Send a scout with true news mid-debate:</span>
-        <button class="scout" data-news="harvest">🌾 Harvest</button>
-        <button class="scout" data-news="rats">🐀 Rats</button>
-        <button class="scout" data-news="plague">🦠 Plague</button>
-        <button class="scout" data-news="market">💰 Market</button>
+        <span class="ph">Current facts and objections guide the debate.</span><button class="btn small" id="tracesBtn">Year traces</button>
       </div>
       <div class="typing" id="typing"></div>
     </div>
@@ -250,7 +246,6 @@ button, select, input { font: inherit; color: inherit; }
     <header class="chat-head"><span class="title"><span class="hash">📊</span>evidence</span><span class="topic">Council vs simpler deciders on the same dice</span></header>
     <div class="evidence">
       <div class="embed"><div class="etitle">Scoreboard</div><div class="esub" id="benchMeta"></div><table id="benchTable"><thead></thead><tbody></tbody></table></div>
-      <div class="embed" style="--ec: var(--link)"><div class="etitle">Does new information change decisions?</div><table id="infoTable"><thead></thead><tbody></tbody></table></div>
       <div class="embed" style="--ec: var(--ok)"><div class="etitle">What we learned</div><ul id="lessons"></ul></div>
     </div>
   </main>
@@ -267,285 +262,255 @@ button, select, input { font: inherit; color: inherit; }
       <div class="stat"><div class="k">Land price</div><div class="v" id="sPrice">-</div></div>
       <div class="stat"><div class="k">Starved</div><div class="v" id="sStarved">-</div><div class="d" id="dStarved"></div></div>
     </div>
-    <div class="cat">Red lines</div>
+    <div class="cat">Advisor concerns</div>
     <div class="redlines" id="redlines"></div>
   </aside>
 </div>
 <div class="toast" id="toast"></div>
 
 <script>
+
 const $ = (s, el = document) => el.querySelector(s);
 const fmt = n => (n ?? 0).toLocaleString("en-US");
 const esc = t => String(t ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const SHORT = { farmer: "Farmer", priest: "Priest", general: "General", merchant: "Merchant" };
 const EMOJI = { farmer: "🌾", priest: "🔮", general: "🛡️", merchant: "💰" };
-const RL = { farmer: "No more than 10% may starve", priest: "Half a year of food, even in a bad year", general: "Never sell over 10% of land", merchant: "None. Everything has a price." };
-const OUTCOME = { consensus: ["✅", "Consensus", "var(--ok)"], majority: ["🤝", "Majority, dissent recorded", "var(--warn)"], escalated: ["⚖️", "Decided by a human", "var(--bad)"] };
-const CLERK = { author: "clerk", name: "Clerk", avatar: "📜", c: "#5865f2", tag: `<span class="tag">bot</span>` };
-let meta = null, prevState = null, curYear = 0, glass = false, maxRounds = 5;
-const tabled = {};
+const OUTCOME = { consensus: ["✅", "Consensus"], majority: ["🤝", "Majority; dissent recorded"], human_resolution: ["⚖️", "Human resolution"] };
+const CLERK = { name: "Clerk", avatar: "📜", c: "#5865f2", tag: '<span class="tag">bot</span>' };
+let meta, prevState = null, curYear = 0, glass = false, runId = "", replay = true, stream = null;
+const seen = new Set();
 const color = id => meta.advisors.find(a => a.id === id)?.color || "var(--blurple)";
 
 async function api(path, body) {
-  const r = await fetch(path, body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {});
+  const r = await fetch(path, body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
 function toast(msg) { const t = $("#toast"); t.textContent = msg; t.style.display = "block"; clearTimeout(toast.t); toast.t = setTimeout(() => t.style.display = "none", 6000); }
 function planChips(p) {
   if (!p) return "";
-  const land = p.land_delta > 0 ? `<span class="up">+${p.land_delta} acres</span>` : p.land_delta < 0 ? `<span class="down">${p.land_delta} acres</span>` : `<span>hold land</span>`;
-  return `<div class="plan">${land}<span>feed ${fmt(p.feed)}</span><span>plant ${fmt(p.plant)}</span></div>`;
+  return `<div class="plan"><span>${p.land_delta > 0 ? "+" : ""}${fmt(p.land_delta)} acres</span><span>feed ${fmt(p.feed)}</span><span>plant ${fmt(p.plant)}</span></div>`;
 }
-const planShort = p => `${p.land_delta > 0 ? "+" : ""}${p.land_delta} ac · feed ${fmt(p.feed)} · plant ${fmt(p.plant)}`;
-
-/* ---- feed ---- */
 function append(el) {
   const feed = $("#feed");
   $("#empty")?.remove();
   const atBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 160;
   feed.appendChild(el);
-  if (atBottom) feed.scrollTop = feed.scrollHeight;
+  if (atBottom && !replay) feed.scrollTop = feed.scrollHeight;
   return el;
 }
 function node(html, cls) { const d = document.createElement("div"); d.className = cls; d.innerHTML = html; return d; }
 function message({ name, avatar, c, tag, time, html }) {
-  return append(node(`<div class="avatar" style="--c:${c}">${avatar}</div>
-    <div><div class="msg-head"><span class="name" style="--c:${c}">${esc(name)}</span>${tag || ""}<span class="time">${esc(time || "")}</span></div>${html}</div>`, "msg"));
+  return append(node(`<div class="avatar" style="--c:${c}">${avatar}</div><div><div class="msg-head"><span class="name" style="--c:${c}">${esc(name)}</span>${tag || ""}<span class="time">${esc(time || "")}</span></div>${html}</div>`, "msg"));
 }
 const sys = (html, cls = "") => append(node(html, `sys ${cls}`));
-
-function thinking(b) {
-  const t = b.trace || {}, be = t.beliefs || {};
-  const m = t.llm ? (t.llm.cached ? "cached reply" : `${t.llm.latency_s}s · $${t.llm.cost_usd.toFixed(4)}`) : "policy";
-  const rows = (t.evaluations || []).map(e => {
-    const v = e.llm_vote || e.policy_vote;
-    return `<tr><td>${EMOJI[e.author]} ${SHORT[e.author]}'s plan</td><td>${e.my_score.toFixed(2)}</td><td>${Number(e.threshold).toFixed(2)}</td><td>${e.breaks_red_lines_of.map(x => SHORT[x]).join(", ") || "-"}</td><td class="v-${v}">${v}</td></tr>`;
-  }).join("");
-  return `<details class="think"${glass ? " open" : ""}><summary>💭 Thinking<span class="tmeta">${m} · signed ✓</span></summary><div class="inner">
-    ${t.thought ? `<div class="thought">${esc(t.thought)}</div>` : ""}
-    ${t.fallback ? `<div class="line" style="color:var(--warn)">${esc(t.fallback)}. Used the offline policy.</div>` : ""}
-    ${rows ? `<table><thead><tr><th>plan</th><th>my score</th><th>need</th><th>red lines hit</th><th>vote</th></tr></thead><tbody>${rows}</tbody></table>` : ""}
-    <div class="line">forecast: yield ${be.expected_yield}${be.pessimistic ? " (bad-year planning)" : ""} · rats ${Math.round(be.rat_chance * 100)}% · plague ${Math.round(be.plague_chance * 100)}% · land next yr ${be.next_price}</div>
-    <div class="line">weights: me ${Math.round((1 - t.concession_weight) * 100)}% / others ${Math.round(t.concession_weight * 100)}%${t.extra_weight_for?.length ? ` · extra weight for ${t.extra_weight_for.map(x => SHORT[x]).join(", ")} (last year's dissent)` : ""}</div>
+function reasoning(b) {
+  const t = b.trace || {}, m = t.llm;
+  const usage = m ? (m.cached ? "cached reply" : `${m.latency_s}s · $${Number(m.cost_usd).toFixed(4)}`) : "offline fixture";
+  return `<details class="think"${glass ? " open" : ""}><summary>Explanation and accounting <span class="tmeta">${esc(usage)} · signed ✓</span></summary><div class="inner">
+    ${b.arithmetic ? `<div class="line"><b>Arithmetic:</b> ${esc(b.arithmetic)}</div>` : ""}
+    ${b.assumptions ? `<div class="line"><b>Assumptions:</b> ${esc(b.assumptions)}</div>` : ""}
+    ${b.expected_effects ? `<div class="line"><b>Expected effects:</b> ${esc(b.expected_effects)}</div>` : ""}
+    ${b.assumed_price != null ? `<div class="line">Current price used: ${b.assumed_price} bushels/acre</div>` : ""}
+    ${b.objections_addressed?.length ? `<div class="line">Addresses: ${b.objections_addressed.map(id => `<a href="#msg-${esc(id)}">${esc(id.slice(0, 8))}</a>`).join(", ")}</div>` : ""}
+    ${t.trace_id ? `<button class="btn small" data-trace="${esc(t.trace_id)}">Open trace</button>` : ""}
   </div></details>`;
 }
-
-function poll(d) {
-  if (!d.tally?.length) return;
-  const n = meta.advisors.length;
-  const agreed = d.tally.find(t => t.accept.length === n && !t.veto.length);
-  const best = Math.max(...d.tally.map(t => t.accept.length));
-  const opts = d.tally.map(t => {
-    const win = t === agreed;
-    const voters = [...t.accept.map(a => `<span class="mini" style="--c:${color(a)}" title="${SHORT[a]} accepts">${EMOJI[a]}</span>`),
-                    ...t.veto.map(a => `<span class="mini veto" style="--c:${color(a)}" title="${SHORT[a]} vetoes">${EMOJI[a]}</span>`)].join("");
-    const plan = tabled[t.id];
-    return `<div class="opt${win ? " win" : ""}${t.veto.length ? " vetoed" : ""}"><div class="bar" style="width:${(t.accept.length / n) * 100}%"></div>
-      <div class="row"><span>${EMOJI[t.author]}</span><span class="who" style="color:${color(t.author)}">${SHORT[t.author]}'s plan</span>${plan ? `<span class="p">${planShort(plan)}</span>` : ""}
-      <span class="votes">${voters}<span class="count">${t.accept.length}/${n}</span></span></div>
-      ${t.veto.length ? `<div class="vetonote">⛔ vetoed by ${t.veto.map(v => SHORT[v]).join(", ")} (red line)</div>` : ""}</div>`;
-  }).join("");
-  const foot = agreed ? "✅ All four agree. Plan adopted." :
-    d.round + 1 >= maxRounds ? `Final vote. Best plan has ${best}/${n}.` : `Best plan has ${best}/${n}. Revised plans below, next vote in round ${d.round + 2}.`;
-  message({ ...CLERK, time: `year ${d.year} · round ${d.round + 1}`,
-    html: `<div class="embed poll"><div class="etitle">📊 Poll: which plan for year ${d.year}?</div>${opts}<div class="foot">${foot}</div></div>` });
-}
-
-function onBallots(d) {
-  poll(d);
-  for (const b of d.ballots) {
-    tabled[`${b.advisor}-y${b.year}-r${b.round}`] = b.proposal;
+function onResponses(d) {
+  for (const b of d.responses) {
     const a = meta.advisors.find(x => x.id === b.advisor);
-    message({ name: a.title, avatar: EMOJI[b.advisor], c: a.color,
-      tag: `<span class="tag ${b.source}">${b.source === "llm" ? "LLM" : "policy"}</span>`, time: `round ${b.round + 1}`,
-      html: `<div class="body">${esc(b.speech || "")}</div>${planChips(b.proposal)}${thinking(b)}` });
-    speak(b.advisor, b.speech);
+    const el = message({name: a.title, avatar: EMOJI[b.advisor], c: a.color,
+      tag: `<span class="tag">${b.source === "llm" ? "LLM" : "fixture"}</span>`,
+      time: `${d.phase} · cycle ${d.round}`,
+      html: `<div class="body">${esc(b.speech)}</div>${planChips(b.proposal)}${reasoning(b)}`});
+    el.id = `msg-${b.message_id}`;
+    if (!replay) speak(b.advisor, b.speech);
   }
   setTyping([]);
-  if (d.rejected || d.missing?.length) sys(`<span class="ic">⚠️</span>${d.rejected} ballots failed signature checks. Missing: ${(d.missing || []).map(x => SHORT[x]).join(", ") || "none"}`);
 }
-
-function onWire(d) {
-  sys(`<span class="ic">📡</span>clerk → ${d.recipients ? d.recipients.length : 4} agents · ${esc(d.transport)}${d.topic ? ` · ${esc(d.topic)}` : ""}${d.bytes_out ? ` · ${(d.bytes_out / 1024).toFixed(1)} kB` : ""} · ${d.replies} signed replies in ${d.elapsed_s}s`, "wire");
+function onBallots(d) {
+  const candidate = d.candidate;
+  const rows = d.ballots.map(b => `<div class="opt"><div class="row"><span>${EMOJI[b.advisor]} ${SHORT[b.advisor]}</span><b style="margin-left:auto;color:${b.choice === "YES" ? "var(--ok)" : "var(--bad)"}">${b.choice}</b></div><div class="esub">${esc(b.speech)}</div></div>`).join("");
+  const el = message({...CLERK, time: `year ${d.year} · cycle ${d.round}`,
+    html: `<div class="embed poll"><div class="etitle">${SHORT[candidate.author]}'s frozen budget</div>${planChips(candidate.plan)}${rows}<div class="foot">${d.yes_voters.length}/4 YES · all four ballots verified. ${d.passing ? "Adopt immediately." : "Failed ballot retained for revision."}</div></div>`});
+  el.id = `msg-${d.message_id}`;
+  setTyping([]);
 }
-
 function onYear(d) {
-  const [ic, label, c] = OUTCOME[d.outcome];
-  const r = d.report || {};
-  const by = d.adopted?.split("-")[0];
-  const who = SHORT[by] ? `the ${SHORT[by]}'s plan` : d.adopted === "safe" ? "the safe fallback" : "the plan";
-  message({ ...CLERK, time: `end of year ${d.year}`,
-    html: `<div class="embed outcome" style="--ec:${c}"><div class="etitle">${ic} ${label}: ${who}</div>
-      ${planChips(d.plan)}
-      ${d.dissent?.length ? `<div class="esub">Dissent on record: ${d.dissent.map(x => EMOJI[x] + " " + SHORT[x]).join(", ")}. Extra weight next year.</div>` : ""}
-      <div class="stats"><span>🌾 harvest <b>${fmt(r.harvest)}</b> (${r.yield_per_acre}/acre)</span><span>🐀 rats ate <b>${fmt(r.rats)}</b></span><span>💀 starved <b>${r.starved}</b></span><span>🚶 arrived <b>${r.immigrants}</b></span>${r.plague_deaths ? `<span>🦠 plague <b>${r.plague_deaths}</b></span>` : ""}</div></div>` });
-  const ch = $(`.ch[data-year="${d.year}"]`);
-  if (ch) ch.insertAdjacentHTML("beforeend", `<span class="pill ${d.outcome}">${d.outcome === "consensus" ? "4/4" : d.outcome === "majority" ? "3/4" : "⚖"}</span>`);
+  const [icon, label] = OUTCOME[d.outcome], r = d.report;
+  message({...CLERK, time: `end of year ${d.year}`, html: `<div class="embed outcome"><div class="etitle">${icon} ${label}: ${SHORT[d.candidate.author]}'s budget</div>${planChips(d.plan)}
+    ${d.dissent.length ? `<div class="esub">Dissent on record: ${d.dissent.map(a => SHORT[a]).join(", ")}</div>` : ""}
+    ${d.human_resolution ? '<div class="esub">Run marked human-assisted.</div>' : ""}
+    <div class="stats"><span>🌾 harvest <b>${fmt(r.harvest)}</b></span><span>🐀 rats ate <b>${fmt(r.rats)}</b></span><span>💀 starved <b>${fmt(r.starved)}</b></span><span>🚶 arrived <b>${fmt(r.immigrants)}</b></span><span>🦠 plague deaths <b>${fmt(r.plague_deaths)}</b></span></div></div>`});
   showState(d.state);
 }
-
 function onEscalate(d) {
-  const stand = (d.positions || []).map(p => `<div style="--c:${color(p.advisor)}"><b>${EMOJI[p.advisor]} ${SHORT[p.advisor]}</b>${p.veto.length ? ` <span style="color:#fa777c">vetoes the ${p.veto.map(v => SHORT[v.split("-")[0]]).join(" and ")}</span>` : ""}<i>${esc(p.thought || p.speech)}</i></div>`).join("");
-  const opts = d.options.map(o => {
-    const id = o.id.split("-")[0];
-    const who = o.id === "safe" ? "🛟 Safe fallback" : `${EMOJI[id]} ${SHORT[id]}'s plan`;
-    const sub = o.id === "safe" ? "feed all, sell up to 20% of land if needed, sow the max" :
-      `${o.accept.length}/4 accept${o.veto.length ? ` · vetoed by ${o.veto.map(v => SHORT[v]).join(", ")}` : ""}`;
-    return `<button class="opt" data-choice="${esc(o.id)}"><div class="row"><span class="who">${who}</span><span class="p">${planShort(o.plan)}</span><span class="votes" style="color:var(--muted);font-size:12px">${sub}</span></div></button>`;
-  }).join("");
-  const el = message({ ...CLERK, time: `year ${d.year}`,
-    html: `<div class="embed poll deadlock" id="deadlockPoll"><div class="etitle">⚖️ Deadlock: your vote decides</div><div class="esub">${esc(d.reason)}</div>
-      <div class="stand">${stand}</div>${opts}<div class="foot" id="deadlockFoot">The reign is paused until you choose.</div></div>` });
-  el.querySelectorAll("button[data-choice]").forEach(btn => btn.onclick = async () => {
-    try { await api("/api/escalation", { choice: btn.dataset.choice }); } catch (e) { toast(e.message); return; }
-    el.querySelectorAll("button[data-choice]").forEach(b => { b.disabled = true; b.style.opacity = b === btn ? 1 : .45; });
+  const opts = d.options.map(o => `<button class="opt" data-choice="${esc(o.id)}"${replay ? " disabled" : ""}><div class="row"><span class="who">${EMOJI[o.author]} ${SHORT[o.author]}'s latest budget</span></div>${planChips(o.plan)}<div class="esub">${esc(o.speech)}</div></button>`).join("");
+  const el = message({...CLERK, time: `year ${d.year}`, html: `<div class="embed poll deadlock" id="deadlockPoll"><div class="etitle">⚖️ Negotiation deadlock</div><div class="esub">${esc(d.reason)}</div>${opts}<div class="foot" id="deadlockFoot">${replay ? "Recorded deadlock. Replay is read-only." : "The reign is paused. Select a latest valid advisor budget."}</div></div>`});
+  el.querySelectorAll("[data-choice]").forEach(btn => btn.onclick = async () => {
+    try { await api("/api/escalation", {run_id: runId, choice: btn.dataset.choice}); } catch (e) { toast(e.message); return; }
+    el.querySelectorAll("[data-choice]").forEach(b => b.disabled = true);
     btn.classList.add("win");
-    el.querySelector("#deadlockFoot").textContent = "Your ruling is recorded. The reign continues.";
-    el.querySelector("#deadlockPoll").removeAttribute("id");
+    el.querySelector("#deadlockFoot").textContent = "Your selection is recorded as human resolution.";
     $("#alertbar").classList.remove("show");
   });
   setTyping([]);
-  $("#alertbar").classList.add("show");
-  el.scrollIntoView({ behavior: "smooth", block: "center" });
+  if (!replay) $("#alertbar").classList.add("show");
 }
-
-/* ---- side panels ---- */
 function buildMembers() {
-  $("#memberList").innerHTML = meta.advisors.map(a => `<div class="member" id="mem-${a.id}" title="${esc(a.mandate)}">
-    <div class="avatar" style="--c:${a.color}">${EMOJI[a.id]}</div><div><div class="mn" style="--c:${a.color}">${SHORT[a.id]}</div><div class="ms">${esc(a.mandate.split(".")[0])}</div></div></div>`).join("");
-  $("#redlines").innerHTML = meta.advisors.map(a => `<div><b style="--c:${a.color}">${EMOJI[a.id]} ${SHORT[a.id]}</b>: ${RL[a.id]}</div>`).join("");
+  $("#memberList").innerHTML = meta.advisors.map(a => `<div class="member" id="mem-${a.id}" title="${esc(a.mandate)}"><div class="avatar" style="--c:${a.color}">${EMOJI[a.id]}</div><div><div class="mn" style="--c:${a.color}">${SHORT[a.id]}</div><div class="ms">${esc(a.mandate.split(".")[0])}</div></div></div>`).join("");
+  $("#redlines").innerHTML = meta.advisors.map(a => `<div><b style="--c:${a.color}">${EMOJI[a.id]} ${SHORT[a.id]}</b>: ${esc(a.red_line)}</div>`).join("") + '<div>Advisors decide YES or NO; these concerns grant no special veto.</div>';
 }
 function setTyping(ids) {
   for (const a of meta.advisors) {
     const ms = $(`#mem-${a.id} .ms`);
-    ms.innerHTML = ids.includes(a.id) ? `<span class="dots"><span></span><span></span><span></span></span> thinking` : esc(a.mandate.split(".")[0]);
-    ms.classList.toggle("typing-now", ids.includes(a.id));
+    ms.textContent = ids.includes(a.id) ? "thinking…" : a.mandate.split(".")[0];
   }
-  $("#typing").innerHTML = ids.length ? `<span class="dots"><span></span><span></span><span></span></span> <b>${ids.map(i => SHORT[i]).join(", ")}</b> are thinking...` : "";
-}
-function setStat(id, v, prev, invert = false) {
-  $(`#s${id}`).textContent = fmt(v);
-  const d = $(`#d${id}`); if (!d) return;
-  if (prev == null || prev === v) { d.textContent = ""; d.className = "d"; return; }
-  const delta = v - prev, good = invert ? delta < 0 : delta > 0;
-  d.textContent = `${delta > 0 ? "+" : ""}${fmt(delta)}`; d.className = `d ${good ? "up" : "down"}`;
+  $("#typing").textContent = ids.length ? ids.map(i => SHORT[i]).join(", ") + " are considering the current phase…" : "";
 }
 function showState(s) {
   $("#sYear").textContent = s.year > 10 ? "done" : `${s.year}/10`;
-  setStat("Pop", s.population, prevState?.population);
-  setStat("Grain", s.grain, prevState?.grain);
-  setStat("Acres", s.acres, prevState?.acres);
+  for (const [id, key] of [["Pop", "population"], ["Grain", "grain"], ["Acres", "acres"], ["Starved", "starved_total"]]) {
+    $(`#s${id}`).textContent = fmt(s[key]);
+    const diff = prevState == null ? 0 : s[key] - prevState[key];
+    $(`#d${id}`).textContent = diff ? `${diff > 0 ? "+" : ""}${fmt(diff)}` : "";
+  }
   $("#sPrice").textContent = s.land_price;
-  setStat("Starved", s.starved_total, prevState?.starved_total, true);
   prevState = s;
 }
-function setActive(year) { document.querySelectorAll(".ch").forEach(c => c.classList.toggle("active", c.dataset.view === "chat" && c.dataset.year == year)); }
-
-/* ---- voice ---- */
 const audioQ = []; let playing = false;
-function speak(advisor, text) { if ($("#voiceOn").value !== "1" || !text) return; audioQ.push({ advisor, text }); if (!playing) playNext(); }
+function speak(advisor, text) { if ($("#voiceOn").value !== "1" || !text) return; audioQ.push({advisor, text}); if (!playing) playNext(); }
 function playNext() {
   const it = audioQ.shift(); if (!it) { playing = false; return; } playing = true;
   const a = new Audio(`/api/voice/${it.advisor}?text=${encodeURIComponent(it.text)}`);
   a.onended = playNext; a.onerror = playNext; a.play().catch(playNext);
 }
-
-/* ---- events ---- */
-function handle({ kind, data: d }) {
+function handle(event) {
+  if (seen.has(event.sequence)) return;
+  seen.add(event.sequence);
+  const {kind, data: d} = event;
   if (kind === "game") {
     $("#feed").innerHTML = ""; prevState = null; curYear = 0;
-    $("#yearChannels").innerHTML = `<button class="ch active" data-view="chat" data-year="0"><span class="hash">#</span>council-chamber</button>`;
+    $("#yearChannels").innerHTML = '<button class="ch active" data-view="chat" data-year="0"><span class="hash">#</span>council-chamber</button>';
     $("#alertbar").classList.remove("show");
     showState(d.state);
-    sys(`<span class="ic">🏛️</span>The council convenes. Seed ${d.seed}. Ten years to rule, no king to break ties.`);
-  } else if (kind === "round") {
-    if (d.year !== curYear) {
-      curYear = d.year;
-      $("#yearChannels").insertAdjacentHTML("beforeend", `<button class="ch" data-view="chat" data-year="${d.year}"><span class="hash">#</span>year-${d.year}</button>`);
-      setActive(d.year);
-      append(node(`<span id="year-${d.year}">Year ${d.year} · ${fmt(prevState?.population)} people · ${fmt(prevState?.grain)} grain · ${fmt(prevState?.acres)} acres · land at ${prevState?.land_price}</span>`, "divider"));
-    }
+    sys(`<span class="ic">🏛️</span>${replay ? "Recorded replay" : "Council convened"} · seed ${d.seed} · run ${esc(runId.slice(0, 8))}`);
+  } else if (kind === "public_report") {
+    curYear = d.year;
+    $("#yearChannels").insertAdjacentHTML("beforeend", `<button class="ch" data-view="chat" data-year="${d.year}"><span class="hash">#</span>year-${d.year}</button>`);
+    append(node(`<span id="year-${d.year}">Year ${d.year} · ${fmt(d.state.population)} people · ${fmt(d.state.grain)} grain · ${fmt(d.state.acres)} acres · current land quote ${d.state.land_price}</span>`, "divider"));
+    showState(d.state);
+  } else if (kind === "phase") {
     $("#chanName").textContent = `year-${d.year}`;
-    $("#topic").textContent = `Round ${d.round + 1} of ${maxRounds}`;
-    setTyping(meta.advisors.map(a => a.id));
-  } else if (kind === "wire") onWire(d);
-  else if (kind === "news") {
-    message({ name: "Scouts", avatar: "📯", c: "#00a8fc", tag: `<span class="tag">news</span>`, time: `year ${d.year} · round ${d.round + 1}`,
-      html: `<div class="embed" style="--ec:var(--link)"><div class="etitle">🧭 ${d.injected ? "The scout you sent reports" : "Scout report"}</div><div class="body">${esc(d.text)}</div>
-        <div class="esub glass-only">belief update: ${esc(JSON.stringify(d.beliefs))}</div></div>` });
-  } else if (kind === "ballots") onBallots(d);
+    $("#topic").textContent = `${replay ? "Replay · " : ""}${d.phase} · cycle ${d.round}${d.attempt > 1 ? " · retry" : ""}`;
+    sys(`<span class="ic">📜</span>${esc(d.phase)} · cycle ${d.round}${d.attempt > 1 ? " · retry failed peers" : ""}`);
+    if (!replay) setTyping(d.targets);
+  } else if (kind === "responses") onResponses(d);
+  else if (kind === "ballots") onBallots(d);
+  else if (kind === "wire") sys(`<span class="ic">📡</span>${esc(d.transport)} · ${d.replies} responses in ${d.elapsed_s}s`, "wire");
   else if (kind === "year") onYear(d);
   else if (kind === "escalate") onEscalate(d);
-  else if (kind === "escalation_timeout") { $("#alertbar").classList.remove("show"); sys(`<span class="ic">🛟</span>No ruling in time. Using the safe fallback.`); }
+  else if (kind === "validation_error") sys(`<span class="ic">⚠️</span>${esc(SHORT[d.peer] || d.peer)}: ${esc(d.message)} (attempt ${d.attempt})`);
+  else if (kind === "technical_failure" || kind === "stopped") { setTyping([]); $("#alertbar").classList.remove("show"); sys(`<span class="ic">⚠️</span>${esc(d.message)}`); }
   else if (kind === "end") {
-    const r = d.rating; setTyping([]);
-    $("#topic").textContent = `Reign complete. Verdict: ${r.verdict}`;
-    message({ ...CLERK, time: "end of reign",
-      html: `<div class="embed outcome" style="--ec:var(--blurple)"><div class="etitle">🏆 Reign complete. Verdict: ${esc(r.verdict)}</div>
-        <div class="esub">1968 rating rule: ${esc(r.verdict_reason)}.</div>
-        <div class="stats"><span>people <b>${fmt(r.population)}</b></span><span>acres <b>${fmt(r.acres)}</b></span><span>grain <b>${fmt(r.grain)}</b></span><span>avg starved <b>${r.avg_starved_pct}%</b></span><span>score <b>${r.score}</b></span></div>
-        <div class="esub">${Object.entries(d.outcomes).map(([k, v]) => `${v} ${k}`).join(" · ")}</div></div>` });
-  } else if (kind === "error") toast(d.message);
+    setTyping([]);
+    $("#topic").textContent = `${replay ? "Replay · " : ""}${d.status.replaceAll("_", " ")}${d.human_assisted ? " · human-assisted" : ""}`;
+    const r = d.rating;
+    const finished = ["completed", "overthrown", "depopulated"].includes(d.status);
+    message({...CLERK, time: finished ? "end of reign" : "run status", html: `<div class="embed outcome"><div class="etitle">${esc(d.status.replaceAll("_", " "))}</div>
+      ${finished ? `<div class="esub">Verdict: ${esc(r.verdict)} · ${esc(r.verdict_reason)}</div>` : ""}
+      <div class="stats"><span>people <b>${fmt(r.population)}</b></span><span>acres <b>${fmt(r.acres)}</b></span><span>grain <b>${fmt(r.grain)}</b></span><span>avg starved <b>${r.avg_starved_pct}%</b></span></div></div>`});
+    if (!replay) { stream?.close(); loadRuns().catch(e => toast(e.message)); }
+  }
 }
-function connect() {
-  const es = new EventSource("/api/events");
-  es.onmessage = m => handle(JSON.parse(m.data));
-  es.onerror = () => { es.close(); setTimeout(connect, 1500); };
+async function loadRuns() {
+  const runs = await api("/api/runs");
+  $("#savedRuns").innerHTML = '<option value="">Select a saved run</option>' + runs.map(r => `<option value="${esc(r.id)}">seed ${r.manifest.seed} · ${esc(r.status)} · ${r.id.slice(0, 8)}</option>`).join("");
+  $("#savedRuns").value = runId;
+  return runs;
 }
-
+function setRun(id, isReplay) {
+  stream?.close(); seen.clear(); runId = id; replay = isReplay; setTyping([]);
+  $("#exportBtn").href = `/api/runs/${runId}/export`;
+  $("#exportBtn").classList.remove("hidden");
+  $("#alertbar").classList.remove("show");
+}
+function connect(id) {
+  setRun(id, false);
+  stream = new EventSource(`/api/events?run_id=${encodeURIComponent(id)}`);
+  stream.onmessage = m => handle(JSON.parse(m.data));
+  // EventSource retains Last-Event-ID when reconnecting; seen also suppresses duplicates.
+}
+async function replayRun(id) {
+  setRun(id, true);
+  const events = await api(`/api/runs/${id}/events`);
+  for (const event of events) handle(event);
+  $("#topic").textContent = "Recorded replay · read-only";
+  $("#feed").scrollTop = 0;
+}
+async function showTraces(traceId = "") {
+  if (!runId) return;
+  const spans = await api(`/api/runs/${runId}/traces${traceId ? "" : "?year=" + curYear}`);
+  const selected = traceId ? spans.filter(s => s.traceId === traceId) : spans;
+  message({...CLERK, time: "recorded traces", html: `<div class="embed"><div class="etitle">Observe traces</div><div class="esub">${selected.length ? "Recorded span IDs and parent links" : "No imported spans yet. The collector may still be flushing."}</div>
+    ${selected.map(s => `<div class="esub"><b>${esc(s.name)}</b> · trace ${esc(s.traceId)} · span ${esc(s.spanId)} · parent ${esc(s.parentSpanId || "root")}</div>`).join("")}</div>`});
+}
 $("#app").addEventListener("click", e => {
+  const trace = e.target.closest("[data-trace]");
+  if (trace) { showTraces(trace.dataset.trace).catch(e => toast(e.message)); return; }
   const ch = e.target.closest(".ch"); if (!ch) return;
-  const ev = ch.dataset.view === "evidence";
-  $("#chatView").classList.toggle("hidden", ev); $("#evidenceView").classList.toggle("hidden", !ev);
+  const evidence = ch.dataset.view === "evidence";
+  $("#chatView").classList.toggle("hidden", evidence); $("#evidenceView").classList.toggle("hidden", !evidence);
   document.querySelectorAll(".ch").forEach(c => c.classList.toggle("active", c === ch));
-  if (ev) { loadBench().catch(err => toast(err.message)); return; }
-  const y = +ch.dataset.year;
-  if (y > 0) $(`#year-${y}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
-  else $("#feed").scrollTo({ top: 0, behavior: "smooth" });
+  if (evidence) { loadBench().catch(e => toast(e.message)); return; }
+  const year = +ch.dataset.year;
+  if (year > 0) { curYear = year; $(`#year-${year}`)?.scrollIntoView({behavior: "smooth", block: "start"}); }
+  else $("#feed").scrollTo({top: 0, behavior: "smooth"});
 });
 $("#glassToggle").onclick = () => {
-  glass = !glass; $("#glassToggle").setAttribute("aria-pressed", glass);
-  $("#app").classList.toggle("glass-off", !glass);
+  glass = !glass; $("#glassToggle").setAttribute("aria-pressed", glass); $("#app").classList.toggle("glass-off", !glass);
   document.querySelectorAll(".think").forEach(t => t.open = glass);
 };
-$("#alertbar").onclick = () => $("#deadlockPoll")?.scrollIntoView({ behavior: "smooth", block: "center" });
-const start = () => {
-  maxRounds = +$("#rounds").value;
-  api("/api/game", { seed: +$("#seed").value, reveal_news: $("#reveal").value === "1", max_rounds: maxRounds }).catch(e => toast(e.message));
-};
+$("#alertbar").onclick = () => $("#deadlockPoll")?.scrollIntoView({behavior: "smooth", block: "center"});
+async function start() {
+  try {
+    const result = await api("/api/game", {seed: +$("#seed").value, max_rounds: +$("#rounds").value});
+    $("#chatView").classList.remove("hidden"); $("#evidenceView").classList.add("hidden");
+    connect(result.run_id); await loadRuns();
+  } catch (e) { toast(e.message); }
+}
 $("#startBtn").onclick = start; $("#startBtnMobile").onclick = start;
-$("#stopBtn").onclick = () => api("/api/stop", {}).catch(e => toast(e.message));
-$("#pace").oninput = e => api("/api/pace", { pace_s: +e.target.value }).catch(() => {});
-document.querySelectorAll("[data-news]").forEach(b => b.onclick = () => api("/api/news", { kind: b.dataset.news })
-  .then(() => sys(`<span class="ic">🧭</span>Scout dispatched. The report reaches the council next round.`)).catch(e => toast(e.message)));
-
+$("#stopBtn").onclick = () => api("/api/stop", {}).then(loadRuns).catch(e => toast(e.message));
+$("#pace").oninput = e => api("/api/pace", {pace_s: +e.target.value}).catch(() => {});
+$("#savedRuns").onchange = e => { if (e.target.value) replayRun(e.target.value).catch(e => toast(e.message)); };
+$("#liveBtn").onclick = async () => {
+  const current = await api("/api/meta");
+  if (current.active_run) connect(current.active_run); else toast("There is no active run.");
+};
+$("#tracesBtn").onclick = () => showTraces().catch(e => toast(e.message));
 async function loadBench() {
   const b = await api("/api/bench");
-  if (b.missing) { $("#benchMeta").textContent = "No results yet. Run: uv run sumer bench"; return; }
-  const cols = ["policy", "score", "survived", "starved", "population", "fairness"];
-  const label = { policy: "Decider", score: "Mean score", survived: "Survived", starved: "Mean starved", population: "Mean people", fairness: "Fairness" };
-  $("#benchTable thead").innerHTML = `<tr>${cols.map(c => `<th>${label[c]}</th>`).join("")}</tr>`;
-  $("#benchTable tbody").innerHTML = b.rows.map(r => `<tr${r.key === "council" ? ' style="background:rgba(88,101,242,.15)"' : ""}>${cols.map(c => `<td>${esc(r[c])}</td>`).join("")}</tr>`).join("");
-  const c = b.rows.find(r => r.key === "council");
-  $("#benchMeta").textContent = `${b.seeds} seeds, same dice for everyone. Council: ${c.consensus} consensus, ${c.majority} majority, ${c.escalated} escalated years. Fairness is the worst-served advisor's average satisfaction.`;
-  const ic = Object.keys(b.info[0] || {});
-  $("#infoTable thead").innerHTML = `<tr>${ic.map(k => `<th>${esc(k)}</th>`).join("")}</tr>`;
-  $("#infoTable tbody").innerHTML = b.info.map(r => `<tr>${ic.map(k => `<td>${esc(r[k])}</td>`).join("")}</tr>`).join("");
+  if (b.missing || b.historical) { $("#benchMeta").textContent = b.message || "No results yet. Run: uv run sumer bench"; return; }
+  const cols = ["policy", "score", "completed", "deadlocks", "starved", "population"];
+  $("#benchTable thead").innerHTML = `<tr>${cols.map(c => `<th>${esc(c)}</th>`).join("")}</tr>`;
+  $("#benchTable tbody").innerHTML = b.rows.map(r => `<tr>${cols.map(c => `<td>${esc(r[c])}</td>`).join("")}</tr>`).join("");
+  $("#benchMeta").textContent = `${b.seeds} seeds · ${b.llm} · completed reigns and paused deadlocks counted separately.`;
   $("#lessons").innerHTML = (b.lessons || []).map(l => `<li>${esc(l)}</li>`).join("");
 }
 async function pollSpend() { try { const r = await api("/api/spend"); $("#spend").textContent = `LLM $${r.spent_usd.toFixed(3)} / $${r.budget_usd.toFixed(0)}`; } catch {} }
-
 (async () => {
   meta = await api("/api/meta");
   $("#chipTransport").textContent = meta.transport === "slim" ? "AGNTCY SLIM" : "in-process";
-  $("#chipLlm").textContent = meta.llm === "bayleaf" ? meta.model.split("/").pop() : "offline policy";
-  $("#rounds").value = String(meta.max_rounds); maxRounds = meta.max_rounds;
+  $("#chipLlm").textContent = meta.llm === "bayleaf" ? meta.model.split("/").pop() : "offline fixture";
+  $("#rounds").value = String(meta.max_rounds);
   if (meta.voice) $("#voiceRow").classList.remove("hidden");
   if (meta.llm === "bayleaf") { $("#chipSpend").classList.remove("hidden"); pollSpend(); setInterval(pollSpend, 5000); }
   buildMembers();
-  connect();
-})();
+  const saved = await loadRuns();
+  if (meta.active_run) connect(meta.active_run);
+  else if (saved.length) await replayRun(saved[0].id);
+})().catch(e => toast(e.message));
+
 </script>
 </body>
 </html>

@@ -1,247 +1,212 @@
-"""How the council decides one year, with no king.
-
-Protocol (public, so every advisor can check the clerk's tally):
-  Round 0      every advisor tables an opening proposal.
-  Round 1..N-1 every advisor votes accept / veto on the tabled proposals and
-               tables a revised one. News that arrives mid-debate is shown
-               from round 1 on, so its effect on proposals is visible.
-  Stop rules, checked after each vote:
-    CONSENSUS  a tabled plan is accepted by all four advisors.  -> adopt it
-    stalemate  nobody changed their proposal and no news arrived. -> go to final
-  Final rule (last round or stalemate):
-    MAJORITY   best plan has 3 of 4 accepts and no red-line veto.
-               -> adopt it and RECORD the dissent (we keep the disagreement)
-    ESCALATE   otherwise (deadlock, or a red-line veto on the leading plan).
-               -> ask a human. If no human answers in time, use the
-                  pre-committed safe plan (no trade, feed all, plant max).
-
-The clerk relays messages and applies this rule. It never ranks plans by its
-own judgment.
-"""
-
+"""Explicit, bounded council phases; a clerk validates messages but never selects budgets."""
 from __future__ import annotations
 
-import logging
+import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
-from sumer.advisors import ADVISOR_IDS, Beliefs, Scorer, apply_report, safe_plan
+from sumer.advisors import ADVISOR_IDS
 from sumer.game import Decision, State
-from sumer.protocol import Ballot, Brief, Plan, TabledProposal, proposal_id, verify
-
-log = logging.getLogger(__name__)
+from sumer.observability import context_headers, span
+from sumer.protocol import (
+    Brief,
+    Candidate,
+    Certificate,
+    Delivery,
+    Reply,
+    state_hash,
+    uid,
+    validate_reply,
+    verify_certificate,
+)
 
 Emit = Callable[[str, dict], Awaitable[None]]
-Gather = Callable[[Brief], Awaitable[list[Ballot]]]
-# Called on escalation with (options, reason); returns the chosen option id or None
+Gather = Callable[[Brief], Awaitable[list[Delivery]]]
 AskHuman = Callable[[list[dict], str], Awaitable[str | None]]
 
-SUPERMAJORITY = 3
+
+class TechnicalFailure(Exception):
+    pass
+
+
+class Deadlock(Exception):
+    pass
 
 
 @dataclass
 class YearResult:
     year: int
-    outcome: str  # "consensus" | "majority" | "escalated"
-    plan: Decision
-    adopted_id: str
+    candidate: Candidate
     rounds: int
-    dissent: list[str] = field(default_factory=list)
-    reason: str = ""
-    news: list[dict] = field(default_factory=list)
-    opening: dict[str, Plan] = field(default_factory=dict)
-    after_news: dict[str, Plan] = field(default_factory=dict)
-    satisfaction: dict[str, float] = field(default_factory=dict)
-    human_choice: str | None = None
+    certificate: Certificate | None = None
+    human_resolution: dict | None = None
+    transcript: list[dict] = field(default_factory=list)
+
+    @property
+    def plan(self) -> Decision:
+        return self.candidate.plan.decision()
 
     def summary(self) -> dict:
+        ballots = self.certificate.ballots if self.certificate else []
+        yes = [b.advisor for b in ballots if b.choice == "YES"]
+        no = [b.advisor for b in ballots if b.choice == "NO"]
         return {
             "year": self.year,
-            "outcome": self.outcome,
-            "plan": self.plan.__dict__,
-            "adopted": self.adopted_id,
-            "rounds": self.rounds,
-            "dissent": self.dissent,
-            "reason": self.reason,
-            "news": [n["text"] for n in self.news],
+            "outcome": "human_resolution" if self.human_resolution else (
+                "consensus" if len(yes) == 4 else "majority"),
+            "plan": self.plan.as_dict(), "adopted": self.candidate.id,
+            "candidate": self.candidate.model_dump(), "rounds": self.rounds,
+            "yes_voters": yes, "dissent": no,
+            "certificate": self.certificate.model_dump() if self.certificate else None,
+            "human_resolution": self.human_resolution,
+            "transcript": self.transcript,
         }
 
 
 async def _noop_emit(kind: str, data: dict) -> None:
-    return None
+    pass
 
 
-def tally(table: list[TabledProposal], ballots: list[Ballot]) -> list[dict]:
-    rows = []
-    for t in table:
-        acc = sorted(b.advisor for b in ballots if t.id in b.accept)
-        vet = sorted(b.advisor for b in ballots if t.id in b.veto)
-        rows.append({"id": t.id, "author": t.author, "accept": acc, "veto": vet})
-    return rows
+async def collect(brief: Brief, gather: Gather, emit: Emit) -> list[Reply]:
+    """Keep valid responses; retry only failed peers once with a fresh request binding."""
+    accepted: dict[str, Reply] = {}
+    errors: dict[str, str] = {}
+    for attempt in (1, 2):
+        request = brief.model_copy(update={
+            "message_id": uid(), "targets": [p for p in ADVISOR_IDS if p not in accepted],
+            "errors": dict(errors),
+        })
+        with span("council.phase", run_id=brief.run_id, year=brief.year, phase=brief.phase,
+                  cycle=brief.round, attempt=attempt,
+                  candidate_hash=brief.candidate.hash if brief.candidate else None):
+            request = request.model_copy(update={
+                "traceparent": context_headers().get("traceparent", "")})
+            await emit("phase", {
+                "year": brief.year, "round": brief.round, "phase": brief.phase,
+                "attempt": attempt, "targets": request.targets,
+                "request_id": request.message_id,
+                "candidate": brief.candidate.model_dump() if brief.candidate else None,
+                **context_headers(),
+            })
+            try:
+                deliveries = await asyncio.wait_for(gather(request), timeout=120)
+            except Exception as exc:  # noqa: BLE001 - transport errors become recorded retry failures
+                deliveries = []
+                errors = {p: f"{type(exc).__name__}: {exc}" for p in request.targets}
+            grouped: dict[str, list[Delivery]] = {}
+            for delivery in deliveries:
+                grouped.setdefault(delivery.peer, []).append(delivery)
+                if delivery.peer not in request.targets:
+                    await emit("validation_error", {
+                        "year": brief.year, "phase": brief.phase, "attempt": attempt,
+                        "peer": delivery.peer, "message": "Unexpected or duplicate peer response."})
+            for peer in request.targets:
+                responses = grouped.get(peer, [])
+                try:
+                    if len(responses) != 1:
+                        raise ValueError(errors.get(peer) or
+                                         f"Expected one response, received {len(responses)}.")
+                    reply = validate_reply(responses[0], request)
+                    if reply.message_id in {r.message_id for r in accepted.values()}:
+                        raise ValueError("Duplicate response message ID.")
+                    accepted[peer] = reply
+                    errors.pop(peer, None)
+                    # Receipts are durable even if a different peer ultimately fails.
+                    # They are not added to another agent's transcript before the barrier.
+                    await emit("receipt", {"year": brief.year, "responses": [reply.model_dump()]})
+                except ValueError as exc:
+                    errors[peer] = str(exc)
+                    await emit("validation_error", {
+                        "year": brief.year, "round": brief.round, "phase": brief.phase,
+                        "attempt": attempt, "peer": peer, "message": str(exc),
+                        "response": responses[0].reply.model_dump()
+                        if len(responses) == 1 and responses[0].reply else None})
+        if len(accepted) == 4:
+            ordered = [accepted[p] for p in ADVISOR_IDS]
+            if brief.phase != "vote":
+                await emit("responses", {
+                    "year": brief.year, "round": brief.round, "phase": brief.phase,
+                    "responses": [r.model_dump() for r in ordered]})
+            return ordered
+    raise TechnicalFailure(f"{brief.phase} failed after one retry: {errors}")
+
+
+def candidates(replies: list[Reply]) -> list[Candidate]:
+    return [Candidate(
+        id=uid(), run_id=r.run_id, year=r.year, revision=r.round, author=r.advisor,
+        state_hash=r.state_hash, plan=r.proposal, assumed_price=r.assumed_price,
+        speech=r.speech, arithmetic=r.arithmetic, assumptions=r.assumptions,
+        expected_effects=r.expected_effects, objections_addressed=r.objections_addressed,
+        source_message_id=r.message_id,
+    ) for r in replies]
 
 
 async def deliberate_year(
-    *,
-    seed: int,
-    state: State,
-    gather: Gather,
-    history: list[dict],
-    max_rounds: int,
-    scheduled_news: dict | None,
-    injected_news: list[dict] | None = None,
-    ask_human: AskHuman | None = None,
-    emit: Emit = _noop_emit,
+    *, run_id: str, state: State, gather: Gather, history: list[dict],
+    peer_keys: dict[str, str], max_rounds: int,
+    ask_human: AskHuman | None = None, emit: Emit = _noop_emit,
 ) -> YearResult:
-    beliefs = Beliefs()
-    news: list[dict] = []
-    table: list[TabledProposal] = []
-    prev_plans: dict[str, Plan] = {}
-    opening: dict[str, Plan] = {}
-    after_news: dict[str, Plan] = {}
-    injected_news = injected_news if injected_news is not None else []
-    rows: list[dict] = []
-    last_ballots: list[Ballot] = []
+    if max_rounds < 1:
+        raise ValueError("At least one negotiation cycle is required.")
+    transcript: list[dict] = []
+    table: list[Candidate] = []
 
-    for rnd in range(max_rounds):
-        fresh = []
-        if rnd == 1 and scheduled_news:
-            fresh.append(scheduled_news)
-        while injected_news:
-            fresh.append(injected_news.pop(0))
-        for n in fresh:
-            news.append(n)
-            beliefs = apply_report(beliefs, n)
-            await emit("news", {"year": state.year, "round": rnd, **n})
+    async def phase(kind: str, cycle: int, candidate: Candidate | None = None):
+        brief = Brief(run_id=run_id, year=state.year, round=cycle, max_rounds=max_rounds,
+                      phase=kind, state=state.public(), state_hash=state_hash(state),
+                      table=table, candidate=candidate, history=history,
+                      transcript=list(transcript), peer_keys=peer_keys)
+        replies = await collect(brief, gather, emit)
+        transcript.extend(r.model_dump() for r in replies)
+        return replies
 
-        brief = Brief(
-            seed=seed,
-            year=state.year,
-            round=rnd,
-            max_rounds=max_rounds,
-            state=state.public(),
-            beliefs=beliefs.__dict__,
-            news=news,
-            table=table,
-            history=history,
-        )
-        await emit("round", {"year": state.year, "round": rnd, "table": [t.id for t in table]})
-        received = await gather(brief)
-        ballots = [b for b in received if _valid(b, brief)]
-        ballots.sort(key=lambda b: ADVISOR_IDS.index(b.advisor))
-        last_ballots = ballots
-        rows = tally(table, ballots)
-        await emit(
-            "ballots",
-            {
-                "year": state.year,
-                "round": rnd,
-                "ballots": [b.model_dump(exclude={"sig"}) for b in ballots],
-                "tally": rows,
-                "verified": len(ballots),
-                "rejected": len(received) - len(ballots),
-                "missing": [a for a in ADVISOR_IDS if a not in {b.advisor for b in ballots}],
-            },
-        )
+    table = candidates(await phase("proposal", 0))
+    await emit("candidates", {"year": state.year, "round": 0,
+                              "candidates": [c.model_dump() for c in table]})
+    failed: list[dict] = []
+    for cycle in range(1, max_rounds + 1):
+        await phase("objection", cycle)
+        table = candidates(await phase("revision", cycle))
+        await emit("candidates", {"year": state.year, "round": cycle,
+                                  "candidates": [c.model_dump() for c in table]})
+        # Every frozen candidate gets its own complete four-peer ballot.
+        for candidate in table:
+            ballots = await phase("vote", cycle, candidate)
+            yes = [b.advisor for b in ballots if b.choice == "YES"]
+            no = [b.advisor for b in ballots if b.choice == "NO"]
+            passing = len(yes) >= 3
+            record = {
+                "message_id": uid(), "kind": "passed_ballot" if passing else "failed_ballot",
+                "year": state.year, "round": cycle, "candidate": candidate.model_dump(),
+                "candidate_hash": candidate.hash, "ballots": [b.model_dump() for b in ballots],
+                "yes_voters": yes, "dissent": no, "passing": passing, "verified": 4,
+            }
+            await emit("ballots", record)
+            transcript.append(record)
+            if passing:
+                cert = Certificate(candidate=candidate, ballots=ballots)
+                verify_certificate(cert, state, run_id, peer_keys)
+                return YearResult(state.year, candidate, cycle, certificate=cert,
+                                  transcript=list(transcript))
+            failed.append(record)
 
-        # Stop rule 1: unanimous acceptance of a tabled plan.
-        for row in rows:
-            if len(row["accept"]) == len(ADVISOR_IDS) and not row["veto"]:
-                t = next(t for t in table if t.id == row["id"])
-                return _finish(
-                    state, beliefs, "consensus", t, rnd + 1, [], "All four advisors accepted.",
-                    news, opening, after_news,
-                )
-
-        plans = {b.advisor: b.proposal for b in ballots}
-        if rnd == 0:
-            opening = dict(plans)
-        if news and not after_news and rnd >= 1:
-            after_news = dict(plans)
-
-        stalemate = rnd >= 2 and plans == prev_plans and not fresh
-        if rnd == max_rounds - 1 or stalemate:
-            break
-        prev_plans = plans
-        table = [
-            TabledProposal(
-                id=proposal_id(b.advisor, state.year, rnd),
-                author=b.advisor,
-                plan=b.proposal,
-                speech=b.speech,
-            )
-            for b in ballots
-        ]
-
-    # Final rule.
-    ranked = sorted(rows, key=lambda r: (-len(r["accept"]), len(r["veto"]), r["id"]))
-    if ranked and len(ranked[0]["accept"]) >= SUPERMAJORITY and not ranked[0]["veto"]:
-        best = ranked[0]
-        t = next(t for t in table if t.id == best["id"])
-        dissent = [a for a in ADVISOR_IDS if a not in best["accept"]]
-        return _finish(
-            state, beliefs, "majority", t, rnd + 1, dissent,
-            f"{len(best['accept'])} of 4 accepted. Dissent recorded: {', '.join(dissent)}.",
-            news, opening, after_news,
-        )
-
-    if ranked and ranked[0]["veto"]:
-        reason = (
-            f"Leading plan {ranked[0]['id']} crosses a red line for "
-            f"{', '.join(ranked[0]['veto'])}. A majority must not override it."
-        )
-    else:
-        reason = "Deadlock: no plan reached 3 of 4 accepts."
-    safe = safe_plan(state)
-    options = [
-        {"id": r["id"], "plan": next(t for t in table if t.id == r["id"]).plan.model_dump(),
-         "accept": r["accept"], "veto": r["veto"]}
-        for r in ranked[:2]
-    ] + [{"id": "safe", "plan": safe.__dict__, "accept": [], "veto": [],
-          "note": "Pre-committed safe fallback: feed everyone (selling up to 20% of land if needed), then sow the most we can."}]
-    positions = [
-        {
-            "advisor": b.advisor,
-            "proposal": b.proposal.model_dump(),
-            "accept": b.accept,
-            "veto": b.veto,
-            "speech": b.speech,
-            "thought": b.trace.get("thought", ""),
-        }
-        for b in last_ballots
-    ]
-    await emit(
-        "escalate",
-        {"year": state.year, "reason": reason, "options": options, "positions": positions},
-    )
-    choice = await ask_human(options, reason) if ask_human else None
-    chosen = next((o for o in options if o["id"] == choice), options[-1])
-    t = TabledProposal(id=chosen["id"], author="human" if choice else "fallback",
-                       plan=Plan(**chosen["plan"]))
-    res = _finish(state, beliefs, "escalated", t, rnd + 1, [], reason, news, opening, after_news)
-    res.human_choice = choice
-    return res
-
-
-def _valid(b: Ballot, brief: Brief) -> bool:
-    ok = b.advisor in ADVISOR_IDS and b.year == brief.year and b.round == brief.round and verify(b)
-    if not ok:
-        log.warning("dropping unverified ballot from %s", b.advisor)
-    return ok
-
-
-def _finish(state, beliefs, outcome, t, rounds, dissent, reason, news, opening, after_news):
-    d = Decision(t.plan.land_delta, t.plan.feed, t.plan.plant)
-    sc = Scorer(state, beliefs, extra=[d])
-    return YearResult(
-        year=state.year,
-        outcome=outcome,
-        plan=d,
-        adopted_id=t.id,
-        rounds=rounds,
-        dissent=dissent,
-        reason=reason,
-        news=news,
-        opening=opening,
-        after_news=after_news,
-        satisfaction={a: round(sc.norm(a, d), 3) for a in ADVISOR_IDS},
-    )
+    reason = f"No candidate received three YES votes in {max_rounds} completed cycles."
+    options = [c.model_dump() for c in table]
+    await emit("escalate", {
+        "year": state.year, "reason": reason, "options": options,
+        "failed_ballots": failed, "state_hash": state_hash(state)})
+    if ask_human is None:
+        raise Deadlock(reason)
+    choice = await ask_human(options, reason)
+    if choice is None:
+        raise Deadlock(reason)
+    chosen = next((c for c in table if c.id == choice), None)
+    if chosen is None:
+        raise TechnicalFailure("Human selection does not identify a latest valid proposal.")
+    resolution = {
+        "id": uid(), "run_id": run_id, "year": state.year, "candidate_id": chosen.id,
+        "candidate_hash": chosen.hash, "state_hash": state_hash(state),
+        "reason": reason, "source": "human", "human_assisted": True,
+    }
+    return YearResult(state.year, chosen, max_rounds, human_resolution=resolution,
+                      transcript=list(transcript))

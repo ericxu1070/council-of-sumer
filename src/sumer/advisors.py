@@ -1,10 +1,4 @@
-"""The four advisors: public mandates, red lines, and how each scores a plan.
-
-Each advisor judges a plan by forecasting next year's city under its current
-beliefs and scoring the forecast against its own mandate. Mandates conflict
-by design: the General wants land, the Priest wants full granaries, the
-Farmer wants every mouth fed, and the Merchant wants wealth at market prices.
-"""
+"""Public mandates and offline benchmark policies (never live model guidance)."""
 
 from __future__ import annotations
 
@@ -17,14 +11,13 @@ from sumer.game import (
     PLAGUE_CHANCE,
     Decision,
     State,
-    YearRolls,
     legalize,
 )
 
 
 @dataclass(frozen=True)
 class Beliefs:
-    """What the council believes about this year. Scout reports update it."""
+    """Fixed assumptions used only by offline fixtures and baseline policies."""
 
     expected_yield: float = 3.0
     rat_chance: float = 0.4
@@ -47,13 +40,13 @@ class Forecast:
 def forecast(state: State, d: Decision, b: Beliefs) -> Forecast:
     d = legalize(state, d)
     grain = state.grain - d.land_delta * state.land_price - d.feed - d.plant // ACRES_PER_BUSHEL
-    grain += d.plant * b.expected_yield
     grain -= grain * b.rat_chance * b.rat_fraction
+    grain += d.plant * b.expected_yield
     acres = state.acres + d.land_delta
     starved = max(0, state.population - d.feed // FOOD_PER_PERSON)
     pop = state.population - starved
-    if starved == 0:
-        pop += 3 * (20 * acres + grain) / max(pop, 1) / 100 + 1
+    if starved / max(state.population, 1) <= 0.45:
+        pop += 3 * (20 * acres + grain) / max(state.population, 1) / 100 + 1
     pop *= 1 - b.plague_chance * 0.5
     return Forecast(
         grain=grain,
@@ -158,27 +151,15 @@ def candidate_plans(state: State) -> list[Decision]:
     for lf in (-0.2, -0.1, -0.05, 0.0, 0.05, 0.1, 0.2):
         for ff in (0.6, 0.8, 0.9, 1.0, 1.15):
             for pf in (0.4, 0.7, 1.0):
-                land = round(state.acres * lf)
-                feed = round(need * ff)
-                rough = legalize(state, Decision(land, feed, 10**9))
-                plant = round(rough.plant * pf)
+                land = min(round(state.acres * lf), state.grain // state.land_price)
+                available = state.grain - land * state.land_price
+                feed = min(round(need * ff), available)
+                capacity = min(state.acres + land, state.population * ACRES_PER_WORKER,
+                               (available - feed) * ACRES_PER_BUSHEL + 1)
+                plant = round(capacity * pf)
                 d = legalize(state, Decision(land, feed, plant))
                 seen[(d.land_delta, d.feed, d.plant)] = d
     return list(seen.values())
-
-
-def safe_plan(state: State) -> Decision:
-    """The pre-committed fallback when the council cannot decide.
-
-    Feed everyone, selling up to 20% of the land if that is what it takes,
-    then sow as much as the remaining grain allows."""
-    need = state.population * FOOD_PER_PERSON
-    max_plant = min(state.acres, state.population * ACRES_PER_WORKER)
-    shortfall = need + max_plant // ACRES_PER_BUSHEL - state.grain
-    sell = 0
-    if shortfall > 0:
-        sell = min(round(0.2 * state.acres), -(-shortfall // state.land_price))
-    return legalize(state, Decision(-sell, need, max_plant))
 
 
 class Scorer:
@@ -204,80 +185,3 @@ class Scorer:
 
     def vetoes(self, advisor_id: str, d: Decision) -> bool:
         return ADVISORS[advisor_id].violates_red_line(self.forecast(advisor_id, d), self.state)
-
-
-# ---- New information: scout reports derived from the true hidden dice ----
-
-REPORT_KINDS = ("harvest", "rats", "plague", "market")
-
-
-def scout_report(kind: str, rolls: YearRolls, next_rolls: YearRolls | None) -> dict:
-    """A true report about this year's hidden dice, with its effect on beliefs."""
-    match kind:
-        case "harvest":
-            if rolls.yield_per_acre <= 2:
-                return {
-                    "kind": kind,
-                    "text": "Locusts sighted in the east. Expect a poor harvest, 1 to 2 bushels per acre.",
-                    "beliefs": {"expected_yield": 1.5},
-                }
-            if rolls.yield_per_acre >= 4:
-                return {
-                    "kind": kind,
-                    "text": "The river flooded richly. Expect a strong harvest, 4 to 5 bushels per acre.",
-                    "beliefs": {"expected_yield": 4.5},
-                }
-            return {
-                "kind": kind,
-                "text": "Field scouts expect an ordinary harvest, about 3 bushels per acre.",
-                "beliefs": {"expected_yield": 3.0},
-            }
-        case "rats":
-            if rolls.rat_divisor % 2 == 0:
-                frac = 1 / rolls.rat_divisor
-                return {
-                    "kind": kind,
-                    "text": f"Rats are breeding in the granary. They will eat about {round(frac * 100)}% of our stores.",
-                    "beliefs": {"rat_chance": 1.0, "rat_fraction": frac},
-                }
-            return {
-                "kind": kind,
-                "text": "The cats have done their work. The granary is free of rats this year.",
-                "beliefs": {"rat_chance": 0.0},
-            }
-        case "plague":
-            if rolls.plague:
-                return {
-                    "kind": kind,
-                    "text": "Plague has reached Ur and is coming up the river. Half the city may fall sick.",
-                    "beliefs": {"plague_chance": 0.9},
-                }
-            return {
-                "kind": kind,
-                "text": "Envoys from every neighbor report no sickness this season.",
-                "beliefs": {"plague_chance": 0.02},
-            }
-        case "market":
-            price = next_rolls.land_price if next_rolls else 21
-            return {
-                "kind": kind,
-                "text": f"Traders from Lagash say land will sell for {price} bushels an acre next year.",
-                "beliefs": {"next_price": float(price)},
-            }
-    raise ValueError(kind)
-
-
-def report_for_year(seed: int, year: int, rolls: YearRolls) -> str | None:
-    """Pick which report (if any) arrives mid-debate this year. The most
-    decision-relevant news wins, so the demo shows information that matters."""
-    if rolls.yield_per_acre <= 2 or rolls.yield_per_acre >= 4:
-        return "harvest"
-    if rolls.rat_divisor in (2, 4):
-        return "rats"
-    if rolls.plague:
-        return "plague"
-    return "market" if (seed + year) % 2 == 0 else None
-
-
-def apply_report(b: Beliefs, report: dict | None) -> Beliefs:
-    return replace(b, **report["beliefs"]) if report else b

@@ -1,4 +1,4 @@
-"""Simpler deciders to compare the council against. All see the same news."""
+"""Existing offline comparison policies. None supplies live council guidance."""
 
 from __future__ import annotations
 
@@ -22,14 +22,12 @@ def average_of_openings(state: State, beliefs: Beliefs) -> Decision:
     sc = Scorer(state, beliefs)
     picks = [max(sc.pool, key=lambda d, a=a: sc.norm(a, d)) for a in ADVISOR_IDS]
     n = len(picks)
-    return legalize(
-        state,
-        Decision(
-            round(sum(p.land_delta for p in picks) / n),
-            round(sum(p.feed for p in picks) / n),
-            round(sum(p.plant for p in picks) / n),
-        ),
-    )
+    land = min(round(sum(p.land_delta for p in picks) / n), state.grain // state.land_price)
+    available = state.grain - land * state.land_price
+    feed = min(round(sum(p.feed for p in picks) / n), available)
+    plant = min(round(sum(p.plant for p in picks) / n), state.acres + land,
+                state.population * 10, (available - feed) * 2 + 1)
+    return legalize(state, Decision(land, feed, plant))
 
 
 def dictator(advisor_id: str):
