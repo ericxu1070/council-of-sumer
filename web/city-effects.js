@@ -28,7 +28,8 @@
     <path d="M5-5v5m6-5v5M-5 5h5m-5 6h5m16-6h5m-5 6h5M5 16v5m6-5v5" stroke="#8fbd59" stroke-width="2"/>
     <path d="M5 5h3v3H5zm5 4h2v2h-2z" fill="#365632"/>`;
   function traveler(kind, from, to, i) {
-    const delay = i % 10 * 65, duration = 3600 + i % 7 * 100;
+    const delay = i % 10 * (kind === "rat" ? 25 : 65);
+    const duration = kind === "rat" ? 1200 + i % 7 * 40 : 3600 + i % 7 * 100;
     const midpoint = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 + (i % 2 ? 18 : -18) };
     const facing = kind === "rat" && to.x < from.x ? -1 : 1;
     return `<g class="city-traveler ${kind}" style="--sx:${from.x}px;--sy:${from.y}px;--mx:${midpoint.x}px;--my:${midpoint.y}px;--tx:${to.x}px;--ty:${to.y}px;--delay:${delay}ms;--duration:${duration}ms">
@@ -64,7 +65,7 @@
     overlay.setAttribute("aria-hidden", "true");
     overlay.innerHTML = drawing;
     document.body.appendChild(overlay);
-    cleanup = setTimeout(clear, reduce.matches ? 1800 : events.includes("plague") ? 8000 : 5600);
+    cleanup = setTimeout(clear, reduce.matches ? 1800 : events.includes("plague") ? 8000 : 1800);
   }
   // Fixed viewport sprites are discarded when their map destinations move.
   addEventListener("resize", clear);

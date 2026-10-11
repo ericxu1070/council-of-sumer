@@ -4,7 +4,7 @@
 .stage:has(.runoff.hidden) { display: none; }
 .city-event-overlay { position: fixed; inset: 0; width: 100vw; height: 100dvh; z-index: 70; pointer-events: none; overflow: hidden; shape-rendering: crispEdges; }
 .city-traveler { animation: city-migrate var(--duration) linear var(--delay) both; }
-.city-sprite { animation: city-scurry .18s steps(2,end) infinite; }
+.city-sprite { animation: city-scurry .1s steps(2,end) infinite; }
 .bacterium .city-sprite { animation: bacteria-wriggle .35s steps(3,end) infinite; }
 @keyframes city-migrate {
   0% { opacity: 0; transform: translate(var(--sx),var(--sy)); }
