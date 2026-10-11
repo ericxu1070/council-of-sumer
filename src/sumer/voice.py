@@ -6,6 +6,7 @@ Cached audio replays offline, so rehearse the demo once with Wi-Fi on.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 
 import httpx
@@ -38,7 +39,9 @@ def voice_id(speaker: str) -> str:
 
 async def _tts(speaker: str, text: str, model: str, voice_settings: dict | None = None):
     vid = voice_id(speaker)
-    key = hashlib.sha256(f"{vid}:{model}:{text}".encode()).hexdigest()
+    key = hashlib.sha256(json.dumps(
+        [vid, model, OUTPUT_FORMAT, voice_settings or {}, text], sort_keys=True
+    ).encode()).hexdigest()
     path = CACHE_DIR / "voice" / f"{key}.mp3"
     if path.exists():
         return path.read_bytes()
