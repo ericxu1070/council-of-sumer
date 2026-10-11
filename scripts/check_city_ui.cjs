@@ -185,6 +185,7 @@ const os = require('node:os');
     assert.match(await page.locator('.scout-plan-support').textContent(),/3 of 5/);
     assert.equal(await page.locator('#spot [data-scout]').count(),7);
     assert.equal(await page.locator('.scout-mark').count(),6);
+    assert.ok(await page.locator('.scout .spot-kicker').evaluate(el=>parseFloat(getComputedStyle(el).fontSize)) >= 32, 'Omens title must use popup heading size');
     await page.waitForTimeout(500);
     await page.screenshot({path:path.join(output,'omens-desktop.png')});
     await page.setViewportSize({width:390,height:844});
